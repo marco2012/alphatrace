@@ -321,8 +321,11 @@ function rollingNCAGR(idxMap, years){
 
 const STORAGE_KEY_ROWS="backtester_rows_v1";
 const STORAGE_KEY_WEIGHTS="backtester_weights_v1";
+const STORAGE_KEY_PORTFOLIOS="backtester_portfolios_v1";
 function saveToStorage(rows,weights){ try{ if(rows) localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows)); if(weights) localStorage.setItem(STORAGE_KEY_WEIGHTS, JSON.stringify(weights)); }catch{} }
 function loadFromStorage(){ try{ return { rows: JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS)||"null"), weights: JSON.parse(localStorage.getItem(STORAGE_KEY_WEIGHTS)||"null") }; }catch{ return {rows:null, weights:null}; } }
+function savePortfoliosToStorage(portfolios){ try{ localStorage.setItem(STORAGE_KEY_PORTFOLIOS, JSON.stringify(portfolios)); }catch{} }
+function loadPortfoliosFromStorage(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY_PORTFOLIOS)||"[]"); }catch{ return []; } }
 
 export default function App(){
   const [rows,setRows]=useState([]);
@@ -336,8 +339,14 @@ export default function App(){
   const [weights,setWeights]=useState({});
   const [investmentMode,setInvestmentMode]=useState("lump_sum"); // "lump_sum", "recurring", or "hybrid"
   const [monthlyInvestment,setMonthlyInvestment]=useState(1000);
+  const [savedPortfolios,setSavedPortfolios]=useState([]);
+  const [showPortfolioManager,setShowPortfolioManager]=useState(false);
+  const [portfolioName,setPortfolioName]=useState("");
+  const [compareMode,setCompareMode]=useState(false);
+  const [selectedPortfolios,setSelectedPortfolios]=useState([]);
 
   useEffect(()=>{ const {rows:sr, weights:sw}=loadFromStorage(); if(sr?.length) setRows(sr); if(sw) setWeights(sw); },[]);
+  useEffect(()=>{ setSavedPortfolios(loadPortfoliosFromStorage()); },[]);
 
   const rawColumns = useMemo(()=> rows[0]? Object.keys(rows[0]).filter(k=>k.toLowerCase()!=="date") : [], [rows]);
   const columns = useMemo(()=>{
@@ -519,13 +528,124 @@ export default function App(){
     const nw={}; for(const k of Object.keys(weights)) nw[k]=(weights[k]||0)/total; setWeights(nw);
   };
 
+  const saveCurrentPortfolio = ()=>{
+    if(!portfolioName.trim() || !Object.keys(weights).length) return;
+    const newPortfolio = {
+      id: Date.now().toString(),
+      name: portfolioName.trim(),
+      weights: {...weights},
+      investmentMode,
+      initial,
+      monthlyInvestment,
+      createdAt: new Date().toISOString()
+    };
+    const updated = [...savedPortfolios, newPortfolio];
+    setSavedPortfolios(updated);
+    savePortfoliosToStorage(updated);
+    setPortfolioName("");
+    setShowPortfolioManager(false);
+  };
+
+  const loadPortfolio = (portfolio)=>{
+    setWeights(portfolio.weights);
+    setInvestmentMode(portfolio.investmentMode);
+    setInitial(portfolio.initial);
+    setMonthlyInvestment(portfolio.monthlyInvestment);
+  };
+
+  const deletePortfolio = (portfolioId)=>{
+    const updated = savedPortfolios.filter(p => p.id !== portfolioId);
+    setSavedPortfolios(updated);
+    savePortfoliosToStorage(updated);
+    setSelectedPortfolios(prev => prev.filter(id => id !== portfolioId));
+  };
+
+  const togglePortfolioSelection = (portfolioId)=>{
+    setSelectedPortfolios(prev => 
+      prev.includes(portfolioId) 
+        ? prev.filter(id => id !== portfolioId)
+        : [...prev, portfolioId]
+    );
+  };
+
+  const comparePortfolios = useMemo(()=>{
+    if(!compareMode || selectedPortfolios.length === 0 || !norm) return null;
+    
+    const {dates, series} = norm;
+    const lastDate = endDate || dates[dates.length-1];
+    const i0 = dates.findIndex(d=>d>=startDate);
+    const i1 = dates.findIndex(d=>d>=lastDate);
+    const endIdx = i1===-1? dates.length-1 : i1;
+    const adates = dates.slice(i0, endIdx+1);
+    const aseries={}; for(const c of Object.keys(series)) aseries[c]=series[c].slice(i0, endIdx+1);
+    
+    const comparisons = [];
+    for(const portfolioId of selectedPortfolios){
+      const portfolio = savedPortfolios.find(p => p.id === portfolioId);
+      if(!portfolio) continue;
+      
+      let portfolioResult;
+      if(portfolio.investmentMode === "recurring"){
+        portfolioResult = computeRecurringPortfolio(adates, aseries, portfolio.weights, rebalance, portfolio.monthlyInvestment);
+      } else if(portfolio.investmentMode === "hybrid"){
+        portfolioResult = computeHybridPortfolio(adates, aseries, portfolio.weights, rebalance, portfolio.initial, portfolio.monthlyInvestment);
+      } else {
+        portfolioResult = computePortfolio(adates, aseries, portfolio.weights, rebalance);
+      }
+      
+      if(!portfolioResult) continue;
+      
+      const entries = Object.entries(portfolioResult.idxMap).sort((a,b)=> (a[0]<b[0]?-1:1));
+      const pDates = entries.map(e=>e[0]);
+      const vals = entries.map(e=>e[1]);
+      const monthly = []; for(let i=1;i<vals.length;i++) monthly.push(vals[i]/vals[i-1]-1);
+      
+      const nominalIndex = pDates.map((d,i)=>({date:d, value: vals[i]}));
+      
+      let nominalCAGR;
+      if(portfolio.investmentMode === "recurring" || portfolio.investmentMode === "hybrid"){
+        nominalCAGR = cagrRecurring(portfolioResult.portValues, portfolioResult.totalInvested);
+      } else {
+        nominalCAGR = cagr(nominalIndex);
+      }
+      
+      comparisons.push({
+        id: portfolio.id,
+        name: portfolio.name,
+        cagr: nominalCAGR,
+        vol: annualVol(monthly),
+        sharpe: sharpe(monthly, rf),
+        maxDrawdown: Math.min(...portfolioResult.drawdowns.map(d=>d.value)),
+        finalValue: vals[vals.length-1],
+        portfolioResult,
+        nominalIndex
+      });
+    }
+    
+    return comparisons;
+  }, [compareMode, selectedPortfolios, norm, startDate, endDate, rebalance, rf, savedPortfolios]);
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">AlphaTrace</h1>
           <div className="flex items-center gap-3">
-            <button onClick={()=>setShowData(s=>!s)} className="rounded-full border px-3 py-1 text-sm" title="Data & Settings">⚙️</button>
+            <button 
+              onClick={()=>setShowPortfolioManager(s=>!s)} 
+              className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100" 
+              title="Portfolio Manager"
+            >
+              💼
+            </button>
+            <button 
+              onClick={()=>setCompareMode(s=>!s)} 
+              className={`rounded-full border px-3 py-1 text-sm hover:bg-gray-100 ${compareMode ? 'bg-blue-100 border-blue-300' : ''}`}
+              title="Compare Portfolios"
+            >
+              📊
+            </button>
+            <button onClick={()=>setShowData(s=>!s)} className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100" title="Data & Settings">⚙️</button>
           </div>
         </header>
 
@@ -552,6 +672,93 @@ export default function App(){
                 <p className="text-xs text-gray-600">Dataset & weights are saved locally (no banner shown).</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Portfolio Manager */}
+        {showPortfolioManager && (
+          <div className="bg-white rounded-2xl shadow p-4 space-y-4">
+            <h2 className="font-semibold">Portfolio Manager</h2>
+            
+            {/* Save Current Portfolio */}
+            <div className="border rounded-lg p-4 bg-green-50">
+              <h3 className="font-medium mb-3">Save Current Portfolio</h3>
+              <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm text-gray-600 mb-1">Portfolio Name</label>
+                  <input 
+                    type="text" 
+                    value={portfolioName}
+                    onChange={(e)=>setPortfolioName(e.target.value)}
+                    placeholder="e.g., Conservative Growth"
+                    className="w-full border rounded p-2"
+                  />
+                </div>
+                <button 
+                  onClick={saveCurrentPortfolio}
+                  disabled={!portfolioName.trim() || !Object.keys(weights).length}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  Save Portfolio
+                </button>
+              </div>
+            </div>
+
+            {/* Saved Portfolios */}
+            {savedPortfolios.length > 0 && (
+              <div className="border rounded-lg p-4">
+                <h3 className="font-medium mb-3">Saved Portfolios ({savedPortfolios.length})</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {savedPortfolios.map((portfolio) => (
+                    <div key={portfolio.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium">{portfolio.name}</span>
+                          <span className="text-xs text-gray-500">
+                            {portfolio.investmentMode === "lump_sum" ? "Lump Sum" : 
+                             portfolio.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Assets: {Object.keys(portfolio.weights).length} • 
+                          Created: {new Date(portfolio.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {compareMode && (
+                          <input 
+                            type="checkbox" 
+                            checked={selectedPortfolios.includes(portfolio.id)}
+                            onChange={()=>togglePortfolioSelection(portfolio.id)}
+                            className="text-blue-600"
+                          />
+                        )}
+                        <button 
+                          onClick={()=>loadPortfolio(portfolio)}
+                          className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                        >
+                          Load
+                        </button>
+                        <button 
+                          onClick={()=>deletePortfolio(portfolio.id)}
+                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {compareMode && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded">
+                    <div className="text-sm text-blue-800">
+                      <strong>Compare Mode:</strong> Select portfolios to compare their performance. 
+                      Selected: {selectedPortfolios.length}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -756,6 +963,81 @@ export default function App(){
                 } {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration in any single asset above 40%' : 'Asset allocation appears well-diversified'}. Regular rebalancing ({rebalance.toLowerCase()}) helps maintain target allocations and can enhance long-term returns.</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Portfolio Comparison */}
+        {compareMode && comparePortfolios && comparePortfolios.length > 0 && (
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Portfolio Comparison</h2>
+            
+            {/* Comparison Table */}
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-2 font-bold">Portfolio</th>
+                    <th className="text-right p-2 font-bold">CAGR</th>
+                    <th className="text-right p-2 font-bold">Volatility</th>
+                    <th className="text-right p-2 font-bold">Sharpe</th>
+                    <th className="text-right p-2 font-bold">Max DD</th>
+                    <th className="text-right p-2 font-bold">Final Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparePortfolios.map((comp, idx) => (
+                    <tr key={comp.id} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
+                      <td className="p-2 font-medium">{comp.name}</td>
+                      <td className="p-2 text-right">{(comp.cagr * 100).toFixed(2)}%</td>
+                      <td className="p-2 text-right">{(comp.vol * 100).toFixed(2)}%</td>
+                      <td className="p-2 text-right">{comp.sharpe.toFixed(2)}</td>
+                      <td className="p-2 text-right">{(comp.maxDrawdown * 100).toFixed(2)}%</td>
+                      <td className="p-2 text-right">{comp.finalValue.toFixed(0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Performance Chart */}
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={(() => {
+                  if (!comparePortfolios.length) return [];
+                  const allDates = comparePortfolios[0].nominalIndex.map(p => p.date);
+                  return allDates.map(date => {
+                    const dataPoint = { date };
+                    comparePortfolios.forEach(comp => {
+                      const point = comp.nominalIndex.find(p => p.date === date);
+                      if (point) {
+                        dataPoint[comp.name] = point.value;
+                      }
+                    });
+                    return dataPoint;
+                  });
+                })()}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                  <YAxis />
+                  <Tooltip labelFormatter={(l)=>l.slice(0,10)} />
+                  <Legend />
+                  {comparePortfolios.map((comp, idx) => (
+                    <Line 
+                      key={comp.id}
+                      type="monotone" 
+                      dataKey={comp.name} 
+                      dot={false} 
+                      strokeWidth={2} 
+                      stroke={`hsl(${(idx * 137.5) % 360}, 70%, 50%)`}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <p className="text-sm text-gray-600 mt-3">
+              Comparing {comparePortfolios.length} selected portfolios. Performance is shown as normalized index values starting at 100.
+            </p>
           </div>
         )}
 
