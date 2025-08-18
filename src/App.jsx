@@ -321,10 +321,6 @@ export default function App(){
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">AlphaTrace</h1>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-sm">Initial (€)</label>
-              <input type="number" step={100} value={initial} onChange={(e)=>setInitial(Number(e.target.value)||0)} className="w-40 border rounded p-1" />
-            </div>
             <button onClick={()=>setShowData(s=>!s)} className="rounded-full border px-3 py-1 text-sm" title="Data & Settings">⚙️</button>
           </div>
         </header>
@@ -379,39 +375,68 @@ export default function App(){
           <div className="text-xs text-gray-600">Weights are integers (e.g., 35 = 35%). Internally normalized for calculations.</div>
         </div>
 
-        {/* Metrics */}
+        {/* Portfolio Summary */}
         {metrics && (
-          <div className="grid md:grid-cols-5 gap-4">
-            <div className="bg-white rounded-2xl shadow p-4">
-              <div className="text-sm text-gray-500">Initial Investment</div>
-              <div className="text-xl font-bold">{euroTick(initial)}</div>
-            </div>
-            <div className="bg-white rounded-2xl shadow p-4">
-              <div className="text-sm text-gray-500">Final Value</div>
-              <div className="text-sm flex flex-col leading-6">
-                <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{euroTick(metrics.nominalValue[metrics.nominalValue.length-1]?.value)}</span></span>
-                <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{euroTick(metrics.realValue[metrics.realValue.length-1]?.value)}</span></span>
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Portfolio Summary</h2>
+            <div className="grid md:grid-cols-5 gap-4">
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">Initial Investment</div>
+                <div className="flex items-center gap-2 mt-2">
+                  <input 
+                    type="number" 
+                    step={1000} 
+                    value={initial} 
+                    onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                    className="text-lg font-bold border rounded p-2 w-full" 
+                    placeholder="100000"
+                  />
+                  <span className="text-sm text-gray-500">€</span>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">Final Value</div>
+                <div className="text-sm flex flex-col leading-6 mt-2">
+                  <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{euroTick(metrics.nominalValue[metrics.nominalValue.length-1]?.value)}</span></span>
+                  <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{euroTick(metrics.realValue[metrics.realValue.length-1]?.value)}</span></span>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">CAGR</div>
+                <div className="text-sm flex flex-col leading-6 mt-2">
+                  <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{(metrics.cagr*100).toFixed(2)}%</span></span>
+                  <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{(metrics.realCagr*100).toFixed(2)}%</span></span>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">Risk Ratios (rf={rf})</div>
+                <div className="text-sm flex flex-col leading-6 mt-2">
+                  <span><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{metrics.sharpe.toFixed(2)}</span></span>
+                  <span><span className="text-gray-500">Sortino:</span> <span className="font-semibold">{metrics.sortino.toFixed(2)}</span></span>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">Risk (Annualized)</div>
+                <div className="text-sm flex flex-col leading-6 mt-2">
+                  <span><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(metrics.vol*100).toFixed(2)}%</span></span>
+                  <span><span className="text-gray-500">Max Drawdown:</span> <span className="font-semibold">{(metrics.maxDrawdown*100).toFixed(2)}%</span></span>
+                </div>
               </div>
             </div>
-            <div className="bg-white rounded-2xl shadow p-4">
-              <div className="text-sm text-gray-500">CAGR</div>
-              <div className="text-sm flex flex-col leading-6">
-                <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{(metrics.cagr*100).toFixed(2)}%</span></span>
-                <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{(metrics.realCagr*100).toFixed(2)}%</span></span>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl shadow p-4">
-              <div className="text-sm text-gray-500">Risk Ratios (rf={rf})</div>
-              <div className="text-sm flex flex-col leading-6">
-                <span><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{metrics.sharpe.toFixed(2)}</span></span>
-                <span><span className="text-gray-500">Sortino:</span> <span className="font-semibold">{metrics.sortino.toFixed(2)}</span></span>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl shadow p-4">
-              <div className="text-sm text-gray-500">Risk (Annualized)</div>
-              <div className="text-sm flex flex-col leading-6">
-                <span><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(metrics.vol*100).toFixed(2)}%</span></span>
-                <span><span className="text-gray-500">Max Drawdown:</span> <span className="font-semibold">{(metrics.maxDrawdown*100).toFixed(2)}%</span></span>
+          </div>
+        )}
+
+        {/* Portfolio Analysis */}
+        {metrics && (
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Portfolio Analysis</h2>
+            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+              <div className="text-sm text-blue-800">
+                <p className="mb-2"><strong>Current Portfolio Performance:</strong> Your portfolio shows a {(metrics.cagr*100).toFixed(2)}% nominal CAGR with {(metrics.vol*100).toFixed(2)}% volatility and a maximum drawdown of {Math.abs(metrics.maxDrawdown*100).toFixed(2)}%.</p>
+                
+                <p className="mb-2"><strong>Strengths:</strong> {metrics.sharpe > 1 ? 'Excellent risk-adjusted returns with Sharpe ratio above 1.0' : metrics.sharpe > 0.5 ? 'Good risk-adjusted returns' : 'Room for improvement in risk-adjusted returns'}. The diversified approach helps reduce overall portfolio volatility.</p>
+                
+                <p><strong>Improvement Suggestions:</strong> Consider {metrics.maxDrawdown < -0.15 ? 'increasing defensive assets during volatile periods' : 'maintaining current risk level'}. {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration in any single asset above 40%' : 'Asset allocation appears well-diversified'}. Regular rebalancing ({rebalance.toLowerCase()}) helps maintain target allocations and can enhance long-term returns.</p>
               </div>
             </div>
           </div>
@@ -424,6 +449,7 @@ export default function App(){
               <h3 className="font-semibold">Portfolio Value (€): Nominal vs Real — Avg Italy inflation ≈ {(metrics.avgInfl*100).toFixed(2)}% p.a.</h3>
               <button onClick={exportPortfolioValue} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
+            <p className="text-sm text-gray-600 mb-3">This chart shows how your portfolio value grows over time. The blue line represents nominal returns (not adjusted for inflation), while the green line shows real returns (purchasing power after accounting for Italian CPI inflation).</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={metrics.nominalValue.map((p,i)=>({date:p.date, nominal:p.value, real:metrics.realValue[i].value}))}>
@@ -447,6 +473,7 @@ export default function App(){
               <h3 className="font-semibold">Max Drawdowns Over Time (Nominal)</h3>
               <button onClick={exportDrawdowns} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
+            <p className="text-sm text-gray-600 mb-3">Drawdowns represent the decline from peak portfolio value. The red dot marks the worst drawdown period. Lower drawdowns indicate better downside protection.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={metrics.drawdowns}>
@@ -475,6 +502,7 @@ export default function App(){
                 <button onClick={exportRolling} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
               </div>
             </div>
+            <p className="text-sm text-gray-600 mb-3">Shows annualized returns for any {rollingYears}-year holding period. Red/green dots mark worst/best periods. The gray line shows the average across all periods, helping assess return consistency.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={metrics.rolling.map(d=>({date:d.date, value:d.value*100}))}>
@@ -499,6 +527,7 @@ export default function App(){
               <h3 className="font-semibold">Annual Returns: Nominal vs Real (Italy CPI)</h3>
               <button onClick={exportAnnualReturns} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
+            <p className="text-sm text-gray-600 mb-3">Year-by-year performance comparison. Green bars show nominal returns, blue bars show inflation-adjusted real returns. Highlighted borders mark best/worst performing years.</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={(metrics.annualNominal||[]).map((r,i)=>({year:r.year, nominal:r.nominal*100, real:(metrics.annualReal[i]?.nominal??0)*100}))}>
