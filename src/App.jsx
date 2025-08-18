@@ -344,9 +344,76 @@ export default function App(){
   const [portfolioName,setPortfolioName]=useState("");
   const [compareMode,setCompareMode]=useState(false);
   const [selectedPortfolios,setSelectedPortfolios]=useState([]);
+  const [isLoadingData,setIsLoadingData]=useState(true);
 
   useEffect(()=>{ const {rows:sr, weights:sw}=loadFromStorage(); if(sr?.length) setRows(sr); if(sw) setWeights(sw); },[]);
   useEffect(()=>{ setSavedPortfolios(loadPortfoliosFromStorage()); },[]);
+  
+  // Auto-load default data file on startup
+  useEffect(()=>{
+    const loadDefaultData = async () => {
+      // Check if data is already loaded from localStorage
+      if(rows.length > 0) {
+        setIsLoadingData(false);
+        return;
+      }
+      
+      try {
+        const response = await fetch('./curvo_data_202508.xlsx');
+        if (!response.ok) throw new Error('Failed to fetch data file');
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const wb = XLSX.read(arrayBuffer, {type: "array"});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rowsA = XLSX.utils.sheet_to_json(ws, {header: 1, raw: true});
+        
+        if (!rowsA.length) {
+          setIsLoadingData(false);
+          return;
+        }
+        
+        const headers = rowsA[0].map(h => (h == null ? "" : String(h))).map(h => h.trim());
+        let dateIdx = headers.findIndex(h => h.toLowerCase() === "date");
+        if (dateIdx === -1) dateIdx = 0;
+        
+        const body = rowsA.slice(1).filter(r => Array.isArray(r) && r.some(x => !(x === undefined || x === null || x === "")));
+        const normalized = body.map(arr => {
+          const obj = {};
+          headers.forEach((h, i) => {
+            if (!h) return;
+            const v = arr[i];
+            if (i === dateIdx) {
+              if (typeof v === "number") {
+                const dc = XLSX.SSF.parse_date_code(v);
+                const d = new Date(dc.y, dc.m - 1, dc.d);
+                obj["Date"] = toMonthStr(d);
+              } else {
+                obj["Date"] = toMonthStr(v);
+              }
+            } else {
+              obj[h] = (v === null || v === undefined || v === "") ? null : Number(v);
+            }
+          });
+          return obj;
+        });
+        
+        setRows(normalized);
+        const cols = Object.keys(normalized[0] || {}).filter(k => k.toLowerCase() !== "date");
+        if (cols.length) {
+          const w = {};
+          for (const c of cols) w[c] = DEFAULT_WEIGHTS[c] ?? (1 / cols.length);
+          setWeights(w);
+        }
+        console.log('✅ Default Curvo dataset loaded successfully');
+      } catch (error) {
+        console.log('Default data file not available, user will need to upload data');
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    
+    loadDefaultData();
+  }, []);
 
   const rawColumns = useMemo(()=> rows[0]? Object.keys(rows[0]).filter(k=>k.toLowerCase()!=="date") : [], [rows]);
   const columns = useMemo(()=>{
@@ -625,6 +692,19 @@ export default function App(){
     return comparisons;
   }, [compareMode, selectedPortfolios, norm, startDate, endDate, rebalance, rf, savedPortfolios]);
 
+  // Show loading screen while data is being loaded
+  if (isLoadingData) {
+    return (
+      <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold mb-2">Loading AlphaTrace</h2>
+          <p className="text-gray-600">Loading default Curvo dataset...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -656,6 +736,9 @@ export default function App(){
             <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <label className="block text-sm">Upload file</label>
+                <div className="text-xs text-gray-600 mb-2">
+                  📊 Default Curvo dataset loaded automatically. Upload your own data to override.
+                </div>
                 <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="w-full" />
                 <label className="block text-sm">Start Date</label>
                 <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="w-full border rounded p-2" />
