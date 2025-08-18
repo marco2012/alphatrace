@@ -69,6 +69,19 @@ function stdev(arr){ if(!arr.length) return 0; const m=arr.reduce((a,b)=>a+b,0)/
   const v=arr.reduce((s,x)=>s+Math.pow(x-m,2),0)/(arr.length-1||1); return Math.sqrt(Math.max(v,0));}
 function cagr(indexSeries){ if(!indexSeries.length) return 0; const s=indexSeries[0].value, e=indexSeries[indexSeries.length-1].value;
   const yrs=(indexSeries.length-1)/12; if(yrs<=0||s<=0) return 0; return Math.pow(e/s,1/yrs)-1; }
+
+function cagrRecurring(portValues, totalInvested){ 
+  if(!portValues.length || !totalInvested.length) return 0; 
+  const finalValue = portValues[portValues.length-1];
+  const totalInv = totalInvested[totalInvested.length-1];
+  const months = portValues.length - 1;
+  const years = months / 12;
+  if(years <= 0 || totalInv <= 0) return 0;
+  
+  // Use IRR approximation: solve for rate where NPV = 0
+  // Simplified approach: (Final Value / Total Invested)^(1/years) - 1
+  return Math.pow(finalValue / totalInv, 1/years) - 1;
+}
 function annualVol(mrets){ return stdev(mrets)*Math.sqrt(12); }
 function sharpe(mrets, rf=0){ const rfM=rf/12; const ex=mrets.map(r=>r-rfM); const mean=ex.reduce((a,b)=>a+b,0)/ex.length;
   const sd=stdev(mrets); return sd===0?0:(mean/sd)*Math.sqrt(12); }
@@ -141,6 +154,81 @@ function computePortfolio(dates, series, weights, rebalance="Annual"){
   return { portRets, idxMap, dates, drawdowns: drawdownsFromIndex(idxMap) };
 }
 
+function computeRecurringPortfolio(dates, series, weights, rebalance="Annual", monthlyInvestment=1000){
+  const cols = Object.keys(series);
+  const wVec = cols.map(c=> weights[c]??0);
+  const wSum = wVec.reduce((a,b)=>a+b,0)||1;
+  const targetW = wVec.map(w=> w/wSum);
+
+  const assetRets = cols.map(c=> pctChangeSeries(series[c]));
+  const N = assetRets[0]?.length || 0;
+  const step = rebalance==="Monthly"?1: rebalance==="Quarterly"?3:12;
+  
+  // Track absolute values
+  let holdings = new Array(cols.length).fill(0);
+  let totalValue = monthlyInvestment; // Start with first month investment
+  const portValues = [monthlyInvestment];
+  const portRets = [];
+  const totalInvested = [monthlyInvestment];
+  
+  // Initialize first month holdings
+  for(let i=0;i<cols.length;i++){
+    holdings[i] = monthlyInvestment * targetW[i];
+  }
+  
+  for(let t=0;t<N;t++){
+    // Apply returns to existing holdings first
+    let valueAfterReturns = 0;
+    for(let i=0;i<cols.length;i++){
+      holdings[i] *= (1 + (assetRets[i][t]||0));
+      valueAfterReturns += holdings[i];
+    }
+    
+    // Add monthly investment after returns
+    const investmentAmount = monthlyInvestment;
+    for(let i=0;i<cols.length;i++){
+      holdings[i] += investmentAmount * targetW[i];
+    }
+    const newTotalValue = valueAfterReturns + investmentAmount;
+    
+    // Calculate period return based on money-weighted approach
+    const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
+    portRets.push(periodReturn);
+    
+    totalValue = newTotalValue;
+    portValues.push(totalValue);
+    totalInvested.push(totalInvested[totalInvested.length-1] + investmentAmount);
+    
+    // Rebalance if needed
+    if((t+1)%step===0 && totalValue > 0){
+      for(let i=0;i<cols.length;i++){
+        holdings[i] = totalValue * targetW[i];
+      }
+    }
+  }
+  
+  // Create normalized index for metrics calculations (starts at 100)
+  const normalizedIdx = [100];
+  for(let i=0;i<portRets.length;i++){
+    normalizedIdx.push(normalizedIdx[normalizedIdx.length-1] * (1 + portRets[i]));
+  }
+  
+  const idxMap={}; 
+  for(let i=0;i<dates.length;i++) {
+    idxMap[dates[i]] = normalizedIdx[i];
+  }
+  
+  return { 
+    portRets, 
+    idxMap, 
+    dates, 
+    drawdowns: drawdownsFromIndex(idxMap),
+    totalInvested: totalInvested,
+    portValues: portValues,
+    normalizedIndex: normalizedIdx
+  };
+}
+
 function computeAnnualReturns(idxMap){
   const entries = Object.entries(idxMap).sort((a,b)=> (a[0]<b[0]?-1:1));
   const byY={}; for(const [d,v] of entries){ const y=new Date(d).getFullYear(); if(!byY[y]) byY[y]=[]; byY[y].push({d,v}); }
@@ -171,6 +259,8 @@ export default function App(){
   const [showData,setShowData]=useState(false);
   const [rollingYears,setRollingYears]=useState(10);
   const [weights,setWeights]=useState({});
+  const [investmentMode,setInvestmentMode]=useState("lump_sum"); // "lump_sum" or "recurring"
+  const [monthlyInvestment,setMonthlyInvestment]=useState(1000);
 
   useEffect(()=>{ const {rows:sr, weights:sw}=loadFromStorage(); if(sr?.length) setRows(sr); if(sw) setWeights(sw); },[]);
 
@@ -215,8 +305,13 @@ export default function App(){
     const endIdx = i1===-1? dates.length-1 : i1;
     const adates = dates.slice(i0, endIdx+1);
     const aseries={}; for(const c of Object.keys(series)) aseries[c]=series[c].slice(i0, endIdx+1);
-    return computePortfolio(adates, aseries, weights, rebalance);
-  },[norm,weights,rebalance,startDate,endDate]);
+    
+    if(investmentMode === "recurring"){
+      return computeRecurringPortfolio(adates, aseries, weights, rebalance, monthlyInvestment);
+    } else {
+      return computePortfolio(adates, aseries, weights, rebalance);
+    }
+  },[norm,weights,rebalance,startDate,endDate,investmentMode,monthlyInvestment]);
 
   const euroTick = (n)=> new Intl.NumberFormat("it-IT",{ style:"currency", currency:"EUR", maximumFractionDigits:0, minimumFractionDigits:0}).format(Number(n||0));
 
@@ -228,11 +323,26 @@ export default function App(){
     const monthly = []; for(let i=1;i<vals.length;i++) monthly.push(vals[i]/vals[i-1]-1);
 
     const cpi = buildItalyMonthlyCPI(dates);
-    const realIdx = dates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[dates[0]]) )}));
+    
+    let nominalIndex, realIdx, nominalValue, realValue, totalInvested;
+    
+    if(investmentMode === "recurring"){
+      // For recurring investments, use normalized index for metrics but actual values for display
+      nominalIndex = dates.map((d,i)=>({date:d, value: vals[i]})); // This uses normalized values for CAGR/metrics
+      realIdx = dates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[dates[0]]) )}));
+      nominalValue = dates.map((d,i)=>({date:d, value: portfolio.portValues[i]})); // Actual portfolio values
+      realValue = dates.map((d,i)=> ({date:d, value: portfolio.portValues[i] / ( (cpi[d]/cpi[dates[0]]) )}));
+      totalInvested = portfolio.totalInvested || [];
+    } else {
+      // For lump sum, scale by initial investment
+      nominalIndex = dates.map((d,i)=>({date:d, value: vals[i]}));
+      realIdx = dates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[dates[0]]) )}));
+      nominalValue = nominalIndex.map(p=>({date:p.date, value:(p.value/nominalIndex[0].value)*initial}));
+      realValue = realIdx.map(p=>({date:p.date, value:(p.value/realIdx[0].value)*initial}));
+      totalInvested = new Array(dates.length).fill(initial);
+    }
 
-    const nominalIndex = dates.map((d,i)=>({date:d, value: vals[i]}));
     const drawdowns = portfolio.drawdowns;
-
     const annualNominal = computeAnnualReturns(portfolio.idxMap);
     const realIdxMap={}; for(const r of realIdx) realIdxMap[r.date]=r.value;
     const annualReal = computeAnnualReturns(realIdxMap);
@@ -248,9 +358,18 @@ export default function App(){
     const annualMinRealIdx = (annualReal||[]).reduce((mi,p,i,arr)=> (i===0|| (p?.nominal ?? 0) < (arr[mi]?.nominal ?? 0)? i: mi), 0);
     const annualMaxRealIdx = (annualReal||[]).reduce((mi,p,i,arr)=> (i===0|| (p?.nominal ?? 0) > (arr[mi]?.nominal ?? 0)? i: mi), 0);
 
+    // Calculate appropriate CAGR based on investment mode
+    const nominalCAGR = investmentMode === "recurring" 
+      ? cagrRecurring(portfolio.portValues, portfolio.totalInvested)
+      : cagr(nominalIndex);
+    
+    const realCAGR = investmentMode === "recurring"
+      ? cagrRecurring(realValue.map(r => r.value), portfolio.totalInvested)
+      : cagr(realIdx);
+
     return {
-      cagr: cagr(nominalIndex),
-      realCagr: cagr(realIdx),
+      cagr: nominalCAGR,
+      realCagr: realCAGR,
       vol: annualVol(monthly),
       sharpe: sharpe(monthly, rf),
       sortino: sortino(monthly, rf),
@@ -259,15 +378,14 @@ export default function App(){
       annualNominal, annualReal, rolling, avgRolling,
       ddMinPoint, rollingMin, rollingMax,
       annualMinNomIdx, annualMaxNomIdx, annualMinRealIdx, annualMaxRealIdx,
-      nominalValue: nominalIndex.map(p=>({date:p.date, value:(p.value/nominalIndex[0].value)*initial})),
-      realValue: realIdx.map(p=>({date:p.date, value:(p.value/realIdx[0].value)*initial})),
+      nominalValue, realValue, totalInvested,
       avgInfl: (()=>{
         if(dates.length<2) return 0;
         const arr = Object.values(cpi); const end = arr[arr.length-1]; const yrs=(dates.length-1)/12;
         return yrs>0? Math.pow(end/100, 1/yrs) - 1 : 0;
       })(),
     };
-  },[portfolio, rf, initial, rollingYears]);
+  },[portfolio, rf, initial, rollingYears, investmentMode]);
 
   const exportData=(filename,rows)=>{
     if(!rows||!rows.length) return;
@@ -276,7 +394,16 @@ export default function App(){
     const csv=lines.join("\n"); const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
     const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
   };
-  const exportPortfolioValue=()=>{ if(!metrics) return; const rows=metrics.nominalValue.map((p,i)=>({Date:p.date, NominalEUR:p.value, RealEUR:metrics.realValue[i].value})); exportData("portfolio_value.csv",rows); };
+  const exportPortfolioValue=()=>{ 
+    if(!metrics) return; 
+    const rows=metrics.nominalValue.map((p,i)=>({
+      Date:p.date, 
+      NominalEUR:p.value, 
+      RealEUR:metrics.realValue[i].value,
+      ...(investmentMode === "recurring" ? {TotalInvestedEUR: metrics.totalInvested[i]} : {})
+    })); 
+    exportData("portfolio_value.csv",rows); 
+  };
   const exportDrawdowns=()=>{ if(!metrics) return; const rows=metrics.drawdowns.map(p=>({Date:p.date, Drawdown:p.value})); exportData("drawdowns.csv",rows); };
   const exportRolling=()=>{ if(!metrics) return; const rows=metrics.rolling.map(p=>({StartDate:p.date, CAGR:p.value})); exportData(`rolling_${rollingYears}y_cagr.csv`,rows); };
   const exportAnnualReturns=()=>{ if(!metrics) return; const rows=(metrics.annualNominal||[]).map((r,i)=>({Year:r.year, Nominal:r.nominal, Real:(metrics.annualReal[i]?.nominal??0)})); exportData("annual_returns.csv",rows); };
@@ -379,19 +506,74 @@ export default function App(){
         {metrics && (
           <div className="bg-white rounded-2xl shadow p-6">
             <h2 className="text-xl font-bold mb-4">Portfolio Summary</h2>
-            <div className="grid md:grid-cols-5 gap-4">
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">Initial Investment</div>
-                <div className="flex items-center gap-2 mt-2">
+            
+            {/* Investment Mode Toggle */}
+            <div className="mb-6 p-4 bg-blue-50 rounded-xl">
+              <div className="text-sm font-bold text-gray-700 mb-3">Investment Strategy</div>
+              <div className="flex gap-4 mb-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="investmentMode" 
+                    value="lump_sum" 
+                    checked={investmentMode === "lump_sum"}
+                    onChange={(e)=>setInvestmentMode(e.target.value)}
+                    className="text-blue-600"
+                  />
+                  <span className="text-sm font-medium">Lump Sum Investment</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="investmentMode" 
+                    value="recurring" 
+                    checked={investmentMode === "recurring"}
+                    onChange={(e)=>setInvestmentMode(e.target.value)}
+                    className="text-blue-600"
+                  />
+                  <span className="text-sm font-medium">Monthly Recurring Investment</span>
+                </label>
+              </div>
+              
+              {investmentMode === "lump_sum" ? (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Initial amount:</label>
                   <input 
                     type="number" 
                     step={1000} 
                     value={initial} 
                     onChange={(e)=>setInitial(Number(e.target.value)||0)} 
-                    className="text-lg font-bold border rounded p-2 w-full" 
+                    className="border rounded p-2 w-32 font-medium" 
                     placeholder="100000"
                   />
                   <span className="text-sm text-gray-500">€</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Monthly investment:</label>
+                  <input 
+                    type="number" 
+                    step={100} 
+                    value={monthlyInvestment} 
+                    onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
+                    className="border rounded p-2 w-32 font-medium" 
+                    placeholder="1000"
+                  />
+                  <span className="text-sm text-gray-500">€/month</span>
+                </div>
+              )}
+            </div>
+            
+            <div className="grid md:grid-cols-5 gap-4">
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="text-sm font-bold text-gray-700">
+                  {investmentMode === "recurring" ? "Total Invested" : "Initial Investment"}
+                </div>
+                <div className="text-lg font-bold mt-2">
+                  {investmentMode === "recurring" 
+                    ? euroTick(metrics.totalInvested[metrics.totalInvested.length-1] || 0)
+                    : euroTick(initial)
+                  }
                 </div>
               </div>
               <div className="bg-gray-50 rounded-xl p-4">
@@ -432,11 +614,13 @@ export default function App(){
             <h2 className="text-xl font-bold mb-4">Portfolio Analysis</h2>
             <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
               <div className="text-sm text-blue-800">
+                <p className="mb-2"><strong>Investment Strategy:</strong> You're using a {investmentMode === "recurring" ? `monthly recurring investment of ${euroTick(monthlyInvestment)}` : `lump sum investment of ${euroTick(initial)}`}. {investmentMode === "recurring" ? 'This dollar-cost averaging approach helps reduce timing risk and can smooth out market volatility over time.' : 'This lump sum approach captures full market exposure immediately but may be subject to timing risk.'}</p>
+                
                 <p className="mb-2"><strong>Current Portfolio Performance:</strong> Your portfolio shows a {(metrics.cagr*100).toFixed(2)}% nominal CAGR with {(metrics.vol*100).toFixed(2)}% volatility and a maximum drawdown of {Math.abs(metrics.maxDrawdown*100).toFixed(2)}%.</p>
                 
                 <p className="mb-2"><strong>Strengths:</strong> {metrics.sharpe > 1 ? 'Excellent risk-adjusted returns with Sharpe ratio above 1.0' : metrics.sharpe > 0.5 ? 'Good risk-adjusted returns' : 'Room for improvement in risk-adjusted returns'}. The diversified approach helps reduce overall portfolio volatility.</p>
                 
-                <p><strong>Improvement Suggestions:</strong> Consider {metrics.maxDrawdown < -0.15 ? 'increasing defensive assets during volatile periods' : 'maintaining current risk level'}. {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration in any single asset above 40%' : 'Asset allocation appears well-diversified'}. Regular rebalancing ({rebalance.toLowerCase()}) helps maintain target allocations and can enhance long-term returns.</p>
+                <p><strong>Improvement Suggestions:</strong> {investmentMode === "recurring" ? 'Consider increasing monthly contributions during market downturns to take advantage of lower prices.' : 'Consider switching to recurring investments to reduce timing risk.'} {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration in any single asset above 40%' : 'Asset allocation appears well-diversified'}. Regular rebalancing ({rebalance.toLowerCase()}) helps maintain target allocations and can enhance long-term returns.</p>
               </div>
             </div>
           </div>
@@ -449,17 +633,25 @@ export default function App(){
               <h3 className="font-semibold">Portfolio Value (€): Nominal vs Real — Avg Italy inflation ≈ {(metrics.avgInfl*100).toFixed(2)}% p.a.</h3>
               <button onClick={exportPortfolioValue} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
-            <p className="text-sm text-gray-600 mb-3">This chart shows how your portfolio value grows over time. The blue line represents nominal returns (not adjusted for inflation), while the green line shows real returns (purchasing power after accounting for Italian CPI inflation).</p>
+            <p className="text-sm text-gray-600 mb-3">This chart shows how your portfolio value grows over time. The blue line represents nominal returns (not adjusted for inflation), while the green line shows real returns (purchasing power after accounting for Italian CPI inflation).{investmentMode === "recurring" ? " The gray line shows your cumulative invested amount." : ""}</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics.nominalValue.map((p,i)=>({date:p.date, nominal:p.value, real:metrics.realValue[i].value}))}>
+                <LineChart data={metrics.nominalValue.map((p,i)=>({
+                  date:p.date, 
+                  nominal:p.value, 
+                  real:metrics.realValue[i].value,
+                  ...(investmentMode === "recurring" ? {invested: metrics.totalInvested[i]} : {})
+                }))}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
                   <YAxis tickFormatter={euroTick} />
                   <Tooltip formatter={euroTick} labelFormatter={(l)=>l.slice(0,10)} />
                   <Legend />
-                  <Line type="monotone" dataKey="nominal" dot={false} strokeWidth={3} stroke="#2563eb" />
-                  <Line type="monotone" dataKey="real" dot={false} strokeWidth={3} stroke="#10b981" />
+                  <Line type="monotone" dataKey="nominal" dot={false} strokeWidth={3} stroke="#2563eb" name="Nominal Value" />
+                  <Line type="monotone" dataKey="real" dot={false} strokeWidth={3} stroke="#10b981" name="Real Value" />
+                  {investmentMode === "recurring" && (
+                    <Line type="monotone" dataKey="invested" dot={false} strokeWidth={2} stroke="#6b7280" strokeDasharray="5 5" name="Total Invested" />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
