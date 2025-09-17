@@ -27,6 +27,25 @@ const DEFAULT_WEIGHTS = {
   "MSCI World Sector Neutral Quality": 0.00,
 };
 
+const ASSET_CATEGORY_OVERRIDES = {
+  "MSCI World Minimum Volatility (USD)": "stocks",
+  "MSCI World Momentum": "stocks",
+  "MSCI USA Small Cap Value Weighted": "stocks",
+  "MSCI World Sector Neutral Quality": "stocks",
+  "FTSE World Government Bond - Developed Markets (Hedged EUR)": "bonds",
+  "Solactive STR 8.5 Daily": "cash",
+  "Gold spot price": "gold",
+};
+
+function getAssetCategory(name){
+  const n = (name||"").toLowerCase();
+  if(ASSET_CATEGORY_OVERRIDES[name]) return ASSET_CATEGORY_OVERRIDES[name];
+  if(n.includes("gold")) return "gold";
+  if(n.includes("bond") || n.includes("gov") || n.includes("treasury") || n.includes("agg") || n.includes("fixed income")) return "bonds";
+  if(n.includes("cash") || n.includes("money market") || n.match(/\bstr\b|overnight|tbill|t-bill|mmf/)) return "cash";
+  return "stocks";
+}
+
 const toMonthStr = (d) => {
   const dt = new Date(d);
   const y = dt.getFullYear();
@@ -417,9 +436,14 @@ export default function App(){
 
   const rawColumns = useMemo(()=> rows[0]? Object.keys(rows[0]).filter(k=>k.toLowerCase()!=="date") : [], [rows]);
   const columns = useMemo(()=>{
-    const pref=PREFERRED_ORDER.filter(c=>rawColumns.includes(c));
-    const other=rawColumns.filter(c=>!pref.includes(c)).sort();
-    return [...pref,...other];
+    const CATEGORY_ORDER = ["stocks","bonds","cash","gold"];
+    const sorted = [...rawColumns].sort((a,b)=>{
+      const ca = getAssetCategory(a), cb = getAssetCategory(b);
+      const ia = CATEGORY_ORDER.indexOf(ca), ib = CATEGORY_ORDER.indexOf(cb);
+      if(ia!==ib) return ia-ib;
+      return a.localeCompare(b);
+    });
+    return sorted;
   },[rawColumns]);
 
   useEffect(()=>{
@@ -692,6 +716,55 @@ export default function App(){
     return comparisons;
   }, [compareMode, selectedPortfolios, norm, startDate, endDate, rebalance, rf, savedPortfolios]);
 
+  const assetsWithWeight = useMemo(()=> columns.filter(a => (weights[a]??0) > 0), [columns, weights]);
+
+  const [assetRollingYears, setAssetRollingYears] = useState(10);
+  const [perfTab, setPerfTab] = useState("portfolio"); // 'portfolio' | 'assets'
+
+  const perAssetsCombined = useMemo(()=>{
+    if(!norm || assetsWithWeight.length===0) return null;
+    const {dates, series} = norm;
+    const lastDate = endDate || dates[dates.length-1];
+    const i0 = dates.findIndex(d=>d>=startDate);
+    const i1 = dates.findIndex(d=>d>=lastDate);
+    const endIdx = i1===-1? dates.length-1 : i1;
+    const adates = dates.slice(i0, endIdx+1);
+
+    const rollingByAsset = {};
+    const ddByAsset = {};
+    const annualByAsset = {};
+
+    for(const asset of assetsWithWeight){
+      const arr = series[asset];
+      if(!arr) continue;
+      const slice = arr.slice(i0, endIdx+1);
+      const idxMap = {}; for(let i=0;i<adates.length;i++) idxMap[adates[i]] = slice[i];
+      rollingByAsset[asset] = rollingNCAGR(idxMap, assetRollingYears).map(p=>({date:p.date, value:p.value*100}));
+      ddByAsset[asset] = drawdownsFromIndex(idxMap).map(p=>({date:p.date, value:p.value*100}));
+      annualByAsset[asset] = computeAnnualReturns(idxMap).map(r=>({year:r.year, value:r.nominal*100}));
+    }
+
+    const unionDates = (obj, key) => Array.from(new Set(Object.values(obj).flatMap(arr=>arr.map(p=>p[key])))).sort();
+    const rollingDates = unionDates(rollingByAsset, "date");
+    const ddDates = unionDates(ddByAsset, "date");
+    const years = unionDates(annualByAsset, "year");
+
+    const toWide = (obj, axisKey) => (keys) => keys.map(k=>{
+      const row = {[axisKey]: k};
+      for(const asset of Object.keys(obj)){
+        const p = obj[asset].find(x=>x[axisKey]===k);
+        if(p) row[asset] = p.value;
+      }
+      return row;
+    });
+
+    const rollingData = toWide(rollingByAsset, "date")(rollingDates);
+    const ddData = toWide(ddByAsset, "date")(ddDates);
+    const annualData = toWide(annualByAsset, "year")(years);
+
+    return { assets: Object.keys(rollingByAsset), rollingData, ddData, annualData };
+  }, [norm, assetsWithWeight, startDate, endDate, assetRollingYears]);
+
   // Show loading screen while data is being loaded
   if (isLoadingData) {
     return (
@@ -758,6 +831,7 @@ export default function App(){
           </div>
         )}
 
+        
         {/* Portfolio Manager */}
         {showPortfolioManager && (
           <div className="bg-white rounded-2xl shadow p-4 space-y-4">
@@ -847,11 +921,33 @@ export default function App(){
 
         {/* Assets */}
         <div className="bg-white rounded-2xl shadow p-4 space-y-3">
-          <h2 className="font-semibold">Assets</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Assets</h2>
+            <button
+              onClick={()=>{
+                const zeros={};
+                for(const c of columns) zeros[c]=0;
+                setWeights(zeros);
+              }}
+              className="text-xs px-2 py-1 border rounded hover:bg-gray-100"
+              title="Set all weights to 0%"
+            >Zero all</button>
+          </div>
+          <div className="text-xs text-gray-500">Data updated to 2025-08</div>
           <ul className="divide-y">
             {columns.map((c)=>(
               <li key={c} className="py-2 flex items-center justify-between">
-                <span className="text-sm">{c}</span>
+                <span className="text-sm flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border capitalize text-center w-24 shrink-0 ${
+                    getAssetCategory(c)==="stocks"?"bg-blue-50 border-blue-200 text-blue-700":
+                    getAssetCategory(c)==="bonds"?"bg-emerald-50 border-emerald-200 text-emerald-700":
+                    getAssetCategory(c)==="cash"?"bg-gray-50 border-gray-200 text-gray-700":
+                    "bg-yellow-50 border-yellow-200 text-yellow-700"
+                  }`}>
+                    {getAssetCategory(c)}
+                  </span>
+                  {c}
+                </span>
                 <div className="flex items-center gap-2">
                   <input type="number" step="1" className="w-20 border rounded p-2 text-right"
                     value={Math.round((weights[c]??0)*100)}
@@ -869,8 +965,16 @@ export default function App(){
           <div className="text-xs text-gray-600">Need fund data? Download from <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Curvo's fund database</a>.</div>
         </div>
 
+         {/* Performance Tabs */}
+         <div className="bg-white rounded-2xl shadow p-4">
+          <div className="flex items-center gap-2">
+            <button onClick={()=>setPerfTab("portfolio")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='portfolio' ? 'bg-blue-100 border-blue-300' : ''}`}>Portfolio Performance</button>
+            <button onClick={()=>setPerfTab("assets")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='assets' ? 'bg-blue-100 border-blue-300' : ''}`}>Asset Performance</button>
+          </div>
+        </div>
+
         {/* Portfolio Summary */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-6">
             <h2 className="text-xl font-bold mb-4">Portfolio Summary</h2>
             
@@ -1014,7 +1118,7 @@ export default function App(){
         )}
 
         {/* Portfolio Analysis */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-6">
             <h2 className="text-xl font-bold mb-4">Portfolio Analysis</h2>
             <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
@@ -1049,83 +1153,8 @@ export default function App(){
           </div>
         )}
 
-        {/* Portfolio Comparison */}
-        {compareMode && comparePortfolios && comparePortfolios.length > 0 && (
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Portfolio Comparison</h2>
-            
-            {/* Comparison Table */}
-            <div className="overflow-x-auto mb-6">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-2 font-bold">Portfolio</th>
-                    <th className="text-right p-2 font-bold">CAGR</th>
-                    <th className="text-right p-2 font-bold">Volatility</th>
-                    <th className="text-right p-2 font-bold">Sharpe</th>
-                    <th className="text-right p-2 font-bold">Max DD</th>
-                    <th className="text-right p-2 font-bold">Final Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {comparePortfolios.map((comp, idx) => (
-                    <tr key={comp.id} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
-                      <td className="p-2 font-medium">{comp.name}</td>
-                      <td className="p-2 text-right">{(comp.cagr * 100).toFixed(2)}%</td>
-                      <td className="p-2 text-right">{(comp.vol * 100).toFixed(2)}%</td>
-                      <td className="p-2 text-right">{comp.sharpe.toFixed(2)}</td>
-                      <td className="p-2 text-right">{(comp.maxDrawdown * 100).toFixed(2)}%</td>
-                      <td className="p-2 text-right">{comp.finalValue.toFixed(0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Performance Chart */}
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={(() => {
-                  if (!comparePortfolios.length) return [];
-                  const allDates = comparePortfolios[0].nominalIndex.map(p => p.date);
-                  return allDates.map(date => {
-                    const dataPoint = { date };
-                    comparePortfolios.forEach(comp => {
-                      const point = comp.nominalIndex.find(p => p.date === date);
-                      if (point) {
-                        dataPoint[comp.name] = point.value;
-                      }
-                    });
-                    return dataPoint;
-                  });
-                })()}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis />
-                  <Tooltip labelFormatter={(l)=>l.slice(0,10)} />
-                  <Legend />
-                  {comparePortfolios.map((comp, idx) => (
-                    <Line 
-                      key={comp.id}
-                      type="monotone" 
-                      dataKey={comp.name} 
-                      dot={false} 
-                      strokeWidth={2} 
-                      stroke={`hsl(${(idx * 137.5) % 360}, 70%, 50%)`}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            
-            <p className="text-sm text-gray-600 mt-3">
-              Comparing {comparePortfolios.length} selected portfolios. Performance is shown as normalized index values starting at 100.
-            </p>
-          </div>
-        )}
-
         {/* Portfolio Value */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Portfolio Value (€): Nominal vs Real — Avg Italy inflation ≈ {(metrics.avgInfl*100).toFixed(2)}% p.a.</h3>
@@ -1157,7 +1186,7 @@ export default function App(){
         )}
 
         {/* Drawdowns with min highlight */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Max Drawdowns Over Time (Nominal)</h3>
@@ -1183,7 +1212,7 @@ export default function App(){
         )}
 
         {/* Rolling N-Year CAGR with min/max + average */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Rolling {rollingYears}-Year Buy & Hold (Annualized)</h3>
@@ -1200,6 +1229,7 @@ export default function App(){
                   <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
                   <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
                   <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
+                  <ReferenceLine y={0} stroke="#dc2626" />
                   <ReferenceLine y={metrics.avgRolling*100} stroke="#6b7280" label={{ value: `Avg ${(metrics.avgRolling*100).toFixed(2)}%`, position: 'right' }} />
                   <Line type="monotone" dataKey="value" dot={false} strokeWidth={3} />
                   {metrics.rollingMin && (<ReferenceDot x={metrics.rollingMin.date} y={metrics.rollingMin.value*100} r={5} fill="#dc2626" stroke="#991b1b" />)}
@@ -1211,7 +1241,7 @@ export default function App(){
         )}
 
         {/* Annual Returns with min/max highlights */}
-        {metrics && (
+        {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Annual Returns: Nominal vs Real (Italy CPI)</h3>
@@ -1248,6 +1278,79 @@ export default function App(){
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+        )}
+
+        {/* Performance by Asset */}
+        {perfTab==='assets' && assetsWithWeight.length > 0 && perAssetsCombined && (
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Performance by Asset</h2>
+
+            {/* Rolling 10-Year Annualized */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold">Rolling {assetRollingYears}-Year Annualized</h3>
+                <div className="flex items-center gap-2 text-sm">
+                  <label className="text-gray-600">Years:</label>
+                  <input type="number" min={1} max={40} value={assetRollingYears} onChange={(e)=>setAssetRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border rounded p-1" />
+                </div>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={perAssetsCombined.rollingData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
+                    <ReferenceLine y={0} stroke="#dc2626" />
+                    <Legend />
+                    {perAssetsCombined.assets.map((asset, idx)=> (
+                      <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={2} stroke={`hsl(${(idx*137.5)%360},70%,50%)`} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Max Drawdowns */}
+            <div className="mb-8">
+              <h3 className="font-semibold mb-2">Max Drawdowns</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={perAssetsCombined.ddData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
+                    <ReferenceLine y={0} stroke="#999" />
+                    <Legend />
+                    {perAssetsCombined.assets.map((asset, idx)=> (
+                      <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={3} stroke={`hsl(${(idx*137.5)%360},70%,40%)`} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Annual Returns */}
+            <div>
+              <h3 className="font-semibold mb-2">Annual Returns</h3>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={perAssetsCombined.annualData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} />
+                    <Legend />
+                    {perAssetsCombined.assets.map((asset, idx)=> (
+                      <Bar key={asset} dataKey={asset} fill={`hsl(${(idx*137.5)%360},70%,50%)`} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
           </div>
         )}
 
