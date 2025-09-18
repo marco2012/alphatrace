@@ -461,14 +461,30 @@ export default function App(){
 
   const dataBounds = useMemo(()=>{
     if(!rows.length) return {first:null,last:null};
-    const dlist = rows.map(r=>toMonthStr(r.Date||r.date||r["Date"])).filter(Boolean).sort();
+    const dlist = rows.map(r=>toMonthStr(r.Date||r.date||r["Date"]))
+      .filter(Boolean)
+      .sort();
     return {first:dlist[0], last:dlist[dlist.length-1]};
   },[rows]);
+  useEffect(()=>{
+    if(!endDate && dataBounds.last){
+      setEndDate(dataBounds.last);
+    }
+  }, [dataBounds.last]);
   const handleStartChange=(val)=>{
     if(!val) return; let s=`${val}-01`;
     if(dataBounds.first && s < dataBounds.first) s=dataBounds.first;
     if(dataBounds.last && s > dataBounds.last) s=dataBounds.last;
     setStartDate(s);
+    if(endDate && endDate < s) setEndDate(s);
+  };
+  const handleEndChange=(val)=>{
+    let e = val ? `${val}-01` : "";
+    if(!e){ setEndDate(""); return; }
+    if(dataBounds.first && e < dataBounds.first) e=dataBounds.first;
+    if(dataBounds.last && e > dataBounds.last) e=dataBounds.last;
+    if(e < startDate) e=startDate;
+    setEndDate(e);
   };
 
   const portfolio = useMemo(()=>{
@@ -765,6 +781,43 @@ export default function App(){
     return { assets: Object.keys(rollingByAsset), rollingData, ddData, annualData };
   }, [norm, assetsWithWeight, startDate, endDate, assetRollingYears]);
 
+  const assetSummaries = useMemo(()=>{
+    if(!norm || assetsWithWeight.length===0) return [];
+    const {dates, series} = norm;
+    const lastDate = endDate || dates[dates.length-1];
+    const i0 = dates.findIndex(d=>d>=startDate);
+    const i1 = dates.findIndex(d=>d>=lastDate);
+    const endIdx = i1===-1? dates.length-1 : i1;
+    const adates = dates.slice(i0, endIdx+1);
+
+    const summaries = [];
+    for(const asset of assetsWithWeight){
+      const arr = series[asset];
+      if(!arr) continue;
+      const slice = arr.slice(i0, endIdx+1);
+      const idxMap = {}; for(let i=0;i<adates.length;i++) idxMap[adates[i]] = slice[i];
+      const entries = adates.map((d, i)=>({date:d, value:slice[i]}));
+      const monthly = []; for(let i=1;i<slice.length;i++) monthly.push((slice[i]-slice[i-1])/slice[i-1]);
+      const dd = drawdownsFromIndex(idxMap);
+      const maxDD = dd.length ? Math.min(...dd.map(d=>d.value)) : 0;
+      const assetCagr = cagr(entries);
+      const assetVol = annualVol(monthly);
+      const assetSharpe = sharpe(monthly, rf);
+      const firstVal = entries[0]?.value || 100;
+      const lastVal = entries[entries.length-1]?.value || firstVal;
+      const finalValue = firstVal>0 ? (lastVal/firstVal)*initial : 0;
+      summaries.push({
+        asset,
+        cagr: assetCagr,
+        vol: assetVol,
+        sharpe: assetSharpe,
+        maxDrawdown: maxDD,
+        finalValue,
+      });
+    }
+    return summaries;
+  }, [norm, assetsWithWeight, startDate, endDate, rf, initial]);
+
   // Show loading screen while data is being loaded
   if (isLoadingData) {
     return (
@@ -965,11 +1018,21 @@ export default function App(){
           <div className="text-xs text-gray-600">Need fund data? Download from <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Curvo's fund database</a>.</div>
         </div>
 
-         {/* Performance Tabs */}
-         <div className="bg-white rounded-2xl shadow p-4">
-          <div className="flex items-center gap-2">
-            <button onClick={()=>setPerfTab("portfolio")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='portfolio' ? 'bg-blue-100 border-blue-300' : ''}`}>Portfolio Performance</button>
-            <button onClick={()=>setPerfTab("assets")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='assets' ? 'bg-blue-100 border-blue-300' : ''}`}>Asset Performance</button>
+        {/* Performance Tabs */}
+        <div className="bg-white rounded-2xl shadow p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 mr-4">
+              <button onClick={()=>setPerfTab("portfolio")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='portfolio' ? 'bg-blue-100 border-blue-300' : ''}`}>Portfolio Performance</button>
+              <button onClick={()=>setPerfTab("assets")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='assets' ? 'bg-blue-100 border-blue-300' : ''}`}>Asset Performance</button>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">Start:</label>
+              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="border rounded p-1" />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600">End:</label>
+              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={endDate?endDate.slice(0,7):""} onChange={(e)=>handleEndChange(e.target.value)} className="border rounded p-1" />
+            </div>
           </div>
         </div>
 
@@ -1285,6 +1348,37 @@ export default function App(){
         {perfTab==='assets' && assetsWithWeight.length > 0 && perAssetsCombined && (
           <div className="bg-white rounded-2xl shadow p-6">
             <h2 className="text-xl font-bold mb-4">Performance by Asset</h2>
+
+            {/* Controls */}
+            <div className="mb-4 flex items-center gap-3">
+              <label className="text-sm text-gray-600">Initial amount for per-asset final value:</label>
+              <input 
+                type="number" 
+                step={1000} 
+                value={initial} 
+                onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                className="border rounded p-2 w-32 font-medium" 
+                placeholder="100000"
+              />
+              <span className="text-sm text-gray-500">€</span>
+            </div>
+
+            {/* Asset Summary */}
+            <div className="grid md:grid-cols-4 gap-4 mb-6">
+              {assetSummaries.map((s)=> (
+                <div key={s.asset} className="bg-gray-50 rounded-xl p-4">
+                  <div className="text-sm font-bold text-gray-700 truncate" title={s.asset}>{s.asset}</div>
+                  <div className="text-xs text-gray-500 capitalize mt-1">{getAssetCategory(s.asset)}</div>
+                  <div className="text-sm flex flex-col leading-6 mt-2">
+                    <span><span className="text-gray-500">CAGR:</span> <span className="font-semibold">{(s.cagr*100).toFixed(2)}%</span></span>
+                    <span><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(s.vol*100).toFixed(2)}%</span></span>
+                    <span><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{s.sharpe.toFixed(2)}</span></span>
+                    <span><span className="text-gray-500">Max DD:</span> <span className="font-semibold">{(s.maxDrawdown*100).toFixed(2)}%</span></span>
+                    <span><span className="text-gray-500">Final Value:</span> <span className="font-semibold">{euroTick(s.finalValue)}</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {/* Rolling 10-Year Annualized */}
             <div className="mb-8">
