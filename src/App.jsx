@@ -346,6 +346,71 @@ function loadFromStorage(){ try{ return { rows: JSON.parse(localStorage.getItem(
 function savePortfoliosToStorage(portfolios){ try{ localStorage.setItem(STORAGE_KEY_PORTFOLIOS, JSON.stringify(portfolios)); }catch{} }
 function loadPortfoliosFromStorage(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY_PORTFOLIOS)||"[]"); }catch{ return []; } }
 
+// URL sharing functions
+function encodePortfolioToUrl(weights, investmentMode, initial, monthlyInvestment, startDate, endDate, rebalance) {
+  const portfolioData = {
+    w: weights,
+    mode: investmentMode,
+    init: initial,
+    monthly: monthlyInvestment,
+    start: startDate,
+    end: endDate,
+    rebal: rebalance
+  };
+  
+  try {
+    const jsonString = JSON.stringify(portfolioData);
+    const encoded = btoa(jsonString);
+    return encoded;
+  } catch (error) {
+    console.error('Error encoding portfolio to URL:', error);
+    return null;
+  }
+}
+
+function decodePortfolioFromUrl(encodedString) {
+  try {
+    const jsonString = atob(encodedString);
+    const portfolioData = JSON.parse(jsonString);
+    return portfolioData;
+  } catch (error) {
+    console.error('Error decoding portfolio from URL:', error);
+    return null;
+  }
+}
+
+function getPortfolioShareUrl(weights, investmentMode, initial, monthlyInvestment, startDate, endDate, rebalance) {
+  const encoded = encodePortfolioToUrl(weights, investmentMode, initial, monthlyInvestment, startDate, endDate, rebalance);
+  if (!encoded) return null;
+  
+  const baseUrl = window.location.origin + window.location.pathname;
+  return `${baseUrl}?portfolio=${encoded}`;
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  } else {
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    return new Promise((resolve, reject) => {
+      if (document.execCommand('copy')) {
+        resolve();
+      } else {
+        reject(new Error('Failed to copy text'));
+      }
+      document.body.removeChild(textArea);
+    });
+  }
+}
+
 export default function App(){
   const [rows,setRows]=useState([]);
   const [startDate,setStartDate]=useState("1994-11-01");
@@ -364,9 +429,39 @@ export default function App(){
   const [compareMode,setCompareMode]=useState(false);
   const [selectedPortfolios,setSelectedPortfolios]=useState([]);
   const [isLoadingData,setIsLoadingData]=useState(true);
+  const [loadedFromUrl, setLoadedFromUrl] = useState(false);
 
   useEffect(()=>{ const {rows:sr, weights:sw}=loadFromStorage(); if(sr?.length) setRows(sr); if(sw) setWeights(sw); },[]);
   useEffect(()=>{ setSavedPortfolios(loadPortfoliosFromStorage()); },[]);
+  
+  // Load portfolio from URL parameters after data is loaded
+  useEffect(() => {
+    if (!isLoadingData && rows.length > 0) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const portfolioParam = urlParams.get('portfolio');
+      
+      if (portfolioParam) {
+        const portfolioData = decodePortfolioFromUrl(portfolioParam);
+        if (portfolioData) {
+          // Load portfolio data from URL
+          if (portfolioData.w) {
+            setWeights(portfolioData.w);
+            setLoadedFromUrl(true);
+          }
+          if (portfolioData.mode) setInvestmentMode(portfolioData.mode);
+          if (portfolioData.init !== undefined) setInitial(portfolioData.init);
+          if (portfolioData.monthly !== undefined) setMonthlyInvestment(portfolioData.monthly);
+          if (portfolioData.start) setStartDate(portfolioData.start);
+          if (portfolioData.end) setEndDate(portfolioData.end);
+          if (portfolioData.rebal) setRebalance(portfolioData.rebal);
+          
+          // Clean up URL parameters after loading
+          const newUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+        }
+      }
+    }
+  }, [isLoadingData, rows.length]);
   
   // Auto-load default data file on startup
   useEffect(()=>{
@@ -418,7 +513,7 @@ export default function App(){
         
         setRows(normalized);
         const cols = Object.keys(normalized[0] || {}).filter(k => k.toLowerCase() !== "date");
-        if (cols.length) {
+        if (cols.length && !loadedFromUrl) { // Don't override weights if loaded from URL
           const w = {};
           for (const c of cols) w[c] = DEFAULT_WEIGHTS[c] ?? (1 / cols.length);
           setWeights(w);
@@ -432,7 +527,7 @@ export default function App(){
     };
     
     loadDefaultData();
-  }, []);
+  }, [loadedFromUrl]);
 
   const rawColumns = useMemo(()=> rows[0]? Object.keys(rows[0]).filter(k=>k.toLowerCase()!=="date") : [], [rows]);
   const columns = useMemo(()=>{
@@ -447,12 +542,12 @@ export default function App(){
   },[rawColumns]);
 
   useEffect(()=>{
-    if(!columns.length) return;
+    if(!columns.length || loadedFromUrl) return; // Don't override weights loaded from URL
     const nw={...weights}; let changed=false;
     for(const c of columns){ if(!(c in nw)){ nw[c]= (DEFAULT_WEIGHTS[c]??(1/columns.length)); changed=true; } }
     for(const k of Object.keys(nw)) if(!columns.includes(k)){ delete nw[k]; changed=true; }
     if(changed) setWeights(nw);
-  },[columns]);
+  },[columns, loadedFromUrl]);
 
   useEffect(()=>{ if(rows?.length) saveToStorage(rows,null); },[rows]);
   useEffect(()=>{ if(Object.keys(weights).length) saveToStorage(null,weights); },[weights]);
@@ -667,6 +762,19 @@ export default function App(){
     setSelectedPortfolios(prev => prev.filter(id => id !== portfolioId));
   };
 
+  const handleSharePortfolio = async () => {
+    const url = getPortfolioShareUrl(weights, investmentMode, initial, monthlyInvestment, startDate, endDate, rebalance);
+    if (url) {
+      try {
+        await copyToClipboard(url);
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1500);
+      } catch (error) {
+        console.error('Failed to copy URL:', error);
+      }
+    }
+  };
+
   const togglePortfolioSelection = (portfolioId)=>{
     setSelectedPortfolios(prev => 
       prev.includes(portfolioId) 
@@ -736,6 +844,7 @@ export default function App(){
 
   const [assetRollingYears, setAssetRollingYears] = useState(10);
   const [perfTab, setPerfTab] = useState("portfolio"); // 'portfolio' | 'assets'
+  const [showToast, setShowToast] = useState(false);
 
   const perAssetsCombined = useMemo(()=>{
     if(!norm || assetsWithWeight.length===0) return null;
@@ -838,6 +947,14 @@ export default function App(){
           <h1 className="text-2xl font-bold">AlphaTrace</h1>
           <div className="flex items-center gap-3">
             <button 
+              onClick={handleSharePortfolio}
+              disabled={!Object.keys(weights).length}
+              className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" 
+              title="Share Portfolio"
+            >
+              🔗
+            </button>
+            <button 
               onClick={()=>setShowPortfolioManager(s=>!s)} 
               className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100" 
               title="Portfolio Manager"
@@ -910,6 +1027,14 @@ export default function App(){
                   className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   Save Portfolio
+                </button>
+                <button 
+                  onClick={handleSharePortfolio}
+                  disabled={!Object.keys(weights).length}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  title="Share portfolio via URL"
+                >
+                  🔗 Share
                 </button>
               </div>
             </div>
@@ -1445,6 +1570,14 @@ export default function App(){
               </div>
             </div>
 
+          </div>
+        )}
+
+        {/* Toast Notification */}
+        {showToast && (
+          <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2">
+            <span>✓</span>
+            <span>URL Copied!</span>
           </div>
         )}
 
