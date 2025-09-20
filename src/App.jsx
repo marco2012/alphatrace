@@ -775,6 +775,57 @@ export default function App(){
     }
   };
 
+  const handleRenamePortfolio = (portfolio) => {
+    setEditingPortfolioId(portfolio.id);
+    setEditingName(portfolio.name);
+  };
+
+  const handleSaveRename = () => {
+    if (!editingName.trim()) return;
+    
+    const updated = savedPortfolios.map(p => 
+      p.id === editingPortfolioId ? { ...p, name: editingName.trim() } : p
+    );
+    setSavedPortfolios(updated);
+    savePortfoliosToStorage(updated);
+    setEditingPortfolioId(null);
+    setEditingName("");
+  };
+
+  const handleCancelRename = () => {
+    setEditingPortfolioId(null);
+    setEditingName("");
+  };
+
+  const handleShareSavedPortfolio = async (portfolio) => {
+    const url = getPortfolioShareUrl(portfolio.weights, portfolio.investmentMode, portfolio.initial, portfolio.monthlyInvestment, startDate, endDate, rebalance);
+    if (url) {
+      try {
+        await copyToClipboard(url);
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1500);
+      } catch (error) {
+        console.error('Failed to copy URL:', error);
+      }
+    }
+  };
+
+  // Check if current portfolio is already saved
+  const isCurrentPortfolioSaved = useMemo(() => {
+    return savedPortfolios.some(savedPortfolio => {
+      // Compare weights
+      const weightsMatch = Object.keys(weights).length === Object.keys(savedPortfolio.weights).length &&
+        Object.keys(weights).every(key => Math.abs((weights[key] || 0) - (savedPortfolio.weights[key] || 0)) < 0.001);
+      
+      // Compare other settings
+      const settingsMatch = savedPortfolio.investmentMode === investmentMode &&
+        savedPortfolio.initial === initial &&
+        savedPortfolio.monthlyInvestment === monthlyInvestment;
+      
+      return weightsMatch && settingsMatch;
+    });
+  }, [savedPortfolios, weights, investmentMode, initial, monthlyInvestment]);
+
   const togglePortfolioSelection = (portfolioId)=>{
     setSelectedPortfolios(prev => 
       prev.includes(portfolioId) 
@@ -817,23 +868,48 @@ export default function App(){
       
       const nominalIndex = pDates.map((d,i)=>({date:d, value: vals[i]}));
       
-      let nominalCAGR;
+      // Calculate CPI-adjusted data
+      const cpi = buildItalyMonthlyCPI(pDates);
+      const realIdx = pDates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[pDates[0]]) )}));
+      
+      let nominalCAGR, realCAGR;
       if(portfolio.investmentMode === "recurring" || portfolio.investmentMode === "hybrid"){
         nominalCAGR = cagrRecurring(portfolioResult.portValues, portfolioResult.totalInvested);
+        const realValues = portfolioResult.portValues.map((val, i) => val / (cpi[pDates[i]]/cpi[pDates[0]]));
+        realCAGR = cagrRecurring(realValues, portfolioResult.totalInvested);
       } else {
         nominalCAGR = cagr(nominalIndex);
+        realCAGR = cagr(realIdx);
       }
+      
+      // Calculate rolling returns
+      const rolling = rollingNCAGR(portfolioResult.idxMap, 10);
+      
+      // Calculate annual returns
+      const annualNominal = computeAnnualReturns(portfolioResult.idxMap);
+      const realIdxMap = {}; 
+      for(const r of realIdx) realIdxMap[r.date] = r.value;
+      const annualReal = computeAnnualReturns(realIdxMap);
       
       comparisons.push({
         id: portfolio.id,
         name: portfolio.name,
         cagr: nominalCAGR,
+        realCagr: realCAGR,
         vol: annualVol(monthly),
         sharpe: sharpe(monthly, rf),
+        sortino: sortino(monthly, rf),
         maxDrawdown: Math.min(...portfolioResult.drawdowns.map(d=>d.value)),
         finalValue: vals[vals.length-1],
         portfolioResult,
-        nominalIndex
+        nominalIndex,
+        realIndex: realIdx,
+        drawdowns: portfolioResult.drawdowns,
+        rolling,
+        annualNominal,
+        annualReal,
+        totalInvested: portfolioResult.totalInvested,
+        portValues: portfolioResult.portValues
       });
     }
     
@@ -845,6 +921,8 @@ export default function App(){
   const [assetRollingYears, setAssetRollingYears] = useState(10);
   const [perfTab, setPerfTab] = useState("portfolio"); // 'portfolio' | 'assets'
   const [showToast, setShowToast] = useState(false);
+  const [editingPortfolioId, setEditingPortfolioId] = useState(null);
+  const [editingName, setEditingName] = useState("");
 
   const perAssetsCombined = useMemo(()=>{
     if(!norm || assetsWithWeight.length===0) return null;
@@ -1007,37 +1085,57 @@ export default function App(){
           <div className="bg-white rounded-2xl shadow p-4 space-y-4">
             <h2 className="font-semibold">Portfolio Manager</h2>
             
-            {/* Save Current Portfolio */}
-            <div className="border rounded-lg p-4 bg-green-50">
-              <h3 className="font-medium mb-3">Save Current Portfolio</h3>
-              <div className="flex gap-3 items-end">
-                <div className="flex-1">
-                  <label className="block text-sm text-gray-600 mb-1">Portfolio Name</label>
-                  <input 
-                    type="text" 
-                    value={portfolioName}
-                    onChange={(e)=>setPortfolioName(e.target.value)}
-                    placeholder="e.g., Conservative Growth"
-                    className="w-full border rounded p-2"
-                  />
+            {/* Save Current Portfolio - Only show if not already saved */}
+            {!isCurrentPortfolioSaved && (
+              <div className="border rounded-lg p-4 bg-green-50">
+                <h3 className="font-medium mb-3">Save Current Portfolio</h3>
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <label className="block text-sm text-gray-600 mb-1">Portfolio Name</label>
+                    <input 
+                      type="text" 
+                      value={portfolioName}
+                      onChange={(e)=>setPortfolioName(e.target.value)}
+                      placeholder="e.g., Conservative Growth"
+                      className="w-full border rounded p-2"
+                    />
+                  </div>
+                  <button 
+                    onClick={saveCurrentPortfolio}
+                    disabled={!portfolioName.trim() || !Object.keys(weights).length}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    Save Portfolio
+                  </button>
+                  <button 
+                    onClick={handleSharePortfolio}
+                    disabled={!Object.keys(weights).length}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    title="Share portfolio via URL"
+                  >
+                    🔗 Share
+                  </button>
                 </div>
-                <button 
-                  onClick={saveCurrentPortfolio}
-                  disabled={!portfolioName.trim() || !Object.keys(weights).length}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Save Portfolio
-                </button>
+              </div>
+            )}
+
+            {/* Current Portfolio Already Saved */}
+            {isCurrentPortfolioSaved && (
+              <div className="border rounded-lg p-4 bg-blue-50">
+                <h3 className="font-medium mb-2 text-blue-800">Current Portfolio</h3>
+                <p className="text-sm text-blue-700 mb-3">
+                  This portfolio configuration is already saved. You can share it or modify it to save a new version.
+                </p>
                 <button 
                   onClick={handleSharePortfolio}
                   disabled={!Object.keys(weights).length}
                   className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   title="Share portfolio via URL"
                 >
-                  🔗 Share
+                  🔗 Share Current Portfolio
                 </button>
               </div>
-            </div>
+            )}
 
             {/* Saved Portfolios */}
             {savedPortfolios.length > 0 && (
@@ -1047,17 +1145,47 @@ export default function App(){
                   {savedPortfolios.map((portfolio) => (
                     <div key={portfolio.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium">{portfolio.name}</span>
-                          <span className="text-xs text-gray-500">
-                            {portfolio.investmentMode === "lump_sum" ? "Lump Sum" : 
-                             portfolio.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          Assets: {Object.keys(portfolio.weights).length} • 
-                          Created: {new Date(portfolio.createdAt).toLocaleDateString()}
-                        </div>
+                        {editingPortfolioId === portfolio.id ? (
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="text" 
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              className="border rounded px-2 py-1 text-sm flex-1"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveRename();
+                                if (e.key === 'Escape') handleCancelRename();
+                              }}
+                              autoFocus
+                            />
+                            <button 
+                              onClick={handleSaveRename}
+                              className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                            >
+                              ✓
+                            </button>
+                            <button 
+                              onClick={handleCancelRename}
+                              className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <span className="font-medium">{portfolio.name}</span>
+                              <span className="text-xs text-gray-500">
+                                {portfolio.investmentMode === "lump_sum" ? "Lump Sum" : 
+                                 portfolio.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Assets: {Object.keys(portfolio.weights).length} • 
+                              Created: {new Date(portfolio.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         {compareMode && (
@@ -1068,6 +1196,20 @@ export default function App(){
                             className="text-blue-600"
                           />
                         )}
+                        <button 
+                          onClick={()=>handleShareSavedPortfolio(portfolio)}
+                          className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                          title="Copy shareable link"
+                        >
+                          🔗
+                        </button>
+                        <button 
+                          onClick={()=>handleRenamePortfolio(portfolio)}
+                          className="px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
+                          title="Rename portfolio"
+                        >
+                          ✏️
+                        </button>
                         <button 
                           onClick={()=>loadPortfolio(portfolio)}
                           className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
@@ -1162,7 +1304,7 @@ export default function App(){
         </div>
 
         {/* Portfolio Summary */}
-        {metrics && perfTab==='portfolio' && (
+        {metrics && perfTab==='portfolio' && !compareMode && (
           <div className="bg-white rounded-2xl shadow p-6">
             <h2 className="text-xl font-bold mb-4">Portfolio Summary</h2>
             
@@ -1305,6 +1447,35 @@ export default function App(){
           </div>
         )}
 
+        {/* Portfolio Comparison Summary */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Portfolio Comparison ({comparePortfolios.length} portfolios)</h2>
+            
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {comparePortfolios.map((portfolio, index) => (
+                <div key={portfolio.id} className="bg-gray-50 rounded-xl p-4">
+                  <div className="text-sm font-bold text-gray-700 mb-2 truncate" title={portfolio.name}>
+                    {portfolio.name}
+                  </div>
+                  <div className="text-xs text-gray-500 mb-3">
+                    {savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "lump_sum" ? "Lump Sum" : 
+                     savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                  </div>
+                  <div className="text-sm flex flex-col leading-6 space-y-1">
+                    <div><span className="text-gray-500">CAGR:</span> <span className="font-semibold">{(portfolio.cagr*100).toFixed(2)}%</span></div>
+                    <div><span className="text-gray-500">Real CAGR:</span> <span className="font-semibold">{(portfolio.realCagr*100).toFixed(2)}%</span></div>
+                    <div><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(portfolio.vol*100).toFixed(2)}%</span></div>
+                    <div><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{portfolio.sharpe.toFixed(2)}</span></div>
+                    <div><span className="text-gray-500">Sortino:</span> <span className="font-semibold">{portfolio.sortino.toFixed(2)}</span></div>
+                    <div><span className="text-gray-500">Max DD:</span> <span className="font-semibold">{(portfolio.maxDrawdown*100).toFixed(2)}%</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Portfolio Analysis */}
         {metrics && perfTab==='portfolio' && (
           <div className="bg-white rounded-2xl shadow p-6">
@@ -1342,7 +1513,7 @@ export default function App(){
         )}
 
         {/* Portfolio Value */}
-        {metrics && perfTab==='portfolio' && (
+        {metrics && perfTab==='portfolio' && !compareMode && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Portfolio Value (€): Nominal vs Real — Avg Italy inflation ≈ {(metrics.avgInfl*100).toFixed(2)}% p.a.</h3>
@@ -1373,8 +1544,49 @@ export default function App(){
           </div>
         )}
 
+        {/* Portfolio Comparison Value Chart */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Portfolio Value Comparison (Normalized to 100)</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">This chart compares the performance of selected portfolios over time. All portfolios are normalized to start at 100 for easy comparison.</p>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={comparePortfolios[0]?.nominalIndex.map((point, index) => {
+                  const dataPoint = { date: point.date };
+                  comparePortfolios.forEach((portfolio, portfolioIndex) => {
+                    dataPoint[portfolio.name] = portfolio.nominalIndex[index]?.value || 0;
+                  });
+                  return dataPoint;
+                }) || []}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)} labelFormatter={(l)=>l.slice(0,10)} />
+                  <Legend />
+                  {comparePortfolios.map((portfolio, index) => {
+                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    return (
+                      <Line 
+                        key={portfolio.id}
+                        type="monotone" 
+                        dataKey={portfolio.name} 
+                        dot={false} 
+                        strokeWidth={3} 
+                        stroke={colors[index % colors.length]} 
+                        name={portfolio.name}
+                      />
+                    );
+                  })}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Drawdowns with min highlight */}
-        {metrics && perfTab==='portfolio' && (
+        {metrics && perfTab==='portfolio' && !compareMode && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Max Drawdowns Over Time (Nominal)</h3>
@@ -1399,8 +1611,50 @@ export default function App(){
           </div>
         )}
 
+        {/* Portfolio Comparison Drawdowns Chart */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Drawdowns Comparison</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Compare drawdowns across selected portfolios. Lower values indicate better downside protection.</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={comparePortfolios[0]?.drawdowns.map((point, index) => {
+                  const dataPoint = { date: point.date };
+                  comparePortfolios.forEach((portfolio) => {
+                    dataPoint[portfolio.name] = (portfolio.drawdowns[index]?.value || 0) * 100;
+                  });
+                  return dataPoint;
+                }) || []}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
+                  <ReferenceLine y={0} stroke="#999" />
+                  <Legend />
+                  {comparePortfolios.map((portfolio, index) => {
+                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    return (
+                      <Line 
+                        key={portfolio.id}
+                        type="monotone" 
+                        dataKey={portfolio.name} 
+                        dot={false} 
+                        strokeWidth={3} 
+                        stroke={colors[index % colors.length]} 
+                        name={portfolio.name}
+                      />
+                    );
+                  })}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Rolling N-Year CAGR with min/max + average */}
-        {metrics && perfTab==='portfolio' && (
+        {metrics && perfTab==='portfolio' && !compareMode && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Rolling {rollingYears}-Year Buy & Hold (Annualized)</h3>
@@ -1428,8 +1682,53 @@ export default function App(){
           </div>
         )}
 
+        {/* Portfolio Comparison Rolling Returns Chart */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Rolling 10-Year Returns Comparison</h3>
+              <div className="flex gap-2 items-center">
+                <input type="number" min={1} max={40} value={rollingYears} onChange={(e)=>setRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border rounded p-1" />
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Compare rolling returns across selected portfolios for different holding periods.</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={comparePortfolios[0]?.rolling.map((point, index) => {
+                  const dataPoint = { date: point.date };
+                  comparePortfolios.forEach((portfolio) => {
+                    dataPoint[portfolio.name] = (portfolio.rolling[index]?.value || 0) * 100;
+                  });
+                  return dataPoint;
+                }) || []}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
+                  <ReferenceLine y={0} stroke="#dc2626" />
+                  <Legend />
+                  {comparePortfolios.map((portfolio, index) => {
+                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    return (
+                      <Line 
+                        key={portfolio.id}
+                        type="monotone" 
+                        dataKey={portfolio.name} 
+                        dot={false} 
+                        strokeWidth={3} 
+                        stroke={colors[index % colors.length]} 
+                        name={portfolio.name}
+                      />
+                    );
+                  })}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Annual Returns with min/max highlights */}
-        {metrics && perfTab==='portfolio' && (
+        {metrics && perfTab==='portfolio' && !compareMode && (
           <div className="bg-white rounded-2xl shadow p-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Annual Returns: Nominal vs Real (Italy CPI)</h3>
@@ -1463,6 +1762,44 @@ export default function App(){
                       return <Cell key={`r-${i}`} fill={base} stroke={stroke} strokeWidth={sw} />;
                     })}
                   </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Portfolio Comparison Annual Returns Chart */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Annual Returns Comparison</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">Compare year-by-year returns across selected portfolios.</p>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={comparePortfolios[0]?.annualNominal.map((point, index) => {
+                  const dataPoint = { year: point.year };
+                  comparePortfolios.forEach((portfolio) => {
+                    dataPoint[portfolio.name] = (portfolio.annualNominal[index]?.nominal || 0) * 100;
+                  });
+                  return dataPoint;
+                }) || []}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
+                  <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} />
+                  <Legend />
+                  {comparePortfolios.map((portfolio, index) => {
+                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    return (
+                      <Bar 
+                        key={portfolio.id}
+                        dataKey={portfolio.name} 
+                        fill={colors[index % colors.length]}
+                        name={portfolio.name}
+                      />
+                    );
+                  })}
                 </BarChart>
               </ResponsiveContainer>
             </div>
