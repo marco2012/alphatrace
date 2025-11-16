@@ -108,6 +108,83 @@ function sortino(mrets, rf=0){ const rfM=rf/12; const dn=mrets.filter(r=>r<rfM);
   const mean=(mrets.reduce((a,b)=>a+b,0)/mrets.length)-rfM; return dd===0?0:(mean/dd)*Math.sqrt(12); }
 function drawdownsFromIndex(idxMap){ let maxSF=-Infinity; const out=[]; Object.keys(idxMap).forEach(d=>{
   const v=idxMap[d]; if(v>maxSF) maxSF=v; out.push({date:d, value: v/maxSF-1});}); return out; }
+function timeToRecoverFromIndex(idxMap){
+  const entries = Object.entries(idxMap).sort((a,b)=> (a[0]<b[0]?-1:1));
+  const dates = entries.map(e=>e[0]);
+  const vals = entries.map(e=>e[1]);
+  
+  const recoveries = [];
+  let peakValue = -Infinity;
+  let peakDate = null;
+  let inDrawdown = false;
+  let drawdownStartDate = null;
+  let drawdownStartValue = null;
+  let minValueDuringDrawdown = null;
+  
+  for(let i=0; i<dates.length; i++){
+    const currentValue = vals[i];
+    const currentDate = dates[i];
+    
+    if(currentValue > peakValue){
+      // New peak reached - recovery complete
+      if(inDrawdown && drawdownStartDate){
+        // Calculate recovery time from when drawdown started (when we dropped below previous peak)
+        const recoveryMonths = monthsBetween(drawdownStartDate, currentDate);
+        // Calculate drawdown depth from the minimum value reached during the drawdown
+        const drawdownDepth = minValueDuringDrawdown !== null 
+          ? Math.abs((drawdownStartValue - minValueDuringDrawdown) / drawdownStartValue)
+          : 0;
+        recoveries.push({
+          date: drawdownStartDate,
+          recoveryDate: currentDate,
+          months: recoveryMonths,
+          drawdownDepth: drawdownDepth
+        });
+      }
+      peakValue = currentValue;
+      peakDate = currentDate;
+      inDrawdown = false;
+      drawdownStartDate = null;
+      drawdownStartValue = null;
+      minValueDuringDrawdown = null;
+    } else if(currentValue < peakValue){
+      // In drawdown
+      if(!inDrawdown){
+        // Just entered drawdown - record when we dropped below the peak
+        inDrawdown = true;
+        drawdownStartDate = peakDate || currentDate;
+        drawdownStartValue = peakValue;
+        minValueDuringDrawdown = currentValue;
+      } else {
+        // Track the minimum value during the drawdown
+        if(currentValue < minValueDuringDrawdown){
+          minValueDuringDrawdown = currentValue;
+        }
+      }
+    }
+  }
+  
+  // Handle ongoing drawdowns at the end
+  if(inDrawdown && drawdownStartDate){
+    const lastDate = dates[dates.length-1];
+    const lastValue = vals[vals.length-1];
+    const recoveryMonths = monthsBetween(drawdownStartDate, lastDate);
+    // Use the minimum value reached during the drawdown, or the last value if it's lower
+    const finalMinValue = minValueDuringDrawdown !== null && lastValue < minValueDuringDrawdown 
+      ? lastValue 
+      : (minValueDuringDrawdown !== null ? minValueDuringDrawdown : lastValue);
+    const drawdownDepth = Math.abs((drawdownStartValue - finalMinValue) / drawdownStartValue);
+    recoveries.push({
+      date: drawdownStartDate,
+      recoveryDate: lastDate,
+      months: recoveryMonths,
+      drawdownDepth: drawdownDepth,
+      ongoing: true
+    });
+  }
+  
+  return recoveries;
+}
 function pctChangeSeries(vals){ const out=[]; for(let i=1;i<vals.length;i++){ out.push((vals[i]-vals[i-1])/vals[i-1]); } return out; }
 
 function normalizeAndInterpolate(priceTable, startDateStr){
@@ -631,6 +708,7 @@ export default function App(){
     }
 
     const drawdowns = portfolio.drawdowns;
+    const timeToRecover = timeToRecoverFromIndex(portfolio.idxMap);
     const annualNominal = computeAnnualReturns(portfolio.idxMap);
     const realIdxMap={}; for(const r of realIdx) realIdxMap[r.date]=r.value;
     const annualReal = computeAnnualReturns(realIdxMap);
@@ -662,7 +740,7 @@ export default function App(){
       sharpe: sharpe(monthly, rf),
       sortino: sortino(monthly, rf),
       maxDrawdown: Math.min(...drawdowns.map(d=>d.value)),
-      nominalIndex, realIndex: realIdx, drawdowns,
+      nominalIndex, realIndex: realIdx, drawdowns, timeToRecover,
       annualNominal, annualReal, rolling, avgRolling,
       ddMinPoint, rollingMin, rollingMax,
       annualMinNomIdx, annualMaxNomIdx, annualMinRealIdx, annualMaxRealIdx,
@@ -891,6 +969,9 @@ export default function App(){
       for(const r of realIdx) realIdxMap[r.date] = r.value;
       const annualReal = computeAnnualReturns(realIdxMap);
       
+      // Calculate time to recover
+      const timeToRecover = timeToRecoverFromIndex(portfolioResult.idxMap);
+      
       comparisons.push({
         id: portfolio.id,
         name: portfolio.name,
@@ -905,6 +986,7 @@ export default function App(){
         nominalIndex,
         realIndex: realIdx,
         drawdowns: portfolioResult.drawdowns,
+        timeToRecover,
         rolling,
         annualNominal,
         annualReal,
@@ -987,6 +1069,10 @@ export default function App(){
       const monthly = []; for(let i=1;i<slice.length;i++) monthly.push((slice[i]-slice[i-1])/slice[i-1]);
       const dd = drawdownsFromIndex(idxMap);
       const maxDD = dd.length ? Math.min(...dd.map(d=>d.value)) : 0;
+      const assetTimeToRecover = timeToRecoverFromIndex(idxMap);
+      const maxTimeToRecover = assetTimeToRecover.length > 0 
+        ? Math.max(...assetTimeToRecover.map(r => r.months))
+        : 0;
       const assetCagr = cagr(entries);
       const assetVol = annualVol(monthly);
       const assetSharpe = sharpe(monthly, rf);
@@ -999,6 +1085,7 @@ export default function App(){
         vol: assetVol,
         sharpe: assetSharpe,
         maxDrawdown: maxDD,
+        maxTimeToRecover,
         finalValue,
       });
     }
@@ -1008,72 +1095,65 @@ export default function App(){
   // Show loading screen while data is being loaded
   if (isLoadingData) {
     return (
-      <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-bloomberg-bg text-bloomberg-text flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold mb-2">Loading AlphaTrace</h2>
-          <p className="text-gray-600">Loading default Curvo dataset...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-bloomberg-accent mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold mb-2 text-bloomberg-accent">Loading AlphaTrace</h2>
+          <p className="text-bloomberg-text-dim">Loading default Curvo dataset...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">AlphaTrace</h1>
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-bloomberg-bg text-bloomberg-text">
+      <div className="max-w-[1920px] mx-4 md:mx-8 lg:mx-12 p-4 space-y-3">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-bloomberg-border pb-3 mb-4">
+          <h1 className="text-2xl font-bold text-bloomberg-accent tracking-tight">ALPHATRACE</h1>
+          <div className="flex items-center gap-2">
             <button 
               onClick={handleSharePortfolio}
               disabled={!Object.keys(weights).length}
-              className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed" 
+              className="px-3 py-1.5 text-xs border border-bloomberg-border bg-bloomberg-panel hover:bg-bloomberg-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded" 
               title="Share Portfolio"
             >
-              🔗
+              SHARE
             </button>
             <button 
               onClick={()=>setShowPortfolioManager(s=>!s)} 
-              className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100" 
+              className="px-3 py-1.5 text-xs border border-bloomberg-border bg-bloomberg-panel hover:bg-bloomberg-border transition-colors rounded" 
               title="Portfolio Manager"
             >
-              💼
+              PORTFOLIO
             </button>
-            <button 
-              onClick={()=>setCompareMode(s=>!s)} 
-              className={`rounded-full border px-3 py-1 text-sm hover:bg-gray-100 ${compareMode ? 'bg-blue-100 border-blue-300' : ''}`}
-              title="Compare Portfolios"
-            >
-              📊
-            </button>
-            <button onClick={()=>setShowData(s=>!s)} className="rounded-full border px-3 py-1 text-sm hover:bg-gray-100" title="Data & Settings">⚙️</button>
+            <button onClick={()=>setShowData(s=>!s)} className="px-3 py-1.5 text-xs border border-bloomberg-border bg-bloomberg-panel hover:bg-bloomberg-border transition-colors rounded" title="Data & Settings">SETTINGS</button>
           </div>
         </header>
 
         {/* Data & Settings */}
         {showData && (
-          <div className="bg-white rounded-2xl shadow p-4 space-y-3">
-            <h2 className="font-semibold">Data & Settings</h2>
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 space-y-3 animate-slide-down rounded">
+            <h2 className="font-semibold text-bloomberg-accent text-sm uppercase tracking-wide">Data & Settings</h2>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <label className="block text-sm">Upload file</label>
-                <div className="text-xs text-gray-600 mb-2">
-                  📊 Default Curvo dataset loaded automatically. Upload your own data to override.
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Upload file</label>
+                <div className="text-xs text-bloomberg-text-dim mb-2">
+                  Default Curvo dataset loaded automatically. Upload your own data to override.
                 </div>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="w-full" />
-                <label className="block text-sm">Start Date</label>
-                <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="w-full border rounded p-2" />
-                <label className="block text-sm">End Date (optional)</label>
-                <input type="month" value={endDate?endDate.slice(0,7):""} onChange={(e)=>setEndDate(e.target.value?e.target.value+"-01":"")} className="w-full border rounded p-2" />
-                <label className="block text-sm">Rebalance</label>
-                <select value={rebalance} onChange={(e)=>setRebalance(e.target.value)} className="w-full border rounded p-2">
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="w-full text-xs bg-bloomberg-bg border border-bloomberg-border p-2 text-bloomberg-text rounded file:mr-4 file:py-1 file:px-3 file:bg-bloomberg-panel file:border file:border-bloomberg-border file:text-bloomberg-text file:text-xs file:cursor-pointer file:rounded" />
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Start Date</label>
+                <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded" />
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">End Date (optional)</label>
+                <input type="month" value={endDate?endDate.slice(0,7):""} onChange={(e)=>setEndDate(e.target.value?e.target.value+"-01":"")} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded" />
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Rebalance</label>
+                <select value={rebalance} onChange={(e)=>setRebalance(e.target.value)} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded">
                   <option>Monthly</option><option>Quarterly</option><option>Annual</option>
                 </select>
-                <label className="block text-sm">Risk-free (annual, decimal)</label>
-                <input type="number" step="0.001" value={rf} onChange={(e)=>setRf(Number(e.target.value))} className="w-full border rounded p-2" />
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Risk-free (annual, decimal)</label>
+                <input type="number" step="0.001" value={rf} onChange={(e)=>setRf(Number(e.target.value))} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded" />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <p className="text-xs text-gray-600">Dataset & weights are saved locally (no banner shown).</p>
+                <p className="text-xs text-bloomberg-text-dim">Dataset & weights are saved locally (no banner shown).</p>
               </div>
             </div>
           </div>
@@ -1082,38 +1162,47 @@ export default function App(){
         
         {/* Portfolio Manager */}
         {showPortfolioManager && (
-          <div className="bg-white rounded-2xl shadow p-4 space-y-4">
-            <h2 className="font-semibold">Portfolio Manager</h2>
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 space-y-4 animate-slide-down rounded">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-bloomberg-accent text-sm uppercase tracking-wide">Portfolio Manager</h2>
+              <button 
+                onClick={()=>setCompareMode(s=>!s)} 
+                className={`px-3 py-1.5 text-xs border transition-colors rounded ${compareMode ? 'bg-bloomberg-accent text-bloomberg-bg border-bloomberg-accent' : 'border-bloomberg-border bg-bloomberg-bg hover:bg-bloomberg-border'}`}
+                title="Compare Portfolios"
+              >
+                COMPARE
+              </button>
+            </div>
             
             {/* Save Current Portfolio - Only show if not already saved */}
             {!isCurrentPortfolioSaved && (
-              <div className="border rounded-lg p-4 bg-green-50">
-                <h3 className="font-medium mb-3">Save Current Portfolio</h3>
+              <div className="border border-bloomberg-border p-4 bg-bloomberg-bg rounded">
+                <h3 className="font-medium mb-3 text-xs uppercase tracking-wide text-bloomberg-text-dim">Save Current Portfolio</h3>
                 <div className="flex gap-3 items-end">
                   <div className="flex-1">
-                    <label className="block text-sm text-gray-600 mb-1">Portfolio Name</label>
+                    <label className="block text-xs text-bloomberg-text-dim mb-1 uppercase tracking-wide">Portfolio Name</label>
                     <input 
                       type="text" 
                       value={portfolioName}
                       onChange={(e)=>setPortfolioName(e.target.value)}
                       placeholder="e.g., Conservative Growth"
-                      className="w-full border rounded p-2"
+                      className="w-full border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text p-2 text-xs rounded"
                     />
                   </div>
                   <button 
                     onClick={saveCurrentPortfolio}
                     disabled={!portfolioName.trim() || !Object.keys(weights).length}
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-bloomberg-accent text-bloomberg-bg text-xs uppercase tracking-wide hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity rounded"
                   >
-                    Save Portfolio
+                    Save
                   </button>
                   <button 
                     onClick={handleSharePortfolio}
                     disabled={!Object.keys(weights).length}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-bloomberg-panel border border-bloomberg-border text-bloomberg-text text-xs uppercase tracking-wide hover:bg-bloomberg-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded"
                     title="Share portfolio via URL"
                   >
-                    🔗 Share
+                    Share
                   </button>
                 </div>
               </div>
@@ -1121,29 +1210,29 @@ export default function App(){
 
             {/* Current Portfolio Already Saved */}
             {isCurrentPortfolioSaved && (
-              <div className="border rounded-lg p-4 bg-blue-50">
-                <h3 className="font-medium mb-2 text-blue-800">Current Portfolio</h3>
-                <p className="text-sm text-blue-700 mb-3">
+              <div className="border border-bloomberg-border p-4 bg-bloomberg-bg rounded">
+                <h3 className="font-medium mb-2 text-xs uppercase tracking-wide text-bloomberg-accent">Current Portfolio</h3>
+                <p className="text-xs text-bloomberg-text-dim mb-3">
                   This portfolio configuration is already saved. You can share it or modify it to save a new version.
                 </p>
                 <button 
                   onClick={handleSharePortfolio}
                   disabled={!Object.keys(weights).length}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-bloomberg-panel border border-bloomberg-border text-bloomberg-text text-xs uppercase tracking-wide hover:bg-bloomberg-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded"
                   title="Share portfolio via URL"
                 >
-                  🔗 Share Current Portfolio
+                  Share Current Portfolio
                 </button>
               </div>
             )}
 
             {/* Saved Portfolios */}
             {savedPortfolios.length > 0 && (
-              <div className="border rounded-lg p-4">
-                <h3 className="font-medium mb-3">Saved Portfolios ({savedPortfolios.length})</h3>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="border border-bloomberg-border p-4 rounded">
+                <h3 className="font-medium mb-3 text-xs uppercase tracking-wide text-bloomberg-text-dim">Saved Portfolios ({savedPortfolios.length})</h3>
+                <div className="space-y-1 max-h-64 overflow-y-auto">
                   {savedPortfolios.map((portfolio) => (
-                    <div key={portfolio.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <div key={portfolio.id} className="flex items-center justify-between p-2 bg-bloomberg-bg border border-bloomberg-border rounded">
                       <div className="flex-1">
                         {editingPortfolioId === portfolio.id ? (
                           <div className="flex items-center gap-2">
@@ -1151,7 +1240,7 @@ export default function App(){
                               type="text" 
                               value={editingName}
                               onChange={(e) => setEditingName(e.target.value)}
-                              className="border rounded px-2 py-1 text-sm flex-1"
+                              className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text px-2 py-1 text-xs flex-1 rounded"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleSaveRename();
                                 if (e.key === 'Escape') handleCancelRename();
@@ -1160,13 +1249,13 @@ export default function App(){
                             />
                             <button 
                               onClick={handleSaveRename}
-                              className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                              className="px-2 py-1 bg-bloomberg-accent text-bloomberg-bg text-xs hover:opacity-90 rounded"
                             >
                               ✓
                             </button>
                             <button 
                               onClick={handleCancelRename}
-                              className="px-2 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
+                              className="px-2 py-1 bg-bloomberg-panel border border-bloomberg-border text-bloomberg-text text-xs hover:bg-bloomberg-border rounded"
                             >
                               ✕
                             </button>
@@ -1174,13 +1263,13 @@ export default function App(){
                         ) : (
                           <div>
                             <div className="flex items-center gap-3">
-                              <span className="font-medium">{portfolio.name}</span>
-                              <span className="text-xs text-gray-500">
-                                {portfolio.investmentMode === "lump_sum" ? "Lump Sum" : 
-                                 portfolio.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                              <span className="font-medium text-sm">{portfolio.name}</span>
+                              <span className="text-xs text-bloomberg-text-dim">
+                                {portfolio.investmentMode === "lump_sum" ? "LUMP SUM" : 
+                                 portfolio.investmentMode === "recurring" ? "RECURRING" : "HYBRID"}
                               </span>
                             </div>
-                            <div className="text-xs text-gray-500 mt-1">
+                            <div className="text-xs text-bloomberg-text-dim mt-1">
                               Assets: {Object.keys(portfolio.weights).length} • 
                               Created: {new Date(portfolio.createdAt).toLocaleDateString()}
                             </div>
@@ -1193,44 +1282,44 @@ export default function App(){
                             type="checkbox" 
                             checked={selectedPortfolios.includes(portfolio.id)}
                             onChange={()=>togglePortfolioSelection(portfolio.id)}
-                            className="text-blue-600"
+                            className="accent-bloomberg-accent"
                           />
                         )}
                         <button 
                           onClick={()=>handleShareSavedPortfolio(portfolio)}
-                          className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                          className="px-2 py-1 bg-bloomberg-panel border border-bloomberg-border text-bloomberg-text text-xs hover:bg-bloomberg-border rounded"
                           title="Copy shareable link"
                         >
-                          🔗
+                          SHARE
                         </button>
                         <button 
                           onClick={()=>handleRenamePortfolio(portfolio)}
-                          className="px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
+                          className="px-2 py-1 bg-bloomberg-panel border border-bloomberg-border text-bloomberg-text text-xs hover:bg-bloomberg-border rounded"
                           title="Rename portfolio"
                         >
-                          ✏️
+                          EDIT
                         </button>
                         <button 
                           onClick={()=>loadPortfolio(portfolio)}
-                          className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                          className="px-2 py-1 bg-bloomberg-accent text-bloomberg-bg text-xs hover:opacity-90"
                         >
-                          Load
+                          LOAD
                         </button>
                         <button 
                           onClick={()=>deletePortfolio(portfolio.id)}
-                          className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                          className="px-2 py-1 bg-bloomberg-negative text-bloomberg-bg text-xs hover:opacity-90 rounded"
                         >
-                          Delete
+                          DEL
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
                 {compareMode && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded">
-                    <div className="text-sm text-blue-800">
-                      <strong>Compare Mode:</strong> Select portfolios to compare their performance. 
-                      Selected: {selectedPortfolios.length}
+                  <div className="mt-4 p-3 bg-bloomberg-bg border border-bloomberg-border rounded">
+                    <div className="text-xs text-bloomberg-text-dim">
+                      <strong className="text-bloomberg-accent">COMPARE MODE:</strong> Select portfolios to compare their performance. 
+                      Selected: <span className="text-bloomberg-accent">{selectedPortfolios.length}</span>
                     </div>
                   </div>
                 )}
@@ -1240,77 +1329,77 @@ export default function App(){
         )}
 
         {/* Assets */}
-        <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+        <div className="bg-bloomberg-panel border border-bloomberg-border p-4 space-y-3 animate-fade-in rounded">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Assets</h2>
+            <h2 className="font-semibold text-bloomberg-accent text-sm uppercase tracking-wide">Assets</h2>
             <button
               onClick={()=>{
                 const zeros={};
                 for(const c of columns) zeros[c]=0;
                 setWeights(zeros);
               }}
-              className="text-xs px-2 py-1 border rounded hover:bg-gray-100"
+              className="text-xs px-2 py-1 border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border transition-colors rounded"
               title="Set all weights to 0%"
-            >Zero all</button>
+            >ZERO ALL</button>
           </div>
-          <div className="text-xs text-gray-500">Data updated to 2025-08</div>
-          <ul className="divide-y">
+          <div className="text-xs text-bloomberg-text-dim">Data updated to 2025-08</div>
+          <ul className="divide-y divide-bloomberg-border">
             {columns.map((c)=>(
               <li key={c} className="py-2 flex items-center justify-between">
-                <span className="text-sm flex items-center gap-2">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border capitalize text-center w-24 shrink-0 ${
-                    getAssetCategory(c)==="stocks"?"bg-blue-50 border-blue-200 text-blue-700":
-                    getAssetCategory(c)==="bonds"?"bg-emerald-50 border-emerald-200 text-emerald-700":
-                    getAssetCategory(c)==="cash"?"bg-gray-50 border-gray-200 text-gray-700":
-                    "bg-yellow-50 border-yellow-200 text-yellow-700"
+                <span className="text-xs flex items-center gap-2">
+                  <span className={`text-[9px] px-2 py-0.5 border capitalize text-center w-20 shrink-0 font-mono rounded ${
+                    getAssetCategory(c)==="stocks"?"bg-bloomberg-bg border-bloomberg-accent text-bloomberg-accent":
+                    getAssetCategory(c)==="bonds"?"bg-bloomberg-bg border-bloomberg-positive text-bloomberg-positive":
+                    getAssetCategory(c)==="cash"?"bg-bloomberg-bg border-bloomberg-text-dim text-bloomberg-text-dim":
+                    "bg-bloomberg-bg border-bloomberg-warning text-bloomberg-warning"
                   }`}>
-                    {getAssetCategory(c)}
+                    {getAssetCategory(c).toUpperCase()}
                   </span>
-                  {c}
+                  <span className="text-bloomberg-text">{c}</span>
                 </span>
                 <div className="flex items-center gap-2">
-                  <input type="number" step="1" className="w-20 border rounded p-2 text-right"
+                  <input type="number" step="1" className="w-20 border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-right text-xs rounded"
                     value={Math.round((weights[c]??0)*100)}
                     onChange={(e)=>setWeights(w=>({...w, [c]: Math.max(0, Number(e.target.value)||0)/100 }))}
                     title="Weight in percent"
                   />
-                  <span className="text-sm">%</span>
+                  <span className="text-xs text-bloomberg-text-dim">%</span>
                 </div>
               </li>
             ))}
           </ul>
-          <div className="text-sm mt-2 font-medium">
-            Total: {sumPct}% {sumPct!==100 && (<button onClick={normalizeWeights} className="ml-2 px-2 py-1 border rounded text-xs">Normalize</button>)}
+          <div className="text-xs mt-2 font-medium text-bloomberg-text">
+            Total: <span className={sumPct===100 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}>{sumPct}%</span> {sumPct!==100 && (<button onClick={normalizeWeights} className="ml-2 px-2 py-1 border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text hover:bg-bloomberg-border text-xs transition-colors rounded">NORMALIZE</button>)}
           </div>
-          <div className="text-xs text-gray-600">Need fund data? Download from <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">Curvo's fund database</a>.</div>
+          <div className="text-xs text-bloomberg-text-dim">Need fund data? Download from <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-bloomberg-accent hover:underline">Curvo's fund database</a>.</div>
         </div>
 
         {/* Performance Tabs */}
-        <div className="bg-white rounded-2xl shadow p-4">
+        <div className="bg-bloomberg-panel border border-bloomberg-border p-4 animate-fade-in rounded">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 mr-4">
-              <button onClick={()=>setPerfTab("portfolio")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='portfolio' ? 'bg-blue-100 border-blue-300' : ''}`}>Portfolio Performance</button>
-              <button onClick={()=>setPerfTab("assets")} className={`px-3 py-1 rounded-full border text-sm ${perfTab==='assets' ? 'bg-blue-100 border-blue-300' : ''}`}>Asset Performance</button>
+              <button onClick={()=>setPerfTab("portfolio")} className={`px-3 py-1.5 border text-xs uppercase tracking-wide transition-colors rounded ${perfTab==='portfolio' ? 'bg-bloomberg-accent text-bloomberg-bg border-bloomberg-accent' : 'border-bloomberg-border bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border'}`}>Portfolio</button>
+              <button onClick={()=>setPerfTab("assets")} className={`px-3 py-1.5 border text-xs uppercase tracking-wide transition-colors rounded ${perfTab==='assets' ? 'bg-bloomberg-accent text-bloomberg-bg border-bloomberg-accent' : 'border-bloomberg-border bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border'}`}>Assets</button>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">Start:</label>
-              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="border rounded p-1" />
+              <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Start:</label>
+              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={startDate.slice(0,7)} onChange={(e)=>handleStartChange(e.target.value)} className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-1 text-xs rounded" />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">End:</label>
-              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={endDate?endDate.slice(0,7):""} onChange={(e)=>handleEndChange(e.target.value)} className="border rounded p-1" />
+              <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">End:</label>
+              <input type="month" min={dataBounds.first||undefined} max={dataBounds.last||undefined} value={endDate?endDate.slice(0,7):""} onChange={(e)=>handleEndChange(e.target.value)} className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-1 text-xs rounded" />
             </div>
           </div>
         </div>
 
         {/* Portfolio Summary */}
         {metrics && perfTab==='portfolio' && !compareMode && (
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Portfolio Summary</h2>
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-6 animate-slide-up rounded">
+            <h2 className="text-lg font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Portfolio Summary</h2>
             
             {/* Investment Mode Toggle */}
-            <div className="mb-6 p-4 bg-blue-50 rounded-xl">
-              <div className="text-sm font-bold text-gray-700 mb-3">Investment Strategy</div>
+            <div className="mb-6 p-4 bg-bloomberg-bg border border-bloomberg-border rounded">
+              <div className="text-xs font-bold text-bloomberg-text-dim mb-3 uppercase tracking-wide">Investment Strategy</div>
               <div className="flex flex-wrap gap-4 mb-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input 
@@ -1319,9 +1408,9 @@ export default function App(){
                     value="lump_sum" 
                     checked={investmentMode === "lump_sum"}
                     onChange={(e)=>setInvestmentMode(e.target.value)}
-                    className="text-blue-600"
+                    className="accent-bloomberg-accent"
                   />
-                  <span className="text-sm font-medium">Lump Sum Only</span>
+                  <span className="text-xs font-medium text-bloomberg-text">Lump Sum Only</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input 
@@ -1330,9 +1419,9 @@ export default function App(){
                     value="recurring" 
                     checked={investmentMode === "recurring"}
                     onChange={(e)=>setInvestmentMode(e.target.value)}
-                    className="text-blue-600"
+                    className="accent-bloomberg-accent"
                   />
-                  <span className="text-sm font-medium">Monthly Recurring Only</span>
+                  <span className="text-xs font-medium text-bloomberg-text">Monthly Recurring Only</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input 
@@ -1341,106 +1430,109 @@ export default function App(){
                     value="hybrid" 
                     checked={investmentMode === "hybrid"}
                     onChange={(e)=>setInvestmentMode(e.target.value)}
-                    className="text-blue-600"
+                    className="accent-bloomberg-accent"
                   />
-                  <span className="text-sm font-medium">Lump Sum + Monthly</span>
+                  <span className="text-xs font-medium text-bloomberg-text">Lump Sum + Monthly</span>
                 </label>
               </div>
               
               {investmentMode === "lump_sum" ? (
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Initial amount:</label>
+                  <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Initial amount:</label>
                   <input 
                     type="number" 
                     step={1000} 
                     value={initial} 
                     onChange={(e)=>setInitial(Number(e.target.value)||0)} 
-                    className="border rounded p-2 w-32 font-medium" 
+                    className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
                     placeholder="100000"
                   />
-                  <span className="text-sm text-gray-500">€</span>
+                  <span className="text-xs text-bloomberg-text-dim">€</span>
                 </div>
               ) : investmentMode === "recurring" ? (
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Monthly investment:</label>
+                  <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Monthly investment:</label>
                   <input 
                     type="number" 
                     step={100} 
                     value={monthlyInvestment} 
                     onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
-                    className="border rounded p-2 w-32 font-medium" 
+                    className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
                     placeholder="1000"
                   />
-                  <span className="text-sm text-gray-500">€/month</span>
+                  <span className="text-xs text-bloomberg-text-dim">€/month</span>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-600">Initial lump sum:</label>
+                    <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Initial lump sum:</label>
                     <input 
                       type="number" 
                       step={1000} 
                       value={initial} 
                       onChange={(e)=>setInitial(Number(e.target.value)||0)} 
-                      className="border rounded p-2 w-32 font-medium" 
+                      className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
                       placeholder="100000"
                     />
-                    <span className="text-sm text-gray-500">€</span>
+                    <span className="text-xs text-bloomberg-text-dim">€</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-600">Monthly investment:</label>
+                    <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Monthly investment:</label>
                     <input 
                       type="number" 
                       step={100} 
                       value={monthlyInvestment} 
                       onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
-                      className="border rounded p-2 w-32 font-medium" 
+                      className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
                       placeholder="1000"
                     />
-                    <span className="text-sm text-gray-500">€/month</span>
+                    <span className="text-xs text-bloomberg-text-dim">€/month</span>
                   </div>
                 </div>
               )}
             </div>
             
             <div className="grid md:grid-cols-5 gap-4">
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">
+              <div className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in rounded" style={{animationDelay: '0.1s'}}>
+                <div className="text-xs font-bold text-bloomberg-text-dim uppercase tracking-wide">
                   {(investmentMode === "recurring" || investmentMode === "hybrid") ? "Total Invested" : "Initial Investment"}
                 </div>
-                <div className="text-lg font-bold mt-2">
+                <div className="text-base font-bold mt-2 text-bloomberg-text">
                   {(investmentMode === "recurring" || investmentMode === "hybrid")
                     ? euroTick(metrics.totalInvested[metrics.totalInvested.length-1] || 0)
                     : euroTick(initial)
                   }
                 </div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">Final Value</div>
-                <div className="text-sm flex flex-col leading-6 mt-2">
-                  <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{euroTick(metrics.nominalValue[metrics.nominalValue.length-1]?.value)}</span></span>
-                  <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{euroTick(metrics.realValue[metrics.realValue.length-1]?.value)}</span></span>
+              <div className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in" style={{animationDelay: '0.2s'}}>
+                <div className="text-xs font-bold text-bloomberg-text-dim uppercase tracking-wide">Final Value</div>
+                <div className="text-xs flex flex-col leading-6 mt-2">
+                  <span><span className="text-bloomberg-text-dim">Nominal:</span> <span className="font-semibold text-bloomberg-text">{euroTick(metrics.nominalValue[metrics.nominalValue.length-1]?.value)}</span></span>
+                  <span><span className="text-bloomberg-text-dim">Real:</span> <span className="font-semibold text-bloomberg-text">{euroTick(metrics.realValue[metrics.realValue.length-1]?.value)}</span></span>
                 </div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">CAGR</div>
-                <div className="text-sm flex flex-col leading-6 mt-2">
-                  <span><span className="text-gray-500">Nominal:</span> <span className="font-semibold">{(metrics.cagr*100).toFixed(2)}%</span></span>
-                  <span><span className="text-gray-500">Real:</span> <span className="font-semibold">{(metrics.realCagr*100).toFixed(2)}%</span></span>
+              <div className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in" style={{animationDelay: '0.3s'}}>
+                <div className="text-xs font-bold text-bloomberg-text-dim uppercase tracking-wide">CAGR</div>
+                <div className="text-xs flex flex-col leading-6 mt-2">
+                  <span><span className="text-bloomberg-text-dim">Nominal:</span> <span className={`font-semibold ${metrics.cagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(metrics.cagr*100).toFixed(2)}%</span></span>
+                  <span><span className="text-bloomberg-text-dim">Real:</span> <span className={`font-semibold ${metrics.realCagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(metrics.realCagr*100).toFixed(2)}%</span></span>
                 </div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">Risk Ratios (rf={rf})</div>
-                <div className="text-sm flex flex-col leading-6 mt-2">
-                  <span><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{metrics.sharpe.toFixed(2)}</span></span>
-                  <span><span className="text-gray-500">Sortino:</span> <span className="font-semibold">{metrics.sortino.toFixed(2)}</span></span>
+              <div className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in" style={{animationDelay: '0.4s'}}>
+                <div className="text-xs font-bold text-bloomberg-text-dim uppercase tracking-wide">Risk Ratios (rf={rf})</div>
+                <div className="text-xs flex flex-col leading-6 mt-2">
+                  <span><span className="text-bloomberg-text-dim">Sharpe:</span> <span className="font-semibold text-bloomberg-text">{metrics.sharpe.toFixed(2)}</span></span>
+                  <span><span className="text-bloomberg-text-dim">Sortino:</span> <span className="font-semibold text-bloomberg-text">{metrics.sortino.toFixed(2)}</span></span>
                 </div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4">
-                <div className="text-sm font-bold text-gray-700">Risk (Annualized)</div>
-                <div className="text-sm flex flex-col leading-6 mt-2">
-                  <span><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(metrics.vol*100).toFixed(2)}%</span></span>
-                  <span><span className="text-gray-500">Max Drawdown:</span> <span className="font-semibold">{(metrics.maxDrawdown*100).toFixed(2)}%</span></span>
+              <div className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in" style={{animationDelay: '0.5s'}}>
+                <div className="text-xs font-bold text-bloomberg-text-dim uppercase tracking-wide">Risk (Annualized)</div>
+                <div className="text-xs flex flex-col leading-6 mt-2">
+                  <span><span className="text-bloomberg-text-dim">Volatility:</span> <span className="font-semibold text-bloomberg-text">{(metrics.vol*100).toFixed(2)}%</span></span>
+                  <span><span className="text-bloomberg-text-dim">Max Drawdown:</span> <span className="font-semibold text-bloomberg-negative">{(metrics.maxDrawdown*100).toFixed(2)}%</span></span>
+                  {metrics.timeToRecover && metrics.timeToRecover.length > 0 && (
+                    <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold text-bloomberg-text">{Math.max(...metrics.timeToRecover.map(r => r.months))} months</span></span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1449,26 +1541,26 @@ export default function App(){
 
         {/* Portfolio Comparison Summary */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Portfolio Comparison ({comparePortfolios.length} portfolios)</h2>
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-6 animate-slide-up rounded">
+            <h2 className="text-lg font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Portfolio Comparison ({comparePortfolios.length} portfolios)</h2>
             
             <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {comparePortfolios.map((portfolio, index) => (
-                <div key={portfolio.id} className="bg-gray-50 rounded-xl p-4">
-                  <div className="text-sm font-bold text-gray-700 mb-2 truncate" title={portfolio.name}>
+                <div key={portfolio.id} className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in rounded" style={{animationDelay: `${(index * 0.1)}s`}}>
+                  <div className="text-xs font-bold text-bloomberg-text mb-2 truncate" title={portfolio.name}>
                     {portfolio.name}
                   </div>
-                  <div className="text-xs text-gray-500 mb-3">
+                  <div className="text-[10px] text-bloomberg-text-dim mb-3 uppercase">
                     {savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "lump_sum" ? "Lump Sum" : 
                      savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
                   </div>
-                  <div className="text-sm flex flex-col leading-6 space-y-1">
-                    <div><span className="text-gray-500">CAGR:</span> <span className="font-semibold">{(portfolio.cagr*100).toFixed(2)}%</span></div>
-                    <div><span className="text-gray-500">Real CAGR:</span> <span className="font-semibold">{(portfolio.realCagr*100).toFixed(2)}%</span></div>
-                    <div><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(portfolio.vol*100).toFixed(2)}%</span></div>
-                    <div><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{portfolio.sharpe.toFixed(2)}</span></div>
-                    <div><span className="text-gray-500">Sortino:</span> <span className="font-semibold">{portfolio.sortino.toFixed(2)}</span></div>
-                    <div><span className="text-gray-500">Max DD:</span> <span className="font-semibold">{(portfolio.maxDrawdown*100).toFixed(2)}%</span></div>
+                  <div className="text-xs flex flex-col leading-6 space-y-1">
+                    <div><span className="text-bloomberg-text-dim">CAGR:</span> <span className={`font-semibold ${portfolio.cagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(portfolio.cagr*100).toFixed(2)}%</span></div>
+                    <div><span className="text-bloomberg-text-dim">Real CAGR:</span> <span className={`font-semibold ${portfolio.realCagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(portfolio.realCagr*100).toFixed(2)}%</span></div>
+                    <div><span className="text-bloomberg-text-dim">Volatility:</span> <span className="font-semibold text-bloomberg-text">{(portfolio.vol*100).toFixed(2)}%</span></div>
+                    <div><span className="text-bloomberg-text-dim">Sharpe:</span> <span className="font-semibold text-bloomberg-text">{portfolio.sharpe.toFixed(2)}</span></div>
+                    <div><span className="text-bloomberg-text-dim">Sortino:</span> <span className="font-semibold text-bloomberg-text">{portfolio.sortino.toFixed(2)}</span></div>
+                    <div><span className="text-bloomberg-text-dim">Max DD:</span> <span className="font-semibold text-bloomberg-negative">{(portfolio.maxDrawdown*100).toFixed(2)}%</span></div>
                   </div>
                 </div>
               ))}
@@ -1477,36 +1569,20 @@ export default function App(){
         )}
 
         {/* Portfolio Analysis */}
-        {metrics && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Portfolio Analysis</h2>
-            <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
-              <div className="text-sm text-blue-800">
-                <p className="mb-2"><strong>Investment Strategy:</strong> You're using a {
+        {false && metrics && perfTab==='portfolio' && (
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-6 animate-fade-in rounded">
+            <h2 className="text-lg font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Portfolio Analysis</h2>
+                <div className="bg-bloomberg-bg border-l-4 border-bloomberg-accent p-4 mb-6 rounded">
+              <div className="text-xs text-bloomberg-text space-y-2">
+                <p><strong>Strategy:</strong> {
                   investmentMode === "recurring" 
-                    ? `monthly recurring investment of ${euroTick(monthlyInvestment)}` 
+                    ? `${euroTick(monthlyInvestment)}/month recurring` 
                     : investmentMode === "hybrid"
-                    ? `hybrid approach with ${euroTick(initial)} initial lump sum plus ${euroTick(monthlyInvestment)} monthly contributions`
-                    : `lump sum investment of ${euroTick(initial)}`
-                }. {
-                  investmentMode === "recurring" 
-                    ? 'This dollar-cost averaging approach helps reduce timing risk and can smooth out market volatility over time.' 
-                    : investmentMode === "hybrid"
-                    ? 'This hybrid approach combines immediate market exposure with dollar-cost averaging benefits, balancing timing risk with consistent investing.'
-                    : 'This lump sum approach captures full market exposure immediately but may be subject to timing risk.'
-                }</p>
+                    ? `${euroTick(initial)} initial + ${euroTick(monthlyInvestment)}/month`
+                    : `${euroTick(initial)} lump sum`
+                } • <strong>Performance:</strong> {(metrics.cagr*100).toFixed(2)}% CAGR, {(metrics.vol*100).toFixed(2)}% vol, {Math.abs(metrics.maxDrawdown*100).toFixed(2)}% max DD</p>
                 
-                <p className="mb-2"><strong>Current Portfolio Performance:</strong> Your portfolio shows a {(metrics.cagr*100).toFixed(2)}% nominal CAGR with {(metrics.vol*100).toFixed(2)}% volatility and a maximum drawdown of {Math.abs(metrics.maxDrawdown*100).toFixed(2)}%.</p>
-                
-                <p className="mb-2"><strong>Strengths:</strong> {metrics.sharpe > 1 ? 'Excellent risk-adjusted returns with Sharpe ratio above 1.0' : metrics.sharpe > 0.5 ? 'Good risk-adjusted returns' : 'Room for improvement in risk-adjusted returns'}. The diversified approach helps reduce overall portfolio volatility.</p>
-                
-                <p><strong>Improvement Suggestions:</strong> {
-                  investmentMode === "recurring" 
-                    ? 'Consider increasing monthly contributions during market downturns to take advantage of lower prices.' 
-                    : investmentMode === "hybrid"
-                    ? 'Your hybrid approach is well-balanced. Consider adjusting the monthly contribution amount based on market conditions or income changes.'
-                    : 'Consider adding recurring investments to reduce timing risk and benefit from dollar-cost averaging.'
-                } {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration in any single asset above 40%' : 'Asset allocation appears well-diversified'}. Regular rebalancing ({rebalance.toLowerCase()}) helps maintain target allocations and can enhance long-term returns.</p>
+                <p><strong>Risk-Adjusted:</strong> {metrics.sharpe > 1 ? 'Excellent' : metrics.sharpe > 0.5 ? 'Good' : 'Needs improvement'} Sharpe ({metrics.sharpe.toFixed(2)}) • <strong>Allocation:</strong> {Object.values(weights).some(w => w > 0.4) ? 'Consider reducing concentration >40%' : 'Well-diversified'} • <strong>Rebalancing:</strong> {rebalance.toLowerCase()}</p>
               </div>
             </div>
           </div>
@@ -1514,29 +1590,29 @@ export default function App(){
 
         {/* Portfolio Value */}
         {metrics && perfTab==='portfolio' && !compareMode && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 animate-fade-in rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Portfolio Value (€): Nominal vs Real — Avg Italy inflation ≈ {(metrics.avgInfl*100).toFixed(2)}% p.a.</h3>
-              <button onClick={exportPortfolioValue} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
+              <button onClick={exportPortfolioValue} className="p-2 rounded hover:bg-bloomberg-border" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
-            <p className="text-sm text-gray-600 mb-3">This chart shows how your portfolio value grows over time. The blue line represents nominal returns (not adjusted for inflation), while the green line shows real returns (purchasing power after accounting for Italian CPI inflation).{(investmentMode === "recurring" || investmentMode === "hybrid") ? " The gray line shows your cumulative invested amount." : ""}</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">This chart shows how your portfolio value grows over time. The blue line represents nominal returns (not adjusted for inflation), while the green line shows real returns (purchasing power after accounting for Italian CPI inflation).{(investmentMode === "recurring" || investmentMode === "hybrid") ? " The gray line shows your cumulative invested amount." : ""}</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics.nominalValue.map((p,i)=>({
+                  <LineChart data={metrics.nominalValue.map((p,i)=>({
                   date:p.date, 
                   nominal:p.value, 
                   real:metrics.realValue[i].value,
                   ...((investmentMode === "recurring" || investmentMode === "hybrid") ? {invested: metrics.totalInvested[i]} : {})
-                }))}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis tickFormatter={euroTick} />
-                  <Tooltip formatter={euroTick} labelFormatter={(l)=>l.slice(0,10)} />
-                  <Legend />
-                  <Line type="monotone" dataKey="nominal" dot={false} strokeWidth={3} stroke="#2563eb" name="Nominal Value" />
-                  <Line type="monotone" dataKey="real" dot={false} strokeWidth={3} stroke="#10b981" name="Real Value" />
+                }))} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={euroTick} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={euroTick} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <Legend wrapperStyle={{color: '#d4d4d4'}} />
+                  <Line type="monotone" dataKey="nominal" dot={false} strokeWidth={3} stroke="#00d4aa" name="Nominal Value" isAnimationActive={true} animationDuration={1000} />
+                  <Line type="monotone" dataKey="real" dot={false} strokeWidth={3} stroke="#00a8ff" name="Real Value" isAnimationActive={true} animationDuration={1000} />
                   {(investmentMode === "recurring" || investmentMode === "hybrid") && (
-                    <Line type="monotone" dataKey="invested" dot={false} strokeWidth={2} stroke="#6b7280" strokeDasharray="5 5" name="Total Invested" />
+                    <Line type="monotone" dataKey="invested" dot={false} strokeWidth={2} stroke="#8b949e" strokeDasharray="5 5" name="Total Invested" isAnimationActive={true} animationDuration={1000} />
                   )}
                 </LineChart>
               </ResponsiveContainer>
@@ -1546,11 +1622,11 @@ export default function App(){
 
         {/* Portfolio Comparison Value Chart */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 animate-fade-in rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Portfolio Value Comparison (Normalized to 100)</h3>
             </div>
-            <p className="text-sm text-gray-600 mb-3">This chart compares the performance of selected portfolios over time. All portfolios are normalized to start at 100 for easy comparison.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">This chart compares the performance of selected portfolios over time. All portfolios are normalized to start at 100 for easy comparison.</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={comparePortfolios[0]?.nominalIndex.map((point, index) => {
@@ -1560,13 +1636,13 @@ export default function App(){
                   });
                   return dataPoint;
                 }) || []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis tickFormatter={(v)=>v.toFixed(0)} />
-                  <Tooltip formatter={(v)=>v.toFixed(2)} labelFormatter={(l)=>l.slice(0,10)} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
                   <Legend />
                   {comparePortfolios.map((portfolio, index) => {
-                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
                     return (
                       <Line 
                         key={portfolio.id}
@@ -1576,6 +1652,8 @@ export default function App(){
                         strokeWidth={3} 
                         stroke={colors[index % colors.length]} 
                         name={portfolio.name}
+                        isAnimationActive={true}
+                        animationDuration={800}
                       />
                     );
                   })}
@@ -1587,23 +1665,23 @@ export default function App(){
 
         {/* Drawdowns with min highlight */}
         {metrics && perfTab==='portfolio' && !compareMode && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Max Drawdowns Over Time (Nominal)</h3>
-              <button onClick={exportDrawdowns} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
+              <button onClick={exportDrawdowns} className="p-2 rounded hover:bg-bloomberg-border" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Drawdowns represent the decline from peak portfolio value. The red dot marks the worst drawdown period. Lower drawdowns indicate better downside protection.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Drawdowns represent the decline from peak portfolio value. The red dot marks the worst drawdown period. Lower drawdowns indicate better downside protection.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={metrics.drawdowns}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis tickFormatter={(v)=>(v*100).toFixed(0)+"%"} />
-                  <Tooltip formatter={(v)=>(v*100).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
-                  <ReferenceLine y={0} stroke="#999" />
-                  <Area type="monotone" dataKey="value" stroke="#8884d8" fillOpacity={1} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={(v)=>(v*100).toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v)=>(v*100).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <ReferenceLine y={0} stroke="#8b949e" />
+                  <Area type="monotone" dataKey="value" stroke="#ff6b6b" fill="#ff6b6b" fillOpacity={0.3} isAnimationActive={true} animationDuration={1000} />
                   {metrics.ddMinPoint && (
-                    <ReferenceDot x={metrics.ddMinPoint.date} y={metrics.ddMinPoint.value} r={6} fill="#dc2626" stroke="#991b1b" />
+                    <ReferenceDot x={metrics.ddMinPoint.date} y={metrics.ddMinPoint.value} r={6} fill="#ff6b6b" stroke="#d4d4d4" />
                   )}
                 </AreaChart>
               </ResponsiveContainer>
@@ -1613,11 +1691,11 @@ export default function App(){
 
         {/* Portfolio Comparison Drawdowns Chart */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Drawdowns Comparison</h3>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Compare drawdowns across selected portfolios. Lower values indicate better downside protection.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Compare drawdowns across selected portfolios. Lower values indicate better downside protection.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={comparePortfolios[0]?.drawdowns.map((point, index) => {
@@ -1627,14 +1705,14 @@ export default function App(){
                   });
                   return dataPoint;
                 }) || []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
-                  <ReferenceLine y={0} stroke="#999" />
-                  <Legend />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <ReferenceLine y={0} stroke="#8b949e" />
+                  <Legend wrapperStyle={{color: '#d4d4d4'}} />
                   {comparePortfolios.map((portfolio, index) => {
-                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
                     return (
                       <Line 
                         key={portfolio.id}
@@ -1644,6 +1722,8 @@ export default function App(){
                         strokeWidth={3} 
                         stroke={colors[index % colors.length]} 
                         name={portfolio.name}
+                        isAnimationActive={true}
+                        animationDuration={800}
                       />
                     );
                   })}
@@ -1653,17 +1733,118 @@ export default function App(){
           </div>
         )}
 
+        {/* Time to Recover Chart */}
+        {metrics && perfTab==='portfolio' && !compareMode && metrics.timeToRecover && metrics.timeToRecover.length > 0 && (
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Time to Recover from Drawdowns</h3>
+            </div>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Shows how long it took the portfolio to recover from each drawdown. Each bar represents a recovery period in months. Lower recovery times indicate better resilience.</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={metrics.timeToRecover.map((r, i) => ({
+                  recovery: `Recovery ${i + 1}`,
+                  months: r.months,
+                  date: r.date.slice(0, 7),
+                  ongoing: r.ongoing || false
+                }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="recovery" stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis label={{ value: 'Months', angle: -90, position: 'insideLeft', style: {fill: '#8b949e', fontSize: 11} }} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip 
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload[0]) return null;
+                      const index = parseInt(payload[0].payload.recovery.match(/\d+/)?.[0]) - 1;
+                      const recovery = metrics.timeToRecover[index];
+                      if (!recovery) return null;
+                      return (
+                        <div className="bg-bloomberg-panel border border-bloomberg-border p-2 rounded" style={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}}>
+                          <p className="font-semibold text-xs">{`${payload[0].value} months${recovery.ongoing ? ' (ongoing)' : ''}`}</p>
+                          <p className="text-xs text-bloomberg-text-dim">Started: {recovery.date.slice(0, 7)}</p>
+                          <p className="text-xs text-bloomberg-text-dim">Recovered: {recovery.recoveryDate.slice(0, 7)}</p>
+                          <p className="text-xs text-bloomberg-text-dim">Drawdown: {(recovery.drawdownDepth * 100).toFixed(2)}%</p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="months" fill="#00d4aa" isAnimationActive={true} animationDuration={800}>
+                    {metrics.timeToRecover.map((r, i) => (
+                      <Cell key={i} fill={r.ongoing ? '#ff6b6b' : '#00d4aa'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Portfolio Comparison Time to Recover Chart */}
+        {compareMode && comparePortfolios && perfTab==='portfolio' && (
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold">Time to Recover Comparison</h3>
+            </div>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Compare recovery times across selected portfolios. Each bar shows recovery time in months. Red bars indicate ongoing drawdowns. Lower values indicate faster recovery.</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart 
+                  data={(() => {
+                    // Find max number of recoveries across all portfolios
+                    const maxRecoveries = Math.max(...comparePortfolios.map(p => (p.timeToRecover?.length || 0)));
+                    const data = [];
+                    
+                    for(let i = 0; i < maxRecoveries; i++) {
+                      const dataPoint = { recovery: `Recovery ${i + 1}` };
+                      comparePortfolios.forEach((portfolio) => {
+                        if (portfolio.timeToRecover && portfolio.timeToRecover[i]) {
+                          dataPoint[portfolio.name] = portfolio.timeToRecover[i].months;
+                        }
+                      });
+                      data.push(dataPoint);
+                    }
+                    return data;
+                  })()}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="recovery" stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis label={{ value: 'Months', angle: -90, position: 'insideLeft', style: {fill: '#8b949e', fontSize: 11} }} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v) => `${v} months`} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <Legend wrapperStyle={{color: '#d4d4d4'}} />
+                  {comparePortfolios.map((portfolio, index) => {
+                    const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
+                    return (
+                      <Bar 
+                        key={portfolio.id}
+                        dataKey={portfolio.name}
+                        fill={colors[index % colors.length]}
+                        name={portfolio.name}
+                      >
+                        {(() => {
+                          const portfolioRecoveries = portfolio.timeToRecover || [];
+                          return portfolioRecoveries.map((r, i) => (
+                            <Cell key={i} fill={r.ongoing ? '#ff6b6b' : colors[index % colors.length]} />
+                          ));
+                        })()}
+                      </Bar>
+                    );
+                  })}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Rolling N-Year CAGR with min/max + average */}
         {metrics && perfTab==='portfolio' && !compareMode && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Rolling {rollingYears}-Year Buy & Hold (Annualized)</h3>
               <div className="flex gap-2 items-center">
-                <input type="number" min={1} max={40} value={rollingYears} onChange={(e)=>setRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border rounded p-1" />
-                <button onClick={exportRolling} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
+                <input type="number" min={1} max={40} value={rollingYears} onChange={(e)=>setRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-1" />
+                <button onClick={exportRolling} className="p-2 rounded hover:bg-bloomberg-border" title="Download CSV" aria-label="Download CSV">⬇️</button>
               </div>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Shows annualized returns for any {rollingYears}-year holding period. Red/green dots mark worst/best periods. The gray line shows the average across all periods, helping assess return consistency.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Shows annualized returns for any {rollingYears}-year holding period. Red/green dots mark worst/best periods. The gray line shows the average across all periods, helping assess return consistency.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={metrics.rolling.map(d=>({date:d.date, value:d.value*100}))}>
@@ -1684,14 +1865,14 @@ export default function App(){
 
         {/* Portfolio Comparison Rolling Returns Chart */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Rolling 10-Year Returns Comparison</h3>
               <div className="flex gap-2 items-center">
-                <input type="number" min={1} max={40} value={rollingYears} onChange={(e)=>setRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border rounded p-1" />
+                <input type="number" min={1} max={40} value={rollingYears} onChange={(e)=>setRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-1" />
               </div>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Compare rolling returns across selected portfolios for different holding periods.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Compare rolling returns across selected portfolios for different holding periods.</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={comparePortfolios[0]?.rolling.map((point, index) => {
@@ -1701,14 +1882,14 @@ export default function App(){
                   });
                   return dataPoint;
                 }) || []}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
-                  <ReferenceLine y={0} stroke="#dc2626" />
-                  <Legend />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v)=>v.toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <ReferenceLine y={0} stroke="#ff6b6b" />
+                  <Legend wrapperStyle={{color: '#d4d4d4'}} />
                   {comparePortfolios.map((portfolio, index) => {
-                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
                     return (
                       <Line 
                         key={portfolio.id}
@@ -1718,6 +1899,8 @@ export default function App(){
                         strokeWidth={3} 
                         stroke={colors[index % colors.length]} 
                         name={portfolio.name}
+                        isAnimationActive={true}
+                        animationDuration={800}
                       />
                     );
                   })}
@@ -1729,35 +1912,35 @@ export default function App(){
 
         {/* Annual Returns with min/max highlights */}
         {metrics && perfTab==='portfolio' && !compareMode && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Annual Returns: Nominal vs Real (Italy CPI)</h3>
-              <button onClick={exportAnnualReturns} className="p-2 rounded hover:bg-gray-100" title="Download CSV" aria-label="Download CSV">⬇️</button>
+              <button onClick={exportAnnualReturns} className="p-2 rounded hover:bg-bloomberg-border" title="Download CSV" aria-label="Download CSV">⬇️</button>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Year-by-year performance comparison. Green bars show nominal returns, blue bars show inflation-adjusted real returns. Highlighted borders mark best/worst performing years.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Year-by-year performance comparison. Green bars show nominal returns, blue bars show inflation-adjusted real returns. Highlighted borders mark best/worst performing years.</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={(metrics.annualNominal||[]).map((r,i)=>({year:r.year, nominal:r.nominal*100, real:(metrics.annualReal[i]?.nominal??0)*100}))}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                  <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} />
-                  <Legend />
-                  <Bar dataKey="nominal" fill="#16a34a">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                  <XAxis dataKey="year" stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
+                  <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <Legend wrapperStyle={{color: '#d4d4d4'}} />
+                  <Bar dataKey="nominal" fill="#00d4aa" isAnimationActive={true} animationDuration={800}>
                     {(metrics.annualNominal||[]).map((r,i)=>{
                       const isMin=i===metrics.annualMinNomIdx, isMax=i===metrics.annualMaxNomIdx;
-                      const base=(r.nominal>=0)?"#16a34a":"#dc2626";
-                      const stroke=isMin?"#991b1b": (isMax?"#166534": undefined);
+                      const base=(r.nominal>=0)?"#00d4aa":"#ff6b6b";
+                      const stroke=isMin?"#ff6b6b": (isMax?"#00d4aa": undefined);
                       const sw=(isMin||isMax)?2:0;
                       return <Cell key={`n-${i}`} fill={base} stroke={stroke} strokeWidth={sw} />;
                     })}
                   </Bar>
-                  <Bar dataKey="real" fill="#0ea5e9">
+                  <Bar dataKey="real" fill="#00a8ff" isAnimationActive={true} animationDuration={800}>
                     {(metrics.annualReal||[]).map((r,i)=>{
                       const val=(r?.nominal??0);
                       const isMin=i===metrics.annualMinRealIdx, isMax=i===metrics.annualMaxRealIdx;
-                      const base=(val>=0)?"#16a34a":"#dc2626";
-                      const stroke=isMin?"#991b1b": (isMax?"#166534": undefined);
+                      const base=(val>=0)?"#00a8ff":"#ff6b6b";
+                      const stroke=isMin?"#ff6b6b": (isMax?"#00a8ff": undefined);
                       const sw=(isMin||isMax)?2:0;
                       return <Cell key={`r-${i}`} fill={base} stroke={stroke} strokeWidth={sw} />;
                     })}
@@ -1770,11 +1953,11 @@ export default function App(){
 
         {/* Portfolio Comparison Annual Returns Chart */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
-          <div className="bg-white rounded-2xl shadow p-4">
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 rounded">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold">Annual Returns Comparison</h3>
             </div>
-            <p className="text-sm text-gray-600 mb-3">Compare year-by-year returns across selected portfolios.</p>
+            <p className="text-sm text-bloomberg-text-dim mb-3">Compare year-by-year returns across selected portfolios.</p>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={comparePortfolios[0]?.annualNominal.map((point, index) => {
@@ -1790,7 +1973,7 @@ export default function App(){
                   <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} />
                   <Legend />
                   {comparePortfolios.map((portfolio, index) => {
-                    const colors = ['#2563eb', '#dc2626', '#059669', '#7c3aed', '#ea580c', '#0891b2', '#be123c', '#65a30d'];
+                    const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
                     return (
                       <Bar 
                         key={portfolio.id}
@@ -1808,35 +1991,40 @@ export default function App(){
 
         {/* Performance by Asset */}
         {perfTab==='assets' && assetsWithWeight.length > 0 && perAssetsCombined && (
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Performance by Asset</h2>
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-4 sm:p-6 animate-fade-in rounded">
+            <h2 className="text-lg sm:text-xl font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Performance by Asset</h2>
 
             {/* Controls */}
-            <div className="mb-4 flex items-center gap-3">
-              <label className="text-sm text-gray-600">Initial amount for per-asset final value:</label>
-              <input 
-                type="number" 
-                step={1000} 
-                value={initial} 
-                onChange={(e)=>setInitial(Number(e.target.value)||0)} 
-                className="border rounded p-2 w-32 font-medium" 
-                placeholder="100000"
-              />
-              <span className="text-sm text-gray-500">€</span>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              <label className="text-xs sm:text-sm text-bloomberg-text-dim">Initial amount for per-asset final value:</label>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="number" 
+                  step={1000} 
+                  value={initial} 
+                  onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                  className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-2 w-32 font-medium text-xs sm:text-sm" 
+                  placeholder="100000"
+                />
+                <span className="text-xs sm:text-sm text-bloomberg-text-dim">€</span>
+              </div>
             </div>
 
             {/* Asset Summary */}
-            <div className="grid md:grid-cols-4 gap-4 mb-6">
-              {assetSummaries.map((s)=> (
-                <div key={s.asset} className="bg-gray-50 rounded-xl p-4">
-                  <div className="text-sm font-bold text-gray-700 truncate" title={s.asset}>{s.asset}</div>
-                  <div className="text-xs text-gray-500 capitalize mt-1">{getAssetCategory(s.asset)}</div>
-                  <div className="text-sm flex flex-col leading-6 mt-2">
-                    <span><span className="text-gray-500">CAGR:</span> <span className="font-semibold">{(s.cagr*100).toFixed(2)}%</span></span>
-                    <span><span className="text-gray-500">Volatility:</span> <span className="font-semibold">{(s.vol*100).toFixed(2)}%</span></span>
-                    <span><span className="text-gray-500">Sharpe:</span> <span className="font-semibold">{s.sharpe.toFixed(2)}</span></span>
-                    <span><span className="text-gray-500">Max DD:</span> <span className="font-semibold">{(s.maxDrawdown*100).toFixed(2)}%</span></span>
-                    <span><span className="text-gray-500">Final Value:</span> <span className="font-semibold">{euroTick(s.finalValue)}</span></span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              {assetSummaries.map((s, idx)=> (
+                <div key={s.asset} className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in rounded" style={{animationDelay: `${(idx * 0.1)}s`}}>
+                  <div className="text-xs sm:text-sm font-bold text-bloomberg-text truncate" title={s.asset}>{s.asset}</div>
+                  <div className="text-[10px] sm:text-xs text-bloomberg-text-dim capitalize mt-1">{getAssetCategory(s.asset)}</div>
+                  <div className="text-xs sm:text-sm flex flex-col leading-5 sm:leading-6 mt-2">
+                    <span><span className="text-bloomberg-text-dim">CAGR:</span> <span className="font-semibold">{(s.cagr*100).toFixed(2)}%</span></span>
+                    <span><span className="text-bloomberg-text-dim">Volatility:</span> <span className="font-semibold">{(s.vol*100).toFixed(2)}%</span></span>
+                    <span><span className="text-bloomberg-text-dim">Sharpe:</span> <span className="font-semibold">{s.sharpe.toFixed(2)}</span></span>
+                    <span><span className="text-bloomberg-text-dim">Max DD:</span> <span className="font-semibold">{(s.maxDrawdown*100).toFixed(2)}%</span></span>
+                    {s.maxTimeToRecover > 0 && (
+                      <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold">{s.maxTimeToRecover} months</span></span>
+                    )}
+                    <span><span className="text-bloomberg-text-dim">Final Value:</span> <span className="font-semibold">{euroTick(s.finalValue)}</span></span>
                   </div>
                 </div>
               ))}
@@ -1844,25 +2032,26 @@ export default function App(){
 
             {/* Rolling 10-Year Annualized */}
             <div className="mb-8">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">Rolling {assetRollingYears}-Year Annualized</h3>
-                <div className="flex items-center gap-2 text-sm">
-                  <label className="text-gray-600">Years:</label>
-                  <input type="number" min={1} max={40} value={assetRollingYears} onChange={(e)=>setAssetRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border rounded p-1" />
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                <h3 className="text-xs sm:text-sm font-semibold">Rolling {assetRollingYears}-Year Annualized</h3>
+                <div className="flex items-center gap-2 text-xs sm:text-sm">
+                  <label className="text-bloomberg-text-dim">Years:</label>
+                  <input type="number" min={1} max={40} value={assetRollingYears} onChange={(e)=>setAssetRollingYears(Math.max(1, Number(e.target.value)||10))} className="w-20 border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-1 text-xs" />
                 </div>
               </div>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-72 sm:h-80 w-full overflow-x-auto">
+                <ResponsiveContainer width="100%" height="100%" minHeight={288}>
                   <LineChart data={perAssetsCombined.rollingData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
-                    <ReferenceLine y={0} stroke="#dc2626" />
-                    <Legend />
-                    {perAssetsCombined.assets.map((asset, idx)=> (
-                      <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={2} stroke={`hsl(${(idx*137.5)%360},70%,50%)`} />
-                    ))}
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4', fontSize: '11px'}} />
+                    <ReferenceLine y={0} stroke="#ff6b6b" />
+                    <Legend wrapperStyle={{color: '#d4d4d4', fontSize: '10px'}} />
+                    {perAssetsCombined.assets.map((asset, idx)=> {
+                      const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
+                      return <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={2} stroke={colors[idx % colors.length]} isAnimationActive={true} animationDuration={800} />;
+                    })}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1870,19 +2059,20 @@ export default function App(){
 
             {/* Max Drawdowns */}
             <div className="mb-8">
-              <h3 className="font-semibold mb-2">Max Drawdowns</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
+              <h3 className="text-xs sm:text-sm font-semibold mb-2">Max Drawdowns</h3>
+              <div className="h-72 sm:h-80 w-full overflow-x-auto">
+                <ResponsiveContainer width="100%" height="100%" minHeight={288}>
                   <LineChart data={perAssetsCombined.ddData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} />
-                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} />
-                    <ReferenceLine y={0} stroke="#999" />
-                    <Legend />
-                    {perAssetsCombined.assets.map((asset, idx)=> (
-                      <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={3} stroke={`hsl(${(idx*137.5)%360},70%,40%)`} />
-                    ))}
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                    <XAxis dataKey="date" tickFormatter={(d)=>d.slice(0,7)} minTickGap={32} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} labelFormatter={(l)=>l.slice(0,10)} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4', fontSize: '11px'}} />
+                    <ReferenceLine y={0} stroke="#8b949e" />
+                    <Legend wrapperStyle={{color: '#d4d4d4', fontSize: '10px'}} />
+                    {perAssetsCombined.assets.map((asset, idx)=> {
+                      const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
+                      return <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={3} stroke={colors[idx % colors.length]} isAnimationActive={true} animationDuration={800} />;
+                    })}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1890,18 +2080,19 @@ export default function App(){
 
             {/* Annual Returns */}
             <div>
-              <h3 className="font-semibold mb-2">Annual Returns</h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
+              <h3 className="text-xs sm:text-sm font-semibold mb-2">Annual Returns</h3>
+              <div className="h-80 sm:h-96 w-full overflow-x-auto">
+                <ResponsiveContainer width="100%" height="100%" minHeight={320}>
                   <BarChart data={perAssetsCombined.annualData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="year" />
-                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} />
-                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} />
-                    <Legend />
-                    {perAssetsCombined.assets.map((asset, idx)=> (
-                      <Bar key={asset} dataKey={asset} fill={`hsl(${(idx*137.5)%360},70%,50%)`} />
-                    ))}
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                    <XAxis dataKey="year" stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <YAxis tickFormatter={(v)=>v.toFixed(0)+"%"} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <Tooltip formatter={(v)=>Number(v).toFixed(2)+"%"} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4', fontSize: '11px'}} />
+                    <Legend wrapperStyle={{color: '#d4d4d4', fontSize: '10px'}} />
+                    {perAssetsCombined.assets.map((asset, idx)=> {
+                      const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
+                      return <Bar key={asset} dataKey={asset} fill={colors[idx % colors.length]} isAnimationActive={true} animationDuration={800} />;
+                    })}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -1912,9 +2103,9 @@ export default function App(){
 
         {/* Toast Notification */}
         {showToast && (
-          <div className="fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <div className="fixed top-4 right-4 bg-bloomberg-accent text-bloomberg-bg px-6 py-3 border border-bloomberg-accent z-50 flex items-center gap-2 font-mono text-xs uppercase tracking-wide animate-slide-in-right">
             <span>✓</span>
-            <span>URL Copied!</span>
+            <span>URL COPIED!</span>
           </div>
         )}
 
