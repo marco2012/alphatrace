@@ -61,6 +61,18 @@ const monthsBetween = (startStr, endStr) => {
   const s = new Date(startStr), e = new Date(endStr);
   return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
 };
+const formatMonthsAsYearsAndMonths = (months) => {
+  if (months === 0) return "0 months";
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+  if (years === 0) {
+    return `${months} month${months !== 1 ? 's' : ''}`;
+  } else if (remainingMonths === 0) {
+    return `${years} year${years !== 1 ? 's' : ''}`;
+  } else {
+    return `${years} year${years !== 1 ? 's' : ''}, ${remainingMonths} month${remainingMonths !== 1 ? 's' : ''}`;
+  }
+};
 const rangeMonths = (startStr, endStr) => {
   const out = [], n = monthsBetween(startStr, endStr);
   for (let i = 0; i <= n; i++) out.push(addMonths(startStr, i));
@@ -418,10 +430,13 @@ function rollingNCAGR(idxMap, years){
 const STORAGE_KEY_ROWS="backtester_rows_v1";
 const STORAGE_KEY_WEIGHTS="backtester_weights_v1";
 const STORAGE_KEY_PORTFOLIOS="backtester_portfolios_v1";
+const STORAGE_KEY_FONT_SIZE="backtester_font_size_v1";
 function saveToStorage(rows,weights){ try{ if(rows) localStorage.setItem(STORAGE_KEY_ROWS, JSON.stringify(rows)); if(weights) localStorage.setItem(STORAGE_KEY_WEIGHTS, JSON.stringify(weights)); }catch{} }
 function loadFromStorage(){ try{ return { rows: JSON.parse(localStorage.getItem(STORAGE_KEY_ROWS)||"null"), weights: JSON.parse(localStorage.getItem(STORAGE_KEY_WEIGHTS)||"null") }; }catch{ return {rows:null, weights:null}; } }
 function savePortfoliosToStorage(portfolios){ try{ localStorage.setItem(STORAGE_KEY_PORTFOLIOS, JSON.stringify(portfolios)); }catch{} }
 function loadPortfoliosFromStorage(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY_PORTFOLIOS)||"[]"); }catch{ return []; } }
+function saveFontSizeToStorage(fontSize){ try{ localStorage.setItem(STORAGE_KEY_FONT_SIZE, fontSize); }catch{} }
+function loadFontSizeFromStorage(){ try{ return localStorage.getItem(STORAGE_KEY_FONT_SIZE) || "small"; }catch{ return "small"; } }
 
 // URL sharing functions
 function encodePortfolioToUrl(weights, investmentMode, initial, monthlyInvestment, startDate, endDate, rebalance) {
@@ -505,11 +520,28 @@ export default function App(){
   const [portfolioName,setPortfolioName]=useState("");
   const [compareMode,setCompareMode]=useState(false);
   const [selectedPortfolios,setSelectedPortfolios]=useState([]);
+  const [includeCurrentPortfolio,setIncludeCurrentPortfolio]=useState(true);
+  const [comparisonSortBy,setComparisonSortBy]=useState("cagr"); // "cagr", "vol", "sharpe", "maxDrawdown", "maxTimeToRecover", "name"
+  const [comparisonSortOrder,setComparisonSortOrder]=useState("desc"); // "asc", "desc"
+  const [comparisonView,setComparisonView]=useState("table"); // "cards", "table"
   const [isLoadingData,setIsLoadingData]=useState(true);
   const [loadedFromUrl, setLoadedFromUrl] = useState(false);
+  const [fontSize,setFontSize]=useState(() => loadFontSizeFromStorage()); // "small", "medium", "large"
 
   useEffect(()=>{ const {rows:sr, weights:sw}=loadFromStorage(); if(sr?.length) setRows(sr); if(sw) setWeights(sw); },[]);
   useEffect(()=>{ setSavedPortfolios(loadPortfoliosFromStorage()); },[]);
+  
+  // Helper function to get text size class based on fontSize setting
+  const getTextSize = (baseSize = "xs") => {
+    const sizeMaps = {
+      small: { xs: "text-xs", sm: "text-sm", base: "text-base", lg: "text-lg", xl: "text-xl", "2xl": "text-2xl" },
+      medium: { xs: "text-sm", sm: "text-base", base: "text-lg", lg: "text-xl", xl: "text-2xl", "2xl": "text-3xl" },
+      large: { xs: "text-base", sm: "text-lg", base: "text-xl", lg: "text-2xl", xl: "text-3xl", "2xl": "text-4xl" }
+    };
+    return sizeMaps[fontSize]?.[baseSize] || `text-${baseSize}`;
+  };
+  
+  useEffect(()=>{ saveFontSizeToStorage(fontSize); },[fontSize]);
   
   // Load portfolio from URL parameters after data is loaded
   useEffect(() => {
@@ -913,7 +945,11 @@ export default function App(){
   };
 
   const comparePortfolios = useMemo(()=>{
-    if(!compareMode || selectedPortfolios.length === 0 || !norm) return null;
+    if(!compareMode || !norm) return null;
+    
+    // Include current portfolio if enabled and it has weights, plus selected saved portfolios
+    const hasCurrentPortfolio = includeCurrentPortfolio && Object.keys(weights).length > 0;
+    if(!hasCurrentPortfolio && selectedPortfolios.length === 0) return null;
     
     const {dates, series} = norm;
     const lastDate = endDate || dates[dates.length-1];
@@ -924,15 +960,92 @@ export default function App(){
     const aseries={}; for(const c of Object.keys(series)) aseries[c]=series[c].slice(i0, endIdx+1);
     
     const comparisons = [];
+    
+    // Add current portfolio first if it has weights
+    if(hasCurrentPortfolio){
+      let portfolioResult;
+      if(investmentMode === "recurring"){
+        portfolioResult = computeRecurringPortfolio(adates, aseries, weights, rebalance, monthlyInvestment);
+      } else if(investmentMode === "hybrid"){
+        portfolioResult = computeHybridPortfolio(adates, aseries, weights, rebalance, initial, monthlyInvestment);
+      } else {
+        portfolioResult = computePortfolio(adates, aseries, weights, rebalance);
+      }
+      
+      if(portfolioResult){
+        const entries = Object.entries(portfolioResult.idxMap).sort((a,b)=> (a[0]<b[0]?-1:1));
+        const pDates = entries.map(e=>e[0]);
+        const vals = entries.map(e=>e[1]);
+        const monthly = []; for(let i=1;i<vals.length;i++) monthly.push(vals[i]/vals[i-1]-1);
+        
+        const nominalIndex = pDates.map((d,i)=>({date:d, value: vals[i]}));
+        
+        // Calculate CPI-adjusted data
+        const cpi = buildItalyMonthlyCPI(pDates);
+        const realIdx = pDates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[pDates[0]]) )}));
+        
+        let nominalCAGR, realCAGR;
+        if(investmentMode === "recurring" || investmentMode === "hybrid"){
+          nominalCAGR = cagrRecurring(portfolioResult.portValues, portfolioResult.totalInvested);
+          const realValues = portfolioResult.portValues.map((val, i) => val / (cpi[pDates[i]]/cpi[pDates[0]]));
+          realCAGR = cagrRecurring(realValues, portfolioResult.totalInvested);
+        } else {
+          nominalCAGR = cagr(nominalIndex);
+          realCAGR = cagr(realIdx);
+        }
+        
+        // Calculate rolling returns
+        const rolling = rollingNCAGR(portfolioResult.idxMap, 10);
+        
+        // Calculate annual returns
+        const annualNominal = computeAnnualReturns(portfolioResult.idxMap);
+        const realIdxMap = {}; 
+        for(const r of realIdx) realIdxMap[r.date] = r.value;
+        const annualReal = computeAnnualReturns(realIdxMap);
+        
+        // Calculate time to recover
+        const timeToRecover = timeToRecoverFromIndex(portfolioResult.idxMap);
+        const maxTimeToRecover = timeToRecover.length > 0 
+          ? Math.max(...timeToRecover.map(r => r.months))
+          : 0;
+        
+        comparisons.push({
+          id: "current",
+          name: "Current Portfolio",
+          cagr: nominalCAGR,
+          realCagr: realCAGR,
+          vol: annualVol(monthly),
+          sharpe: sharpe(monthly, rf),
+          sortino: sortino(monthly, rf),
+          maxDrawdown: Math.min(...portfolioResult.drawdowns.map(d=>d.value)),
+          maxTimeToRecover,
+          finalValue: vals[vals.length-1],
+          portfolioResult,
+          nominalIndex,
+          realIndex: realIdx,
+          drawdowns: portfolioResult.drawdowns,
+          timeToRecover,
+          rolling,
+          annualNominal,
+          annualReal,
+          totalInvested: portfolioResult.totalInvested,
+          portValues: portfolioResult.portValues
+        });
+      }
+    }
+    
+    // Add selected saved portfolios
+    // In compare mode, use current investment strategy for all portfolios
     for(const portfolioId of selectedPortfolios){
       const portfolio = savedPortfolios.find(p => p.id === portfolioId);
       if(!portfolio) continue;
       
       let portfolioResult;
-      if(portfolio.investmentMode === "recurring"){
-        portfolioResult = computeRecurringPortfolio(adates, aseries, portfolio.weights, rebalance, portfolio.monthlyInvestment);
-      } else if(portfolio.investmentMode === "hybrid"){
-        portfolioResult = computeHybridPortfolio(adates, aseries, portfolio.weights, rebalance, portfolio.initial, portfolio.monthlyInvestment);
+      // Use current investment strategy settings instead of saved portfolio's settings
+      if(investmentMode === "recurring"){
+        portfolioResult = computeRecurringPortfolio(adates, aseries, portfolio.weights, rebalance, monthlyInvestment);
+      } else if(investmentMode === "hybrid"){
+        portfolioResult = computeHybridPortfolio(adates, aseries, portfolio.weights, rebalance, initial, monthlyInvestment);
       } else {
         portfolioResult = computePortfolio(adates, aseries, portfolio.weights, rebalance);
       }
@@ -951,7 +1064,8 @@ export default function App(){
       const realIdx = pDates.map((d,i)=> ({date:d, value: vals[i] / ( (cpi[d]/cpi[pDates[0]]) )}));
       
       let nominalCAGR, realCAGR;
-      if(portfolio.investmentMode === "recurring" || portfolio.investmentMode === "hybrid"){
+      // Use current investment strategy for CAGR calculations too
+      if(investmentMode === "recurring" || investmentMode === "hybrid"){
         nominalCAGR = cagrRecurring(portfolioResult.portValues, portfolioResult.totalInvested);
         const realValues = portfolioResult.portValues.map((val, i) => val / (cpi[pDates[i]]/cpi[pDates[0]]));
         realCAGR = cagrRecurring(realValues, portfolioResult.totalInvested);
@@ -971,6 +1085,9 @@ export default function App(){
       
       // Calculate time to recover
       const timeToRecover = timeToRecoverFromIndex(portfolioResult.idxMap);
+      const maxTimeToRecover = timeToRecover.length > 0 
+        ? Math.max(...timeToRecover.map(r => r.months))
+        : 0;
       
       comparisons.push({
         id: portfolio.id,
@@ -981,6 +1098,7 @@ export default function App(){
         sharpe: sharpe(monthly, rf),
         sortino: sortino(monthly, rf),
         maxDrawdown: Math.min(...portfolioResult.drawdowns.map(d=>d.value)),
+        maxTimeToRecover,
         finalValue: vals[vals.length-1],
         portfolioResult,
         nominalIndex,
@@ -995,8 +1113,71 @@ export default function App(){
       });
     }
     
-    return comparisons;
-  }, [compareMode, selectedPortfolios, norm, startDate, endDate, rebalance, rf, savedPortfolios]);
+    // Sort comparisons
+    const sorted = [...comparisons].sort((a, b) => {
+      let aVal, bVal;
+      if(comparisonSortBy === "name") {
+        aVal = a.name.toLowerCase();
+        bVal = b.name.toLowerCase();
+      } else {
+        aVal = a[comparisonSortBy];
+        bVal = b[comparisonSortBy];
+      }
+      
+      if(comparisonSortOrder === "asc") {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+      }
+    });
+    
+    return sorted;
+  }, [compareMode, selectedPortfolios, includeCurrentPortfolio, norm, startDate, endDate, rebalance, rf, savedPortfolios, weights, investmentMode, initial, monthlyInvestment, comparisonSortBy, comparisonSortOrder]);
+
+  // Helper functions for comparison
+  const getBestPortfolio = (metric) => {
+    if(!comparePortfolios || comparePortfolios.length === 0) return null;
+    if(metric === "maxDrawdown") {
+      return comparePortfolios.reduce((best, p) => p[metric] > best[metric] ? p : best);
+    }
+    return comparePortfolios.reduce((best, p) => p[metric] > best[metric] ? p : best);
+  };
+  
+  const getWorstPortfolio = (metric) => {
+    if(!comparePortfolios || comparePortfolios.length === 0) return null;
+    if(metric === "maxDrawdown") {
+      return comparePortfolios.reduce((worst, p) => p[metric] < worst[metric] ? p : worst);
+    }
+    return comparePortfolios.reduce((worst, p) => p[metric] < worst[metric] ? p : worst);
+  };
+  
+  const exportComparison = () => {
+    if(!comparePortfolios || comparePortfolios.length === 0) return;
+    
+    const headers = ["Portfolio", "Strategy", "CAGR %", "Real CAGR %", "Volatility %", "Sharpe", "Sortino", "Max DD %", "Final Value"];
+    const rows = comparePortfolios.map(p => [
+      p.name,
+      investmentMode === "lump_sum" ? "Lump Sum" : investmentMode === "recurring" ? "Recurring" : "Hybrid",
+      (p.cagr * 100).toFixed(2),
+      (p.realCagr * 100).toFixed(2),
+      (p.vol * 100).toFixed(2),
+      p.sharpe.toFixed(2),
+      p.sortino.toFixed(2),
+      (p.maxDrawdown * 100).toFixed(2),
+      euroTick(p.finalValue)
+    ]);
+    
+    const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `portfolio-comparison-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const assetsWithWeight = useMemo(()=> columns.filter(a => (weights[a]??0) > 0), [columns, weights]);
 
@@ -1105,8 +1286,32 @@ export default function App(){
     );
   }
 
+  // Font size scaling factors (as CSS custom properties)
+  const fontSizeScale = {
+    small: 0.875, // 14px base
+    medium: 1,    // 16px base  
+    large: 1.125  // 18px base
+  };
+
   return (
-    <div className="min-h-screen bg-bloomberg-bg text-bloomberg-text">
+    <>
+      <style>{`
+        :root {
+          --font-size-multiplier: ${fontSizeScale[fontSize]};
+        }
+        .font-size-adjust {
+          font-size: calc(1rem * var(--font-size-multiplier));
+        }
+        .font-size-adjust .text-xs { font-size: calc(0.75rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-sm { font-size: calc(0.875rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-base { font-size: calc(1rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-lg { font-size: calc(1.125rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-xl { font-size: calc(1.25rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-2xl { font-size: calc(1.5rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-3xl { font-size: calc(1.875rem * var(--font-size-multiplier)); }
+        .font-size-adjust .text-4xl { font-size: calc(2.25rem * var(--font-size-multiplier)); }
+      `}</style>
+      <div className="min-h-screen bg-bloomberg-bg text-bloomberg-text font-size-adjust">
       <div className="max-w-[1920px] mx-4 md:mx-8 lg:mx-12 p-4 space-y-3">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-bloomberg-border pb-3 mb-4">
           <h1 className="text-2xl font-bold text-bloomberg-accent tracking-tight">ALPHATRACE</h1>
@@ -1151,6 +1356,12 @@ export default function App(){
                 </select>
                 <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Risk-free (annual, decimal)</label>
                 <input type="number" step="0.001" value={rf} onChange={(e)=>setRf(Number(e.target.value))} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded" />
+                <label className="block text-xs text-bloomberg-text-dim uppercase tracking-wide">Font Size</label>
+                <select value={fontSize} onChange={(e)=>setFontSize(e.target.value)} className="w-full border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text p-2 text-xs rounded">
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large">Large</option>
+                </select>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <p className="text-xs text-bloomberg-text-dim">Dataset & weights are saved locally (no banner shown).</p>
@@ -1318,7 +1529,7 @@ export default function App(){
                 {compareMode && (
                   <div className="mt-4 p-3 bg-bloomberg-bg border border-bloomberg-border rounded">
                     <div className="text-xs text-bloomberg-text-dim">
-                      <strong className="text-bloomberg-accent">COMPARE MODE:</strong> Select portfolios to compare their performance. 
+                      <strong className="text-bloomberg-accent">COMPARE MODE:</strong> {includeCurrentPortfolio && Object.keys(weights).length > 0 ? "Current portfolio included. " : ""}Select saved portfolios to compare. 
                       Selected: <span className="text-bloomberg-accent">{selectedPortfolios.length}</span>
                     </div>
                   </div>
@@ -1531,7 +1742,7 @@ export default function App(){
                   <span><span className="text-bloomberg-text-dim">Volatility:</span> <span className="font-semibold text-bloomberg-text">{(metrics.vol*100).toFixed(2)}%</span></span>
                   <span><span className="text-bloomberg-text-dim">Max Drawdown:</span> <span className="font-semibold text-bloomberg-negative">{(metrics.maxDrawdown*100).toFixed(2)}%</span></span>
                   {metrics.timeToRecover && metrics.timeToRecover.length > 0 && (
-                    <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold text-bloomberg-text">{Math.max(...metrics.timeToRecover.map(r => r.months))} months</span></span>
+                    <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold text-bloomberg-text">{formatMonthsAsYearsAndMonths(Math.max(...metrics.timeToRecover.map(r => r.months)))} ({Math.max(...metrics.timeToRecover.map(r => r.months))} months)</span></span>
                   )}
                 </div>
               </div>
@@ -1539,32 +1750,320 @@ export default function App(){
           </div>
         )}
 
+        {/* Investment Strategy Selector in Compare Mode */}
+        {compareMode && perfTab==='portfolio' && (
+          <div className="bg-bloomberg-panel border border-bloomberg-border p-6 animate-slide-up rounded mb-4">
+            <h2 className="text-lg font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Current Portfolio Investment Strategy</h2>
+            <div className="p-4 bg-bloomberg-bg border border-bloomberg-border rounded">
+              <div className="text-xs font-bold text-bloomberg-text-dim mb-3 uppercase tracking-wide">Investment Strategy</div>
+              <div className="flex flex-wrap gap-4 mb-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="investmentMode" 
+                    value="lump_sum" 
+                    checked={investmentMode === "lump_sum"}
+                    onChange={(e)=>setInvestmentMode(e.target.value)}
+                    className="accent-bloomberg-accent"
+                  />
+                  <span className="text-xs font-medium text-bloomberg-text">Lump Sum Only</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="investmentMode" 
+                    value="recurring" 
+                    checked={investmentMode === "recurring"}
+                    onChange={(e)=>setInvestmentMode(e.target.value)}
+                    className="accent-bloomberg-accent"
+                  />
+                  <span className="text-xs font-medium text-bloomberg-text">Monthly Recurring Only</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="radio" 
+                    name="investmentMode" 
+                    value="hybrid" 
+                    checked={investmentMode === "hybrid"}
+                    onChange={(e)=>setInvestmentMode(e.target.value)}
+                    className="accent-bloomberg-accent"
+                  />
+                  <span className="text-xs font-medium text-bloomberg-text">Lump Sum + Monthly</span>
+                </label>
+              </div>
+              
+              {investmentMode === "lump_sum" ? (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Initial amount:</label>
+                  <input 
+                    type="number" 
+                    step={1000} 
+                    value={initial} 
+                    onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                    className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
+                    placeholder="100000"
+                  />
+                  <span className="text-xs text-bloomberg-text-dim">€</span>
+                </div>
+              ) : investmentMode === "recurring" ? (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Monthly investment:</label>
+                  <input 
+                    type="number" 
+                    step={100} 
+                    value={monthlyInvestment} 
+                    onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
+                    className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
+                    placeholder="1000"
+                  />
+                  <span className="text-xs text-bloomberg-text-dim">€/month</span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Initial lump sum:</label>
+                    <input 
+                      type="number" 
+                      step={1000} 
+                      value={initial} 
+                      onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                      className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
+                      placeholder="100000"
+                    />
+                    <span className="text-xs text-bloomberg-text-dim">€</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-bloomberg-text-dim uppercase tracking-wide">Monthly investment:</label>
+                    <input 
+                      type="number" 
+                      step={100} 
+                      value={monthlyInvestment} 
+                      onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
+                      className="border border-bloomberg-border bg-bloomberg-panel text-bloomberg-text rounded p-2 w-32 font-medium text-xs" 
+                      placeholder="1000"
+                    />
+                    <span className="text-xs text-bloomberg-text-dim">€/month</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Portfolio Comparison Summary */}
         {compareMode && comparePortfolios && perfTab==='portfolio' && (
           <div className="bg-bloomberg-panel border border-bloomberg-border p-6 animate-slide-up rounded">
-            <h2 className="text-lg font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Portfolio Comparison ({comparePortfolios.length} portfolios)</h2>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+              <h2 className="text-lg font-bold text-bloomberg-accent uppercase tracking-wide">Portfolio Comparison ({comparePortfolios.length} portfolios)</h2>
+              
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Include Current Portfolio Toggle */}
+                {Object.keys(weights).length > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={includeCurrentPortfolio}
+                      onChange={(e)=>setIncludeCurrentPortfolio(e.target.checked)}
+                      className="accent-bloomberg-accent"
+                    />
+                    <span className="text-xs text-bloomberg-text">Include Current</span>
+                  </label>
+                )}
+                
+                {/* View Toggle */}
+                <div className="flex items-center gap-2 border border-bloomberg-border rounded overflow-hidden">
+                  <button
+                    onClick={()=>setComparisonView("cards")}
+                    className={`px-2 py-1 text-xs transition-colors ${comparisonView === "cards" ? 'bg-bloomberg-accent text-bloomberg-bg' : 'bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border'}`}
+                  >
+                    Cards
+                  </button>
+                  <button
+                    onClick={()=>setComparisonView("table")}
+                    className={`px-2 py-1 text-xs transition-colors ${comparisonView === "table" ? 'bg-bloomberg-accent text-bloomberg-bg' : 'bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border'}`}
+                  >
+                    Table
+                  </button>
+                </div>
+                
+                {/* Sort Controls */}
+                <select 
+                  value={comparisonSortBy} 
+                  onChange={(e)=>setComparisonSortBy(e.target.value)}
+                  className="text-xs border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded px-2 py-1"
+                >
+                  <option value="name">Sort by Name</option>
+                  <option value="cagr">Sort by CAGR</option>
+                  <option value="realCagr">Sort by Real CAGR</option>
+                  <option value="sharpe">Sort by Sharpe</option>
+                  <option value="sortino">Sort by Sortino</option>
+                  <option value="vol">Sort by Volatility</option>
+                  <option value="maxDrawdown">Sort by Max DD</option>
+                  <option value="maxTimeToRecover">Sort by Max Time to Recover</option>
+                </select>
+                
+                <button
+                  onClick={()=>setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc")}
+                  className="px-2 py-1 text-xs border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border rounded"
+                  title={comparisonSortOrder === "asc" ? "Sort Descending" : "Sort Ascending"}
+                >
+                  {comparisonSortOrder === "asc" ? "↑" : "↓"}
+                </button>
+                
+                {/* Export Button */}
+                <button
+                  onClick={exportComparison}
+                  className="px-3 py-1 text-xs border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text hover:bg-bloomberg-border rounded"
+                  title="Export comparison to CSV"
+                >
+                  Export CSV
+                </button>
+              </div>
+            </div>
             
+            {comparisonView === "cards" ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {comparePortfolios.map((portfolio, index) => (
-                <div key={portfolio.id} className="bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in rounded" style={{animationDelay: `${(index * 0.1)}s`}}>
-                  <div className="text-xs font-bold text-bloomberg-text mb-2 truncate" title={portfolio.name}>
+                {comparePortfolios.map((portfolio, index) => {
+                  const bestCAGR = getBestPortfolio("cagr");
+                  const bestSharpe = getBestPortfolio("sharpe");
+                  const worstDD = getWorstPortfolio("maxDrawdown");
+                  
+                  return (
+                    <div key={portfolio.id} className={`bg-bloomberg-bg border border-bloomberg-border p-4 animate-fade-in rounded ${portfolio.id === "current" ? "ring-2 ring-bloomberg-accent" : ""}`} style={{animationDelay: `${(index * 0.1)}s`}}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-bold text-bloomberg-text truncate" title={portfolio.name}>
                     {portfolio.name}
+                        </div>
+                        {portfolio.id === "current" && (
+                          <span className="text-[9px] px-1.5 py-0.5 bg-bloomberg-accent text-bloomberg-bg rounded uppercase">Current</span>
+                        )}
                   </div>
                   <div className="text-[10px] text-bloomberg-text-dim mb-3 uppercase">
-                    {savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "lump_sum" ? "Lump Sum" : 
-                     savedPortfolios.find(p => p.id === portfolio.id)?.investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                        {investmentMode === "lump_sum" ? "Lump Sum" : investmentMode === "recurring" ? "Recurring" : "Hybrid"}
                   </div>
                   <div className="text-xs flex flex-col leading-6 space-y-1">
-                    <div><span className="text-bloomberg-text-dim">CAGR:</span> <span className={`font-semibold ${portfolio.cagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(portfolio.cagr*100).toFixed(2)}%</span></div>
-                    <div><span className="text-bloomberg-text-dim">Real CAGR:</span> <span className={`font-semibold ${portfolio.realCagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>{(portfolio.realCagr*100).toFixed(2)}%</span></div>
-                    <div><span className="text-bloomberg-text-dim">Volatility:</span> <span className="font-semibold text-bloomberg-text">{(portfolio.vol*100).toFixed(2)}%</span></div>
-                    <div><span className="text-bloomberg-text-dim">Sharpe:</span> <span className="font-semibold text-bloomberg-text">{portfolio.sharpe.toFixed(2)}</span></div>
-                    <div><span className="text-bloomberg-text-dim">Sortino:</span> <span className="font-semibold text-bloomberg-text">{portfolio.sortino.toFixed(2)}</span></div>
-                    <div><span className="text-bloomberg-text-dim">Max DD:</span> <span className="font-semibold text-bloomberg-negative">{(portfolio.maxDrawdown*100).toFixed(2)}%</span></div>
+                        <div>
+                          <span className="text-bloomberg-text-dim">CAGR:</span> 
+                          <span className={`font-semibold ml-1 ${portfolio.cagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'} ${bestCAGR?.id === portfolio.id ? 'underline' : ''}`}>
+                            {(portfolio.cagr*100).toFixed(2)}%
+                            {bestCAGR?.id === portfolio.id && <span className="text-[9px] ml-1">★</span>}
+                          </span>
                   </div>
+                        <div>
+                          <span className="text-bloomberg-text-dim">Real CAGR:</span> 
+                          <span className={`font-semibold ml-1 ${portfolio.realCagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
+                            {(portfolio.realCagr*100).toFixed(2)}%
+                          </span>
                 </div>
-              ))}
+                        <div>
+                          <span className="text-bloomberg-text-dim">Volatility:</span> 
+                          <span className="font-semibold ml-1 text-bloomberg-text">{(portfolio.vol*100).toFixed(2)}%</span>
             </div>
+                        <div>
+                          <span className="text-bloomberg-text-dim">Sharpe:</span> 
+                          <span className={`font-semibold ml-1 text-bloomberg-text ${bestSharpe?.id === portfolio.id ? 'underline' : ''}`}>
+                            {portfolio.sharpe.toFixed(2)}
+                            {bestSharpe?.id === portfolio.id && <span className="text-[9px] ml-1">★</span>}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-bloomberg-text-dim">Sortino:</span> 
+                          <span className="font-semibold ml-1 text-bloomberg-text">{portfolio.sortino.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-bloomberg-text-dim">Max DD:</span> 
+                          <span className={`font-semibold ml-1 text-bloomberg-negative ${worstDD?.id === portfolio.id ? 'underline' : ''}`}>
+                            {(portfolio.maxDrawdown*100).toFixed(2)}%
+                            {worstDD?.id === portfolio.id && <span className="text-[9px] ml-1">⚠</span>}
+                          </span>
+                        </div>
+                        {portfolio.maxTimeToRecover > 0 && (
+                          <div>
+                            <span className="text-bloomberg-text-dim">Max Time to Recover:</span> 
+                            <span className="font-semibold ml-1 text-bloomberg-text">
+                              {formatMonthsAsYearsAndMonths(portfolio.maxTimeToRecover)} ({portfolio.maxTimeToRecover} months)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-bloomberg-border">
+                      <th className="text-left p-2 font-bold text-bloomberg-accent">Portfolio</th>
+                      <th className="text-left p-2 font-bold text-bloomberg-accent">Strategy</th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent cursor-pointer hover:bg-bloomberg-bg" onClick={()=>{setComparisonSortBy("cagr"); setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc");}}>
+                        CAGR {comparisonSortBy === "cagr" && (comparisonSortOrder === "asc" ? "↑" : "↓")}
+                      </th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent">Real CAGR</th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent cursor-pointer hover:bg-bloomberg-bg" onClick={()=>{setComparisonSortBy("vol"); setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc");}}>
+                        Volatility {comparisonSortBy === "vol" && (comparisonSortOrder === "asc" ? "↑" : "↓")}
+                      </th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent cursor-pointer hover:bg-bloomberg-bg" onClick={()=>{setComparisonSortBy("sharpe"); setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc");}}>
+                        Sharpe {comparisonSortBy === "sharpe" && (comparisonSortOrder === "asc" ? "↑" : "↓")}
+                      </th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent">Sortino</th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent cursor-pointer hover:bg-bloomberg-bg" onClick={()=>{setComparisonSortBy("maxDrawdown"); setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc");}}>
+                        Max DD {comparisonSortBy === "maxDrawdown" && (comparisonSortOrder === "asc" ? "↑" : "↓")}
+                      </th>
+                      <th className="text-right p-2 font-bold text-bloomberg-accent cursor-pointer hover:bg-bloomberg-bg" onClick={()=>{setComparisonSortBy("maxTimeToRecover"); setComparisonSortOrder(prev => prev === "asc" ? "desc" : "asc");}}>
+                        Max Time to Recover {comparisonSortBy === "maxTimeToRecover" && (comparisonSortOrder === "asc" ? "↑" : "↓")}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparePortfolios.map((portfolio, index) => {
+                      const bestCAGR = getBestPortfolio("cagr");
+                      const bestSharpe = getBestPortfolio("sharpe");
+                      const worstDD = getWorstPortfolio("maxDrawdown");
+                      
+                      return (
+                        <tr 
+                          key={portfolio.id} 
+                          className={`border-b border-bloomberg-border hover:bg-bloomberg-bg ${portfolio.id === "current" ? "bg-bloomberg-bg/50" : ""}`}
+                        >
+                          <td className="p-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{portfolio.name}</span>
+                              {portfolio.id === "current" && (
+                                <span className="text-[9px] px-1.5 py-0.5 bg-bloomberg-accent text-bloomberg-bg rounded uppercase">Current</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-2 text-bloomberg-text-dim uppercase text-[10px]">
+                            {investmentMode === "lump_sum" ? "Lump Sum" : investmentMode === "recurring" ? "Recurring" : "Hybrid"}
+                          </td>
+                          <td className={`p-2 text-right font-semibold ${portfolio.cagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'} ${bestCAGR?.id === portfolio.id ? 'underline' : ''}`}>
+                            {(portfolio.cagr*100).toFixed(2)}%{bestCAGR?.id === portfolio.id && <span className="ml-1">★</span>}
+                          </td>
+                          <td className={`p-2 text-right font-semibold ${portfolio.realCagr >= 0 ? 'text-bloomberg-positive' : 'text-bloomberg-negative'}`}>
+                            {(portfolio.realCagr*100).toFixed(2)}%
+                          </td>
+                          <td className="p-2 text-right">{(portfolio.vol*100).toFixed(2)}%</td>
+                          <td className={`p-2 text-right font-semibold ${bestSharpe?.id === portfolio.id ? 'underline' : ''}`}>
+                            {portfolio.sharpe.toFixed(2)}{bestSharpe?.id === portfolio.id && <span className="ml-1">★</span>}
+                          </td>
+                          <td className="p-2 text-right">{portfolio.sortino.toFixed(2)}</td>
+                          <td className={`p-2 text-right font-semibold text-bloomberg-negative ${worstDD?.id === portfolio.id ? 'underline' : ''}`}>
+                            {(portfolio.maxDrawdown*100).toFixed(2)}%{worstDD?.id === portfolio.id && <span className="ml-1">⚠</span>}
+                          </td>
+                          <td className="p-2 text-right">
+                            {portfolio.maxTimeToRecover > 0 
+                              ? `${formatMonthsAsYearsAndMonths(portfolio.maxTimeToRecover)} (${portfolio.maxTimeToRecover} months)`
+                              : "N/A"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -1759,7 +2258,7 @@ export default function App(){
                       if (!recovery) return null;
                       return (
                         <div className="bg-bloomberg-panel border border-bloomberg-border p-2 rounded" style={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}}>
-                          <p className="font-semibold text-xs">{`${payload[0].value} months${recovery.ongoing ? ' (ongoing)' : ''}`}</p>
+                          <p className="font-semibold text-xs">{`${formatMonthsAsYearsAndMonths(payload[0].value)} (${payload[0].value} months)${recovery.ongoing ? ' (ongoing)' : ''}`}</p>
                           <p className="text-xs text-bloomberg-text-dim">Started: {recovery.date.slice(0, 7)}</p>
                           <p className="text-xs text-bloomberg-text-dim">Recovered: {recovery.recoveryDate.slice(0, 7)}</p>
                           <p className="text-xs text-bloomberg-text-dim">Drawdown: {(recovery.drawdownDepth * 100).toFixed(2)}%</p>
@@ -1808,7 +2307,7 @@ export default function App(){
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
                   <XAxis dataKey="recovery" stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
                   <YAxis label={{ value: 'Months', angle: -90, position: 'insideLeft', style: {fill: '#8b949e', fontSize: 11} }} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 11}} />
-                  <Tooltip formatter={(v) => `${v} months`} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
+                  <Tooltip formatter={(v) => `${formatMonthsAsYearsAndMonths(v)} (${v} months)`} contentStyle={{backgroundColor: '#141b2d', border: '1px solid #1e2a3a', color: '#d4d4d4'}} />
                   <Legend wrapperStyle={{color: '#d4d4d4'}} />
                   {comparePortfolios.map((portfolio, index) => {
                     const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
@@ -2022,7 +2521,7 @@ export default function App(){
                     <span><span className="text-bloomberg-text-dim">Sharpe:</span> <span className="font-semibold">{s.sharpe.toFixed(2)}</span></span>
                     <span><span className="text-bloomberg-text-dim">Max DD:</span> <span className="font-semibold">{(s.maxDrawdown*100).toFixed(2)}%</span></span>
                     {s.maxTimeToRecover > 0 && (
-                      <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold">{s.maxTimeToRecover} months</span></span>
+                      <span><span className="text-bloomberg-text-dim">Max Time to Recover:</span> <span className="font-semibold">{formatMonthsAsYearsAndMonths(s.maxTimeToRecover)} ({s.maxTimeToRecover} months)</span></span>
                     )}
                     <span><span className="text-bloomberg-text-dim">Final Value:</span> <span className="font-semibold">{euroTick(s.finalValue)}</span></span>
                   </div>
@@ -2111,5 +2610,6 @@ export default function App(){
 
       </div>
     </div>
+    </>
   );
 }
