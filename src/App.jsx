@@ -1183,6 +1183,7 @@ export default function App(){
 
   const [assetRollingYears, setAssetRollingYears] = useState(10);
   const [perfTab, setPerfTab] = useState("portfolio"); // 'portfolio' | 'assets'
+  const [assetInvestmentMode, setAssetInvestmentMode] = useState("lump_sum"); // 'lump_sum' | 'recurring' | 'hybrid'
   const [showToast, setShowToast] = useState(false);
   const [editingPortfolioId, setEditingPortfolioId] = useState(null);
   const [editingName, setEditingName] = useState("");
@@ -1231,6 +1232,61 @@ export default function App(){
     return { assets: Object.keys(rollingByAsset), rollingData, ddData, annualData };
   }, [norm, assetsWithWeight, startDate, endDate, assetRollingYears]);
 
+  // Helper function to compute asset value with investment strategy
+  const computeAssetValue = (dates, values, investmentMode, initialAmount, monthlyAmount) => {
+    if (investmentMode === "lump_sum") {
+      const firstVal = values[0] || 100;
+      const lastVal = values[values.length - 1] || firstVal;
+      return {
+        finalValue: firstVal > 0 ? (lastVal / firstVal) * initialAmount : 0,
+        portValues: null,
+        totalInvested: null
+      };
+    } else if (investmentMode === "recurring") {
+      const portValues = [monthlyAmount]; // Start with first month
+      const totalInvested = [monthlyAmount];
+      let totalValue = monthlyAmount;
+      
+      for (let i = 1; i < values.length; i++) {
+        const prevValue = values[i - 1];
+        const currValue = values[i];
+        if (prevValue > 0) {
+          totalValue = totalValue * (currValue / prevValue) + monthlyAmount;
+        } else {
+          totalValue += monthlyAmount;
+        }
+        portValues.push(totalValue);
+        totalInvested.push(totalInvested[totalInvested.length - 1] + monthlyAmount);
+      }
+      return {
+        finalValue: totalValue,
+        portValues,
+        totalInvested
+      };
+    } else { // hybrid
+      const portValues = [initialAmount]; // Start with lump sum
+      const totalInvested = [initialAmount];
+      let totalValue = initialAmount;
+      
+      for (let i = 1; i < values.length; i++) {
+        const prevValue = values[i - 1];
+        const currValue = values[i];
+        if (prevValue > 0) {
+          totalValue = totalValue * (currValue / prevValue) + monthlyAmount;
+        } else {
+          totalValue += monthlyAmount;
+        }
+        portValues.push(totalValue);
+        totalInvested.push(totalInvested[totalInvested.length - 1] + monthlyAmount);
+      }
+      return {
+        finalValue: totalValue,
+        portValues,
+        totalInvested
+      };
+    }
+  };
+
   const assetSummaries = useMemo(()=>{
     if(!norm || assetsWithWeight.length===0) return [];
     const {dates, series} = norm;
@@ -1248,18 +1304,71 @@ export default function App(){
       const idxMap = {}; for(let i=0;i<adates.length;i++) idxMap[adates[i]] = slice[i];
       const entries = adates.map((d, i)=>({date:d, value:slice[i]}));
       const monthly = []; for(let i=1;i<slice.length;i++) monthly.push((slice[i]-slice[i-1])/slice[i-1]);
-      const dd = drawdownsFromIndex(idxMap);
+      
+      // For recurring/hybrid, compute normalized index for drawdown calculations
+      let normalizedIdxMap = idxMap;
+      if (assetInvestmentMode === "recurring" || assetInvestmentMode === "hybrid") {
+        const normalizedValues = [100];
+        for (let i = 1; i < slice.length; i++) {
+          const prevVal = slice[i - 1];
+          const currVal = slice[i];
+          if (prevVal > 0) {
+            normalizedValues.push(normalizedValues[normalizedValues.length - 1] * (currVal / prevVal));
+          } else {
+            normalizedValues.push(normalizedValues[normalizedValues.length - 1]);
+          }
+        }
+        normalizedIdxMap = {};
+        for (let i = 0; i < adates.length; i++) {
+          normalizedIdxMap[adates[i]] = normalizedValues[i];
+        }
+      }
+      
+      const dd = drawdownsFromIndex(normalizedIdxMap);
       const maxDD = dd.length ? Math.min(...dd.map(d=>d.value)) : 0;
-      const assetTimeToRecover = timeToRecoverFromIndex(idxMap);
+      const assetTimeToRecover = timeToRecoverFromIndex(normalizedIdxMap);
       const maxTimeToRecover = assetTimeToRecover.length > 0 
         ? Math.max(...assetTimeToRecover.map(r => r.months))
         : 0;
-      const assetCagr = cagr(entries);
-      const assetVol = annualVol(monthly);
-      const assetSharpe = sharpe(monthly, rf);
-      const firstVal = entries[0]?.value || 100;
-      const lastVal = entries[entries.length-1]?.value || firstVal;
-      const finalValue = firstVal>0 ? (lastVal/firstVal)*initial : 0;
+      
+      // Calculate final value and portfolio values based on investment mode
+      const assetValueResult = computeAssetValue(
+        adates,
+        slice,
+        assetInvestmentMode,
+        initial,
+        monthlyInvestment
+      );
+      
+      // Calculate CAGR based on investment mode
+      let assetCagr;
+      let assetVol;
+      let assetSharpe;
+      
+      if (assetInvestmentMode === "recurring" || assetInvestmentMode === "hybrid") {
+        // Use money-weighted CAGR for recurring/hybrid
+        assetCagr = cagrRecurring(assetValueResult.portValues, assetValueResult.totalInvested);
+        
+        // Calculate monthly returns from portfolio values for volatility/Sharpe
+        const portMonthly = [];
+        for (let i = 1; i < assetValueResult.portValues.length; i++) {
+          const prevVal = assetValueResult.portValues[i - 1];
+          const currVal = assetValueResult.portValues[i];
+          if (prevVal > 0) {
+            portMonthly.push((currVal - prevVal) / prevVal);
+          } else {
+            portMonthly.push(0);
+          }
+        }
+        assetVol = annualVol(portMonthly);
+        assetSharpe = sharpe(portMonthly, rf);
+      } else {
+        // Use time-weighted CAGR for lump sum
+        assetCagr = cagr(entries);
+        assetVol = annualVol(monthly);
+        assetSharpe = sharpe(monthly, rf);
+      }
+      
       summaries.push({
         asset,
         cagr: assetCagr,
@@ -1267,11 +1376,12 @@ export default function App(){
         sharpe: assetSharpe,
         maxDrawdown: maxDD,
         maxTimeToRecover,
-        finalValue,
+        finalValue: assetValueResult.finalValue,
+        timeToRecover: assetTimeToRecover,
       });
     }
     return summaries;
-  }, [norm, assetsWithWeight, startDate, endDate, rf, initial]);
+  }, [norm, assetsWithWeight, startDate, endDate, rf, initial, monthlyInvestment, assetInvestmentMode]);
 
   // Show loading screen while data is being loaded
   if (isLoadingData) {
@@ -1312,7 +1422,7 @@ export default function App(){
         .font-size-adjust .text-4xl { font-size: calc(2.25rem * var(--font-size-multiplier)); }
       `}</style>
       <div className="min-h-screen bg-bloomberg-bg text-bloomberg-text font-size-adjust">
-      <div className="max-w-[1920px] mx-4 md:mx-8 lg:mx-12 p-4 space-y-3">
+      <div className="max-w-[1920px] mx-auto px-4 md:px-8 lg:px-12 py-4 space-y-3">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b border-bloomberg-border pb-3 mb-4">
           <h1 className="text-2xl font-bold text-bloomberg-accent tracking-tight">ALPHATRACE</h1>
           <div className="flex items-center gap-2">
@@ -2493,19 +2603,75 @@ export default function App(){
           <div className="bg-bloomberg-panel border border-bloomberg-border p-4 sm:p-6 animate-fade-in rounded">
             <h2 className="text-lg sm:text-xl font-bold mb-4 text-bloomberg-accent uppercase tracking-wide">Performance by Asset</h2>
 
-            {/* Controls */}
-            <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-              <label className="text-xs sm:text-sm text-bloomberg-text-dim">Initial amount for per-asset final value:</label>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="number" 
-                  step={1000} 
-                  value={initial} 
-                  onChange={(e)=>setInitial(Number(e.target.value)||0)} 
-                  className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-2 w-32 font-medium text-xs sm:text-sm" 
-                  placeholder="100000"
-                />
-                <span className="text-xs sm:text-sm text-bloomberg-text-dim">€</span>
+            {/* Investment Strategy Selector */}
+            <div className="mb-6 p-4 bg-bloomberg-bg border border-bloomberg-border rounded">
+              <h3 className="text-sm font-semibold mb-3 text-bloomberg-text">Investment Strategy</h3>
+              <div className="flex flex-wrap gap-3 mb-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="assetInvestmentMode"
+                    value="lump_sum"
+                    checked={assetInvestmentMode === "lump_sum"}
+                    onChange={(e)=>setAssetInvestmentMode(e.target.value)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs sm:text-sm text-bloomberg-text">Lump Sum</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="assetInvestmentMode"
+                    value="recurring"
+                    checked={assetInvestmentMode === "recurring"}
+                    onChange={(e)=>setAssetInvestmentMode(e.target.value)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs sm:text-sm text-bloomberg-text">Monthly Investment</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="assetInvestmentMode"
+                    value="hybrid"
+                    checked={assetInvestmentMode === "hybrid"}
+                    onChange={(e)=>setAssetInvestmentMode(e.target.value)}
+                    className="cursor-pointer"
+                  />
+                  <span className="text-xs sm:text-sm text-bloomberg-text">Both</span>
+                </label>
+              </div>
+              
+              {/* Investment Amount Controls */}
+              <div className="flex flex-col sm:flex-row gap-4">
+                {(assetInvestmentMode === "lump_sum" || assetInvestmentMode === "hybrid") && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs sm:text-sm text-bloomberg-text-dim">Initial amount:</label>
+                    <input 
+                      type="number" 
+                      step={1000} 
+                      value={initial} 
+                      onChange={(e)=>setInitial(Number(e.target.value)||0)} 
+                      className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-2 w-32 font-medium text-xs sm:text-sm" 
+                      placeholder="100000"
+                    />
+                    <span className="text-xs sm:text-sm text-bloomberg-text-dim">€</span>
+                  </div>
+                )}
+                {(assetInvestmentMode === "recurring" || assetInvestmentMode === "hybrid") && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs sm:text-sm text-bloomberg-text-dim">Monthly investment:</label>
+                    <input 
+                      type="number" 
+                      step={100} 
+                      value={monthlyInvestment} 
+                      onChange={(e)=>setMonthlyInvestment(Number(e.target.value)||0)} 
+                      className="border border-bloomberg-border bg-bloomberg-bg text-bloomberg-text rounded p-2 w-32 font-medium text-xs sm:text-sm" 
+                      placeholder="1000"
+                    />
+                    <span className="text-xs sm:text-sm text-bloomberg-text-dim">€</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2573,6 +2739,55 @@ export default function App(){
                       return <Line key={asset} type="monotone" dataKey={asset} dot={false} strokeWidth={3} stroke={colors[idx % colors.length]} isAnimationActive={true} animationDuration={800} />;
                     })}
                   </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Time to Recovery from Worst Drawdown */}
+            <div className="mb-8">
+              <h3 className="text-xs sm:text-sm font-semibold mb-2">Time to Recovery from Worst Drawdown</h3>
+              <p className="text-xs text-bloomberg-text-dim mb-3">Shows the time (in months) it took each asset to recover from its worst drawdown period.</p>
+              <div className="h-72 sm:h-80 w-full overflow-x-auto">
+                <ResponsiveContainer width="100%" height="100%" minHeight={288}>
+                  <BarChart 
+                    data={assetSummaries.map(s => ({
+                      asset: s.asset,
+                      months: s.maxTimeToRecover || 0
+                    }))}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e2a3a" />
+                    <XAxis type="number" tickFormatter={(v)=>`${v} months`} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 10}} />
+                    <YAxis dataKey="asset" type="category" width={150} stroke="#8b949e" tick={{fill: '#8b949e', fontSize: 9}} />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          const value = payload[0].value;
+                          return (
+                            <div style={{
+                              backgroundColor: '#141b2d',
+                              border: '1px solid #1e2a3a',
+                              padding: '8px',
+                              borderRadius: '4px',
+                              fontSize: '11px'
+                            }}>
+                              <p style={{ color: '#ffffff', margin: '0 0 4px 0', fontWeight: 'bold' }}>{label}</p>
+                              <p style={{ color: '#d4d4d4', margin: 0 }}>
+                                {`${formatMonthsAsYearsAndMonths(value)} (${value} months)`}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="months" radius={[0, 4, 4, 0]}>
+                      {assetSummaries.map((s, idx) => {
+                        const colors = ['#00d4aa', '#00a8ff', '#ff6b6b', '#ffa500', '#9d4edd', '#06ffa5', '#ff006e', '#8338ec'];
+                        return <Cell key={s.asset} fill={colors[idx % colors.length]} />;
+                      })}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
