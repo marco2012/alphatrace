@@ -708,7 +708,7 @@ export default function App(){
     } else {
       return computePortfolio(adates, aseries, weights, rebalance);
     }
-  },[norm,weights,rebalance,startDate,endDate,investmentMode,monthlyInvestment]);
+  },[norm,weights,rebalance,startDate,endDate,investmentMode,initial,monthlyInvestment]);
 
   const euroTick = (n)=> new Intl.NumberFormat("it-IT",{ style:"currency", currency:"EUR", maximumFractionDigits:0, minimumFractionDigits:0}).format(Number(n||0));
 
@@ -783,7 +783,7 @@ export default function App(){
         return yrs>0? Math.pow(end/100, 1/yrs) - 1 : 0;
       })(),
     };
-  },[portfolio, rf, initial, rollingYears, investmentMode]);
+  },[portfolio, rf, initial, monthlyInvestment, rollingYears, investmentMode]);
 
   const exportData=(filename,rows)=>{
     if(!rows||!rows.length) return;
@@ -1205,7 +1205,45 @@ export default function App(){
       const arr = series[asset];
       if(!arr) continue;
       const slice = arr.slice(i0, endIdx+1);
-      const idxMap = {}; for(let i=0;i<adates.length;i++) idxMap[adates[i]] = slice[i];
+      
+      let idxMap = {};
+      
+      // For recurring/hybrid modes, compute portfolio values over time
+      if (assetInvestmentMode === "recurring" || assetInvestmentMode === "hybrid") {
+        // Calculate portfolio values accounting for monthly contributions
+        const portValues = assetInvestmentMode === "recurring" 
+          ? [monthlyInvestment] 
+          : [initial];
+        
+        for (let i = 1; i < slice.length; i++) {
+          const prevValue = slice[i - 1];
+          const currValue = slice[i];
+          const lastPortValue = portValues[portValues.length - 1];
+          
+          if (prevValue > 0) {
+            // Apply asset return to existing portfolio value, then add monthly contribution
+            const newPortValue = lastPortValue * (currValue / prevValue) + monthlyInvestment;
+            portValues.push(newPortValue);
+          } else {
+            portValues.push(lastPortValue + monthlyInvestment);
+          }
+        }
+        
+        // Normalize to create an index starting at 100
+        const firstPortValue = portValues[0];
+        if (firstPortValue > 0) {
+          for (let i = 0; i < adates.length; i++) {
+            idxMap[adates[i]] = (portValues[i] / firstPortValue) * 100;
+          }
+        } else {
+          // Fallback to asset prices if portfolio value is 0
+          for (let i = 0; i < adates.length; i++) idxMap[adates[i]] = slice[i];
+        }
+      } else {
+        // For lump sum, use asset prices directly
+        for (let i = 0; i < adates.length; i++) idxMap[adates[i]] = slice[i];
+      }
+      
       rollingByAsset[asset] = rollingNCAGR(idxMap, assetRollingYears).map(p=>({date:p.date, value:p.value*100}));
       ddByAsset[asset] = drawdownsFromIndex(idxMap).map(p=>({date:p.date, value:p.value*100}));
       annualByAsset[asset] = computeAnnualReturns(idxMap).map(r=>({year:r.year, value:r.nominal*100}));
@@ -1230,7 +1268,7 @@ export default function App(){
     const annualData = toWide(annualByAsset, "year")(years);
 
     return { assets: Object.keys(rollingByAsset), rollingData, ddData, annualData };
-  }, [norm, assetsWithWeight, startDate, endDate, assetRollingYears]);
+  }, [norm, assetsWithWeight, startDate, endDate, assetRollingYears, assetInvestmentMode, initial, monthlyInvestment]);
 
   // Helper function to compute asset value with investment strategy
   const computeAssetValue = (dates, values, investmentMode, initialAmount, monthlyAmount) => {
