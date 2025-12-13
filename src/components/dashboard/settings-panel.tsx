@@ -34,7 +34,8 @@ export function SettingsPanel() {
 
     const downloadDefaultFile = async () => {
         try {
-            const response = await fetch("/curvo_data_202511.xlsx");
+            const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+            const response = await fetch(`${basePath}/curvo_data_202511.xlsx`);
             if (!response.ok) throw new Error("Failed to fetch default file");
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);

@@ -130,7 +130,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     buffer = bytes.buffer;
                 } else {
                     // Use default file
-                    const response = await fetch('/curvo_data_202511.xlsx');
+                    const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+                    const response = await fetch(`${basePath}/curvo_data_202511.xlsx`);
                     if (!response.ok) throw new Error('Failed to fetch data');
                     buffer = await response.arrayBuffer();
                 }
