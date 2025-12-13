@@ -52,9 +52,12 @@ interface PortfolioContextType {
 
     // Saved Portfolios
     savedPortfolios: SavedPortfolio[];
+    activePortfolioId: string | null;
+    activePortfolioName: string | null;
     savePortfolio: (name: string) => void;
     deletePortfolio: (id: string) => void;
     loadPortfolio: (id: string) => void;
+    duplicatePortfolio: (id: string) => void;
 
     // Analysis
     computeAssetPortfolio: (asset: string) => PortfolioResult | null;
@@ -86,6 +89,17 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const [rebalance, setRebalance] = useState<RebalancePeriod>("Annual");
     const [riskFreeRate, setRiskFreeRateState] = useState(0.02);
     const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>([]);
+
+    const [activePortfolioId, setActivePortfolioId] = useState<string | null>(null);
+    const [activePortfolioName, setActivePortfolioName] = useState<string | null>(null);
+
+    const [hasInitialShareParams] = useState(() => {
+        if (typeof window === "undefined") return false;
+        const params = new URLSearchParams(window.location.search);
+        return params.has("share") || params.has("share_all");
+    });
+
+    const [didAutoLoadDefault, setDidAutoLoadDefault] = useState(false);
 
     // Load risk-free rate from localStorage
     useEffect(() => {
@@ -311,7 +325,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         } else if (investmentMode === "hybrid") {
             return computeHybridPortfolio(adates, aseries, weights, rebalance, initialInvestment, monthlyInvestment);
         } else {
-            return computePortfolio(adates, aseries, weights, rebalance);
+            return computePortfolio(adates, aseries, weights, rebalance, initialInvestment);
         }
     }, [norm, weights, investmentMode, initialInvestment, monthlyInvestment, rebalance, endDate, startDate]);
 
@@ -327,29 +341,97 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     };
 
     const savePortfolio = (name: string) => {
+        const trimmed = (name || "").trim();
+        if (!trimmed) return;
+
+        const now = new Date().toISOString();
+
+        if (activePortfolioId && savedPortfolios.some(p => p.id === activePortfolioId)) {
+            const updated = savedPortfolios.map(p =>
+                p.id === activePortfolioId
+                    ? { ...p, name: trimmed, weights: { ...weights }, date: now }
+                    : p
+            );
+            setSavedPortfolios(updated);
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+            setActivePortfolioName(trimmed);
+            return;
+        }
+
         const newPortfolio: SavedPortfolio = {
-            id: Date.now().toString(),
-            name,
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: trimmed,
             weights: { ...weights },
-            date: new Date().toISOString()
+            date: now
         };
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
         localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        setActivePortfolioId(newPortfolio.id);
+        setActivePortfolioName(newPortfolio.name);
     };
 
     const deletePortfolio = (id: string) => {
         const updated = savedPortfolios.filter(p => p.id !== id);
         setSavedPortfolios(updated);
         localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+
+        if (activePortfolioId === id) {
+            setActivePortfolioId(null);
+            setActivePortfolioName(null);
+        }
     };
 
     const loadPortfolio = (id: string) => {
         const p = savedPortfolios.find(p => p.id === id);
         if (p) {
             setWeights(p.weights);
+            setActivePortfolioId(p.id);
+            setActivePortfolioName(p.name);
         }
     };
+
+    const duplicatePortfolio = (id: string) => {
+        const p = savedPortfolios.find(p => p.id === id);
+        if (!p) return;
+
+        const base = `${p.name} Copy`;
+        let candidate = base;
+        let i = 2;
+        while (savedPortfolios.some(sp => sp.name.trim().toLowerCase() === candidate.trim().toLowerCase())) {
+            candidate = `${base} ${i}`;
+            i++;
+        }
+
+        const now = new Date().toISOString();
+        const clone: SavedPortfolio = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: candidate,
+            weights: { ...p.weights },
+            date: now,
+        };
+
+        const updated = [...savedPortfolios, clone];
+        setSavedPortfolios(updated);
+        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+    };
+
+    useEffect(() => {
+        if (didAutoLoadDefault) return;
+        if (hasInitialShareParams) return;
+        if (activePortfolioId) return;
+        if (!savedPortfolios.length) return;
+
+        const sumWeights = Object.values(weights || {}).reduce((a, b) => a + (b ?? 0), 0);
+        if (sumWeights !== 0) return;
+
+        const p = savedPortfolios[0];
+        if (!p) return;
+        setWeights(p.weights);
+        setActivePortfolioId(p.id);
+        setActivePortfolioName(p.name);
+        setDidAutoLoadDefault(true);
+    }, [didAutoLoadDefault, hasInitialShareParams, activePortfolioId, savedPortfolios, weights]);
 
     const computeAssetPortfolio = (asset: string) => {
         if (!norm) return null;
@@ -373,7 +455,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         } else if (investmentMode === "hybrid") {
             return computeHybridPortfolio(adates, aseries, singleWeight, rebalance, initialInvestment, monthlyInvestment);
         } else {
-            return computePortfolio(adates, aseries, singleWeight, rebalance);
+            return computePortfolio(adates, aseries, singleWeight, rebalance, initialInvestment);
         }
     };
 
@@ -395,7 +477,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         } else if (investmentMode === "hybrid") {
             return computeHybridPortfolio(adates, aseries, customWeights, rebalance, initialInvestment, monthlyInvestment);
         } else {
-            return computePortfolio(adates, aseries, customWeights, rebalance);
+            return computePortfolio(adates, aseries, customWeights, rebalance, initialInvestment);
         }
     };
 
@@ -422,10 +504,14 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             riskFreeRate,
             setRiskFreeRate,
             portfolio,
+            // Saved Portfolios
             savedPortfolios,
+            activePortfolioId,
+            activePortfolioName,
             savePortfolio,
             deletePortfolio,
             loadPortfolio,
+            duplicatePortfolio,
             computeAssetPortfolio,
             computeCustomPortfolio,
             norm

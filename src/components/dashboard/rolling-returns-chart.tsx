@@ -127,7 +127,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 domain={['auto', 'auto']}
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                            <ReferenceLine y={0} stroke="red" opacity={0.5} />
+                            <ReferenceLine y={0} stroke="#ef4444" strokeWidth={2} />
                             <Tooltip
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}

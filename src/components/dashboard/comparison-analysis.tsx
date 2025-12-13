@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Download } from "lucide-react";
-import { PortfolioResult, cagr, annualVol, sharpe, maxDrawdown } from "@/lib/finance";
+import { PortfolioResult, cagr, cagrRecurring, annualVol, sharpe, maxDrawdown, averageRolling10YearCAGR } from "@/lib/finance";
 import {
     LineChart,
     Line,
@@ -147,16 +147,31 @@ export function ComparisonAnalysis() {
     const chartData = useMemo(() => {
         if (!itemsWithResults.length || !itemsWithResults[0].result) return [];
 
-        // Use the dates from the first item (assuming same timeframe due to global controls)
-        const dates = Object.keys(itemsWithResults[0].result.idxMap).sort();
+        const base = itemsWithResults[0].result;
+        const dates = (base.portValues && base.dates && base.portValues.length === base.dates.length)
+            ? base.dates
+            : Object.keys(base.idxMap).sort();
 
-        return dates.map(date => {
+        const seriesByName: Record<string, Record<string, number>> = {};
+        for (const item of itemsWithResults) {
+            const r = item.result;
+            if (!r) continue;
+            if (r.portValues && r.dates && r.portValues.length === r.dates.length) {
+                seriesByName[item.name] = r.dates.reduce((acc, d, i) => {
+                    acc[d] = r.portValues![i];
+                    return acc;
+                }, {} as Record<string, number>);
+            } else {
+                seriesByName[item.name] = r.idxMap;
+            }
+        }
+
+        return dates.map((date) => {
             const point: any = { date };
-            itemsWithResults.forEach(item => {
-                if (item.result && item.result.idxMap[date] !== undefined) {
-                    point[item.name] = item.result.idxMap[date];
-                }
-            });
+            for (const item of itemsWithResults) {
+                const v = seriesByName[item.name]?.[date];
+                if (v !== undefined) point[item.name] = v;
+            }
             return point;
         });
     }, [itemsWithResults]);
@@ -290,15 +305,19 @@ export function ComparisonAnalysis() {
                                     <TableHead>Vol (Ann)</TableHead>
                                     <TableHead>Sharpe</TableHead>
                                     <TableHead>Max DD</TableHead>
+                                    <TableHead>Avg 10Y Rolling CAGR</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {itemsWithResults.map((item) => {
                                     if (!item.result) return null;
-                                    const cagrVal = cagr(Object.keys(item.result.idxMap).sort().map(d => ({ value: item.result!.idxMap[d] })));
+                                    const cagrVal = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
+                                        ? cagrRecurring(item.result.portValues, item.result.totalInvested)
+                                        : cagr(Object.keys(item.result.idxMap).sort().map(d => ({ value: item.result!.idxMap[d] })));
                                     const volVal = annualVol(item.result.portRets);
                                     const sharpeVal = sharpe(item.result.portRets, 0.02); // assuming rf=2%
                                     const maxDD = item.result.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
+                                    const avgRolling10Y = averageRolling10YearCAGR(item.result);
 
                                     return (
                                         <TableRow key={item.name}>
@@ -310,6 +329,7 @@ export function ComparisonAnalysis() {
                                             <TableCell>{(volVal * 100).toFixed(2)}%</TableCell>
                                             <TableCell>{sharpeVal.toFixed(2)}</TableCell>
                                             <TableCell className="text-red-600">{(maxDD * 100).toFixed(2)}%</TableCell>
+                                            <TableCell className={(avgRolling10Y >= 0 ? "text-blue-600" : "text-red-600")}>{(avgRolling10Y * 100).toFixed(2)}%</TableCell>
                                         </TableRow>
                                     );
                                 })}

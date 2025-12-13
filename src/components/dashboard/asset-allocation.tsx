@@ -19,9 +19,10 @@ interface AssetAllocationProps {
     weights: Record<string, number>;
     onWeightChange: (asset: string, value: number) => void;
     assets: string[];
+    portfolioName?: string | null;
 }
 
-export function AssetAllocation({ weights, onWeightChange, assets }: AssetAllocationProps) {
+export function AssetAllocation({ weights, onWeightChange, assets, portfolioName }: AssetAllocationProps) {
     const formatPercent = (val: number) => Math.round(val * 100);
     const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
     const totalPercent = Math.round(totalWeight * 100);
@@ -60,7 +61,9 @@ export function AssetAllocation({ weights, onWeightChange, assets }: AssetAlloca
                 <div className="flex items-center justify-between">
                     <div>
                         <CardTitle>Asset Allocation</CardTitle>
-                        <CardDescription>Adjust portfolio weights using manual inputs</CardDescription>
+                        <CardDescription>
+                            {portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights using manual inputs"}
+                        </CardDescription>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className={cn(
@@ -114,6 +117,7 @@ export function AssetAllocation({ weights, onWeightChange, assets }: AssetAlloca
                                                 type="number"
                                                 value={percent}
                                                 onChange={(e) => handleInputChange(asset, e.target.value)}
+                                                onFocus={(e) => e.target.select()}
                                                 className="h-8 w-16 text-right font-medium"
                                                 min={0}
                                                 max={100}

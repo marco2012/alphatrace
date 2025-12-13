@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cagr, annualVol, sharpe, sortino, PortfolioResult } from "@/lib/finance";
+import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, averageRolling10YearCAGR } from "@/lib/finance";
 
 interface MetricsCardsProps {
     portfolio: PortfolioResult | null;
@@ -11,8 +11,8 @@ interface MetricsCardsProps {
 export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
     if (!portfolio) {
         return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {["CAGR", "Volatility", "Sharpe Ratio", "Max Drawdown"].map((label) => (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+                {["CAGR", "Volatility", "Sharpe Ratio", "Max Drawdown", "Avg 10Y Rolling CAGR"].map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">{label}</CardTitle>
@@ -28,23 +28,9 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
 
     const { portRets, drawdowns } = portfolio;
 
-    // Calculate Metrics
-    const cagrVal = cagr(Object.keys(portfolio.idxMap).map(d => ({ value: portfolio.idxMap[d] }))); // Helper expects objects with value?
-    // Wait, my cagr helper in finance.ts expects { value: number }[]
-    // But computePortfolio returns idxMap. I should map it correctly.
-    // Actually, finance.ts cagr expects indexSeries which is { value: number }[]?
-    // Let's check finance.ts:
-    // export function cagr(indexSeries: { value: number }[]): number ...
-    // Yes.
-
-    // It's easier to use normalizedIndex array? computePortfolio returns portRets and idxMap.
-    // computePortfolio internal idx array is not exposed directly except via idxMap.
-    // computeRecurringPortfolio exposes normalizedIndex.
-    // computePortfolio exposes idxMap.
-
-    // Let's convert idxMap to array.
-    const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({ value: portfolio.idxMap[d] }));
-    const cagrValue = cagr(idxArray);
+    const cagrValue = (portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.totalInvested.length)
+        ? cagrRecurring(portfolio.portValues, portfolio.totalInvested)
+        : cagr(Object.keys(portfolio.idxMap).sort().map(d => ({ value: portfolio.idxMap[d] })));
 
     const volValue = annualVol(portRets);
     const sharpeValue = sharpe(portRets, rf);
@@ -52,11 +38,14 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
     // Max Drawdown
     const maxDD = drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
 
+    // Average Rolling 10-Year CAGR
+    const avgRolling10YearCAGR = averageRolling10YearCAGR(portfolio);
+
     const formatPercent = (v: number) => `${(v * 100).toFixed(2)}%`;
     const formatNumber = (v: number) => v.toFixed(2);
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">CAGR</CardTitle>
@@ -99,6 +88,17 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
                         {formatPercent(maxDD)}
                     </div>
                     <p className="text-xs text-muted-foreground">Calculated from peak</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Avg 10Y Rolling CAGR</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                        {formatPercent(avgRolling10YearCAGR)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Average of rolling 10-year CAGRs</p>
                 </CardContent>
             </Card>
         </div>

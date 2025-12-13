@@ -248,7 +248,13 @@ export interface PortfolioResult {
     normalizedIndex?: number[];
 }
 
-export function computePortfolio(dates: string[], series: Record<string, (number | null)[]>, weights: Record<string, number>, rebalance: RebalancePeriod = "Annual"): PortfolioResult {
+export function computePortfolio(
+    dates: string[],
+    series: Record<string, (number | null)[]>,
+    weights: Record<string, number>,
+    rebalance: RebalancePeriod = "Annual",
+    initialInvestment: number = 100000
+): PortfolioResult {
     const cols = Object.keys(series);
     const wVec = cols.map(c => weights[c] ?? 0);
     const wSum = wVec.reduce((a, b) => a + b, 0) || 1;
@@ -266,9 +272,30 @@ export function computePortfolio(dates: string[], series: Record<string, (number
         const s = nv.reduce((a, b) => a + b, 0) || 1; nv = nv.map(v => v / s);
         if ((t + 1) % step === 0) curW = targetW.slice(); else curW = nv;
     }
-    const idx = [100]; for (const r of portRets) idx.push(idx[idx.length - 1] * (1 + r));
-    const idxMap: Record<string, number> = {}; for (let i = 0; i < dates.length; i++) idxMap[dates[i]] = idx[i];
-    return { portRets, idxMap, dates, drawdowns: drawdownsFromIndex(idxMap) };
+
+    // Monetary portfolio value series (so charts and metrics can reflect the initial investment).
+    const portValues = [initialInvestment];
+    for (const r of portRets) portValues.push(portValues[portValues.length - 1] * (1 + r));
+
+    const totalInvested = new Array(portValues.length).fill(initialInvestment);
+
+    // Keep idxMap as the main time series (scale-invariant analytics like drawdowns and returns still work).
+    const idxMap: Record<string, number> = {};
+    for (let i = 0; i < dates.length; i++) idxMap[dates[i]] = portValues[i];
+
+    // Also provide a normalized index for cases where a 100-based view is useful.
+    const normalizedIndex = [100];
+    for (const r of portRets) normalizedIndex.push(normalizedIndex[normalizedIndex.length - 1] * (1 + r));
+
+    return {
+        portRets,
+        idxMap,
+        dates,
+        drawdowns: drawdownsFromIndex(idxMap),
+        totalInvested,
+        portValues,
+        normalizedIndex,
+    };
 }
 
 export function computeRecurringPortfolio(dates: string[], series: Record<string, (number | null)[]>, weights: Record<string, number>, rebalance: RebalancePeriod = "Annual", monthlyInvestment: number = 1000): PortfolioResult {
@@ -423,4 +450,25 @@ export function rollingNCAGR(idxMap: Record<string, number>, years: number): { d
     const dates = entries.map(e => e[0]), vals = entries.map(e => e[1]);
     const w = years * 12, out = []; for (let i = 0; i + w < vals.length; i++) { const c = Math.pow(vals[i + w] / vals[i], 1 / years) - 1; out.push({ date: dates[i], value: c }); }
     return out;
+}
+
+export function averageRollingNCAGR(idxMap: Record<string, number>, years: number): number {
+    const rollingValues = rollingNCAGR(idxMap, years);
+    if (!rollingValues.length) return 0;
+    const sum = rollingValues.reduce((acc, item) => acc + item.value, 0);
+    return sum / rollingValues.length;
+}
+
+export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
+    // Use monetary series if available, otherwise use normalized index
+    const series = portfolio.portValues && portfolio.totalInvested 
+        ? portfolio.portValues.map((val, i) => val / portfolio.totalInvested![i] * 100)
+        : portfolio.normalizedIndex || Object.values(portfolio.idxMap);
+    
+    const idxMap: Record<string, number> = {};
+    for (let i = 0; i < portfolio.dates.length; i++) {
+        idxMap[portfolio.dates[i]] = series[i];
+    }
+    
+    return averageRollingNCAGR(idxMap, 10);
 }

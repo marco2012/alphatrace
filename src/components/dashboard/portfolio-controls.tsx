@@ -32,7 +32,7 @@ export function PortfolioControls() {
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3 w-3" /> Mode</Label>
                         <Select value={investmentMode} onValueChange={(v) => setInvestmentMode(v as InvestmentMode)}>
-                            <SelectTrigger className="h-8 text-sm">
+                            <SelectTrigger className="h-8 text-sm w-full">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -46,7 +46,7 @@ export function PortfolioControls() {
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1"><RefreshCw className="h-3 w-3" /> Rebalancing</Label>
                         <Select value={rebalance} onValueChange={(v) => setRebalance(v as RebalancePeriod)}>
-                            <SelectTrigger className="h-8 text-sm">
+                            <SelectTrigger className="h-8 text-sm w-full">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -63,7 +63,7 @@ export function PortfolioControls() {
                             value={startDate}
                             onChange={setStartDate}
                             placeholder="Select start date"
-                            className="h-8 text-sm px-2"
+                            className="h-8 text-sm px-2 w-full"
                         />
                     </div>
 
@@ -73,7 +73,7 @@ export function PortfolioControls() {
                             value={endDate}
                             onChange={setEndDate}
                             placeholder="Select end date"
-                            className="h-8 text-sm px-2"
+                            className="h-8 text-sm px-2 w-full"
                         />
                     </div>
 
@@ -84,7 +84,7 @@ export function PortfolioControls() {
                                 type="number"
                                 value={initialInvestment}
                                 onChange={(e) => setInitialInvestment(Number(e.target.value))}
-                                className="h-8 text-sm px-2"
+                                className="h-8 text-sm px-2 w-full"
                             />
                         </div>
                     )}
@@ -96,7 +96,7 @@ export function PortfolioControls() {
                                 type="number"
                                 value={monthlyInvestment}
                                 onChange={(e) => setMonthlyInvestment(Number(e.target.value))}
-                                className="h-8 text-sm px-2"
+                                className="h-8 text-sm px-2 w-full"
                             />
                         </div>
                     )}
