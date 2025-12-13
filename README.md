@@ -1,61 +1,36 @@
-# AlphaTrace - Portfolio Backtesting Tool
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-A browser-based portfolio backtesting tool for testing investment strategies using historical data. Built with React and Recharts.
+## Getting Started
 
-## 🚀 Features
-
--   **Investment Strategies**: Lump sum, recurring monthly, or hybrid investments
--   **Portfolio Analysis**: CAGR, Sharpe ratio, volatility, drawdowns, and inflation-adjusted returns
--   **Portfolio Management**: Save and compare multiple portfolio configurations
--   **Data Import**: Upload Excel/CSV files with automatic data processing
--   **Interactive Charts**: Visualize performance, drawdowns, and rolling returns
--   **Privacy-First**: All data processed locally in your browser
-
-## 🛠️ Installation
+First, run the development server:
 
 ```bash
-npm install
 npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Open `http://localhost:5173` in your browser.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## 📖 Quick Start
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-1. **Upload Data**: Click ⚙️ and upload a CSV/Excel file with Date column + asset price columns
-2. **Set Weights**: Configure asset allocation percentages
-3. **Choose Strategy**: Select lump sum, recurring, or hybrid investment mode
-4. **Analyze**: View metrics and charts
-5. **Save & Compare**: Use 💼 to save portfolios and 📊 to compare performance
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## 📁 Data Format
+## Learn More
 
-```csv
-Date,MSCI World,Gold,Bonds
-2020-01-01,100,100,100
-2020-02-01,95,105,101
-```
+To learn more about Next.js, take a look at the following resources:
 
-**Data Sources**: [Curvo fund database](https://curvo.eu/backtest/en/funds), Yahoo Finance, or any financial data provider.
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-## 🔧 Built With
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
--   React 18 + Vite
--   Recharts for visualization
--   Tailwind CSS for styling
--   XLSX for file parsing
+## Deploy on Vercel
 
-## 🎯 Use Cases
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
--   Compare asset allocation strategies
--   Test lump sum vs dollar-cost averaging
--   Analyze historical portfolio performance
--   Educational tool for investment concepts
-
-## 🔒 Privacy
-
-All data is processed locally in your browser. No data is sent to external servers.
-
----
-
-**AlphaTrace** - Data-driven portfolio analysis made simple.
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

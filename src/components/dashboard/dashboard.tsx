@@ -1,0 +1,55 @@
+"use client";
+
+import { Loader2 } from "lucide-react";
+import { usePortfolio } from "@/context/portfolio-context";
+import { AssetAllocation } from "./asset-allocation";
+import { PortfolioChart } from "./portfolio-chart";
+import { MetricsCards } from "./metrics-cards";
+import { DrawdownChart } from "./drawdown-chart";
+import { AnnualReturnsChart } from "./annual-returns-chart";
+
+export function Dashboard() {
+    const {
+        weights,
+        handleWeightChange,
+        columns,
+        portfolio,
+        isLoading,
+        savedPortfolios
+    } = usePortfolio();
+
+    if (isLoading) {
+        return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+    }
+
+    return (
+        <div className="grid gap-6 md:grid-cols-12 h-[calc(100vh-100px)]">
+            {/* Left Column: Asset Allocation */}
+            <div className="md:col-span-4 lg:col-span-3 h-full flex flex-col gap-4">
+                <AssetAllocation
+                    weights={weights}
+                    onWeightChange={handleWeightChange}
+                    assets={columns}
+                />
+            </div>
+
+            {/* Right Column: Charts & Metrics */}
+            <div className="md:col-span-8 lg:col-span-9 space-y-6 overflow-y-auto pr-2 pb-10">
+                <div className="grid gap-4 md:grid-cols-1">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-2xl font-bold tracking-tight">Overview</h2>
+                    </div>
+                </div>
+
+                <MetricsCards portfolio={portfolio} />
+
+                <PortfolioChart portfolio={portfolio} />
+
+                <div className="grid gap-6 md:grid-cols-4">
+                    <AnnualReturnsChart portfolio={portfolio} />
+                    <DrawdownChart portfolio={portfolio} />
+                </div>
+            </div>
+        </div>
+    );
+}
