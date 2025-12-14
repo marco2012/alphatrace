@@ -71,7 +71,7 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
                     </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
-                    <Download className="mr-2 h-4 w-4" /> CSV
+                    <Download className="h-4 w-4" />
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">

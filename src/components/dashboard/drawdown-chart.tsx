@@ -5,7 +5,7 @@ import {
     AreaChart,
     CartesianGrid,
     ResponsiveContainer,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
 } from "recharts";
@@ -53,7 +53,7 @@ export function DrawdownChart({ portfolio }: DrawdownChartProps) {
                     </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
-                    <Download className="mr-2 h-4 w-4" /> CSV
+                    <Download className="h-4 w-4" />
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">
@@ -86,7 +86,7 @@ export function DrawdownChart({ portfolio }: DrawdownChartProps) {
                                 tickFormatter={(value) => `${value.toFixed(0)}%`}
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                            <Tooltip
+                            <RechartsTooltip
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [`${value.toFixed(2)}%`, "Drawdown"]}

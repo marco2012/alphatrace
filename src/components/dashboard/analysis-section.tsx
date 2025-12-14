@@ -361,7 +361,87 @@ export function AnalysisSection() {
         });
     }, [validItems]);
 
+    const rollingAveragesByName = useMemo(() => {
+        const out: Record<string, number> = {};
+        if (!rollingComparisonData.length) return out;
+
+        for (const item of validItems) {
+            const key = item.name;
+            let sum = 0;
+            let n = 0;
+            for (const row of rollingComparisonData) {
+                const v = row[key];
+                if (typeof v === "number" && Number.isFinite(v)) {
+                    sum += v;
+                    n++;
+                }
+            }
+            if (n > 0) out[key] = sum / n;
+        }
+
+        return out;
+    }, [rollingComparisonData, validItems]);
+
+    const rollingLegendLabel = useMemo(() => {
+        const out: Record<string, string> = {};
+        for (const item of validItems) {
+            const avg = rollingAveragesByName[item.name];
+            out[item.name] = avg == null
+                ? item.name
+                : `${item.name} (${avg.toFixed(2)}%)`;
+        }
+        return out;
+    }, [rollingAveragesByName, validItems]);
+
     const handleAddItem = () => {
+        if (typeToAdd === "portfolio" && selectedForAdd.length === 0) {
+            const allSavedSelected = savedPortfolios.length > 0
+                && savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id));
+
+            if (allSavedSelected) {
+                const savedIds = new Set(savedPortfolios.map(p => p.id));
+                const withoutSaved = selectedItems.filter(item => !(item.type === "portfolio" && savedIds.has(item.id)));
+                const hasCurrent = withoutSaved.some(item => item.type === "portfolio" && item.id === "current");
+
+                setSelectedItems(hasCurrent
+                    ? withoutSaved
+                    : [
+                        {
+                            id: "current",
+                            type: "portfolio",
+                            name: "Current Portfolio",
+                            color: COLORS[0],
+                            result: null
+                        },
+                        ...withoutSaved
+                    ]);
+                setSelectedForAdd([]);
+                return;
+            }
+
+            const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
+            const idsToAdd = savedPortfolios.map(p => p.id);
+            const itemsToAdd = idsToAdd
+                .map(id => {
+                    const p = savedPortfolios.find(sp => sp.id === id);
+                    if (!p) return null;
+                    return {
+                        id: p.id,
+                        type: "portfolio" as const,
+                        name: p.name,
+                        color: COLORS[(baseSelected.length + idsToAdd.indexOf(id)) % COLORS.length],
+                        result: null
+                    };
+                })
+                .filter(item => item !== null && !baseSelected.find(i => i.id === item!.id && i.type === item!.type)) as AnalysisItem[];
+
+            if (itemsToAdd.length > 0) {
+                setSelectedItems([...baseSelected, ...itemsToAdd]);
+                setSelectedForAdd([]);
+            }
+            return;
+        }
+
         const idsToAdd = selectedForAdd.length > 0
             ? selectedForAdd
             : (typeToAdd === "portfolio" ? savedPortfolios.map(p => p.id) : assets);
@@ -521,20 +601,25 @@ export function AnalysisSection() {
                                         size="icon"
                                         onClick={handleAddItem}
                                         disabled={
-                                            (typeToAdd === "portfolio" 
-                                                ? savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
-                                                : assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a))
-                                            ) || (typeToAdd === "portfolio" ? savedPortfolios.length === 0 : assets.length === 0)
+                                            (typeToAdd === "portfolio" ? savedPortfolios.length === 0 : assets.length === 0)
                                         }
                                         title={
-                                            (typeToAdd === "portfolio" 
-                                                ? savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
-                                                : assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a))
-                                            )
-                                                ? "All items already selected"
-                                                : selectedForAdd.length === 0
-                                                    ? `Add all ${typeToAdd === "portfolio" ? savedPortfolios.length : assets.length} ${typeToAdd === "portfolio" ? "portfolio" : "asset"}${(typeToAdd === "portfolio" ? savedPortfolios.length : assets.length) !== 1 ? "s" : ""}`
-                                                    : `Add ${selectedForAdd.length} item${selectedForAdd.length !== 1 ? "s" : ""}`
+                                            typeToAdd === "portfolio"
+                                                ? (
+                                                    savedPortfolios.length > 0
+                                                        && savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
+                                                        ? "Remove all portfolios"
+                                                        : (selectedForAdd.length === 0
+                                                            ? `Add all ${savedPortfolios.length} portfolio${savedPortfolios.length !== 1 ? "s" : ""}`
+                                                            : `Add ${selectedForAdd.length} item${selectedForAdd.length !== 1 ? "s" : ""}`)
+                                                )
+                                                : (
+                                                    assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a))
+                                                        ? "All items already selected"
+                                                        : (selectedForAdd.length === 0
+                                                            ? `Add all ${assets.length} asset${assets.length !== 1 ? "s" : ""}`
+                                                            : `Add ${selectedForAdd.length} item${selectedForAdd.length !== 1 ? "s" : ""}`)
+                                                )
                                         }
                                     >
                                         <Plus className="h-4 w-4" />
@@ -723,8 +808,7 @@ export function AnalysisSection() {
                                 size="sm"
                                 onClick={() => downloadCSV(chartData, "growth-comparison")}
                             >
-                                <Download className="h-4 w-4 mr-2" />
-                                CSV
+                                <Download className="h-4 w-4" />
                             </Button>
                         </CardHeader>
                         <CardContent>
@@ -785,8 +869,7 @@ export function AnalysisSection() {
                                         size="sm"
                                         onClick={() => downloadCSV(rollingComparisonData, "rolling-returns")}
                                     >
-                                        <Download className="h-4 w-4 mr-2" />
-                                        CSV
+                                        <Download className="h-4 w-4" />
                                     </Button>
                                 </div>
                                 <div className="w-full md:w-[180px]">
@@ -832,12 +915,16 @@ export function AnalysisSection() {
                                                 labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                             />
-                                            <Legend />
+                                            <Legend
+                                                verticalAlign="bottom"
+                                                formatter={(value: any) => rollingLegendLabel[String(value)] ?? String(value)}
+                                            />
                                             {validItems.map((item) => (
                                                 <Line
                                                     key={item.name}
                                                     type="monotone"
                                                     dataKey={item.name}
+                                                    name={rollingLegendLabel[item.name] ?? item.name}
                                                     stroke={item.color}
                                                     strokeWidth={2}
                                                     dot={false}
@@ -860,8 +947,7 @@ export function AnalysisSection() {
                                     size="sm"
                                     onClick={() => downloadCSV(annualComparisonData, "annual-returns")}
                                 >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    CSV
+                                    <Download className="h-4 w-4" />
                                 </Button>
                             </CardHeader>
                             <CardContent>
@@ -909,8 +995,7 @@ export function AnalysisSection() {
                                     size="sm"
                                     onClick={() => downloadCSV(drawdownComparisonData, "drawdowns")}
                                 >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    CSV
+                                    <Download className="h-4 w-4" />
                                 </Button>
                             </CardHeader>
                             <CardContent>

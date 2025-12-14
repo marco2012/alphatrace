@@ -5,10 +5,9 @@ import {
     LineChart,
     CartesianGrid,
     ResponsiveContainer,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
-    Legend,
     ReferenceLine
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,7 +54,16 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
         return result;
     }, [portfolio, years]);
 
+    const avgRollingReturn = useMemo(() => {
+        if (data.length === 0) return null;
+        const sum = data.reduce((acc, d) => acc + d.value, 0);
+        return sum / data.length;
+    }, [data]);
+
     if (!portfolio) return null;
+
+    const avgLabel = avgRollingReturn == null ? null : avgRollingReturn.toFixed(2);
+    const seriesLabel = avgLabel ? `${years}Y CAGR (avg ${avgLabel}%)` : `${years}Y CAGR`;
 
     const downloadCSV = () => {
         const csv = [
@@ -80,7 +88,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                 <div>
                     <CardTitle>Rolling Returns</CardTitle>
                     <CardDescription>
-                        Annualized return over {years}-year rolling periods.
+                        Annualized return over {years}-year rolling periods{avgLabel ? ` (avg ${avgLabel}%)` : ""}.
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -98,7 +106,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                         </SelectContent>
                     </Select>
                     <Button variant="outline" size="sm" onClick={downloadCSV}>
-                        <Download className="mr-2 h-4 w-4" /> CSV
+                        <Download className="h-4 w-4" />
                     </Button>
                 </div>
             </CardHeader>
@@ -128,15 +136,16 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                             <ReferenceLine y={0} stroke="#ef4444" strokeWidth={2} />
-                            <Tooltip
+                            <RechartsTooltip
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
-                                formatter={(value: number) => [`${value.toFixed(2)}%`, `${years}-Year CAGR`]}
+                                formatter={(value: number) => [`${value.toFixed(2)}%`, seriesLabel]}
                                 labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Line
                                 type="monotone"
                                 dataKey="value"
+                                name={seriesLabel}
                                 stroke="#d97706"
                                 strokeWidth={2}
                                 dot={false}

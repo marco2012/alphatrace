@@ -423,8 +423,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         if (activePortfolioId) return;
         if (!savedPortfolios.length) return;
 
-        const sumWeights = Object.values(weights || {}).reduce((a, b) => a + (b ?? 0), 0);
-        if (sumWeights !== 0) return;
+        if (isLoading) return;
+        if (!rows.length) return;
+        if (Object.keys(weights || {}).length === 0) return;
 
         const p = savedPortfolios[0];
         if (!p) return;
@@ -432,7 +433,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         setActivePortfolioId(p.id);
         setActivePortfolioName(p.name);
         setDidAutoLoadDefault(true);
-    }, [didAutoLoadDefault, hasInitialShareParams, activePortfolioId, savedPortfolios, weights]);
+    }, [didAutoLoadDefault, hasInitialShareParams, activePortfolioId, savedPortfolios, isLoading, rows.length, weights]);
 
     const computeAssetPortfolio = (asset: string) => {
         if (!norm) return null;

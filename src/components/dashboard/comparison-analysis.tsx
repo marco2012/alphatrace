@@ -245,7 +245,7 @@ export function ComparisonAnalysis() {
                             <CardTitle>Growth Comparison</CardTitle>
                         </div>
                         <Button variant="outline" size="sm" onClick={downloadComparisonCSV}>
-                            <Download className="mr-2 h-4 w-4" /> CSV
+                            <Download className="h-4 w-4" />
                         </Button>
                     </CardHeader>
                     <CardContent>

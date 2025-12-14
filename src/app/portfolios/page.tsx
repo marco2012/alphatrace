@@ -147,15 +147,15 @@ export default function PortfoliosPage() {
                                             <p>No portfolios saved yet.</p>
                                         </div>
                                     ) : (
-                                        <div className="rounded-md border">
+                                        <div className="rounded-md border overflow-x-auto">
                                             <Table>
                                                 <TableHeader>
                                                     <TableRow>
                                                         <TableHead>Name</TableHead>
-                                                        <TableHead className="text-center">Stocks</TableHead>
-                                                        <TableHead className="text-center">Bonds</TableHead>
-                                                        <TableHead className="text-center">Cash</TableHead>
-                                                        <TableHead className="text-center">Gold</TableHead>
+                                                        <TableHead className="hidden text-center sm:table-cell">Stocks</TableHead>
+                                                        <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
+                                                        <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
+                                                        <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
                                                         <TableHead>Date</TableHead>
                                                         <TableHead className="text-right">Actions</TableHead>
                                                     </TableRow>
@@ -163,40 +163,43 @@ export default function PortfoliosPage() {
                                                 <TableBody>
                                                     {savedPortfolios.map((p) => (
                                                         <TableRow key={p.id} className={activePortfolioId === p.id ? "bg-muted/30" : undefined}>
-                                                            <TableCell className="font-medium">{p.name}</TableCell>
-                                                            <TableCell className="text-center text-sm">
+                                                            <TableCell className="max-w-[180px] truncate font-medium sm:max-w-none">{p.name}</TableCell>
+                                                            <TableCell className="hidden text-center text-sm sm:table-cell">
                                                                 {getCategoryPercentage(p.weights, 'stocks')}%
                                                             </TableCell>
-                                                            <TableCell className="text-center text-sm">
+                                                            <TableCell className="hidden text-center text-sm sm:table-cell">
                                                                 {getCategoryPercentage(p.weights, 'bonds')}%
                                                             </TableCell>
-                                                            <TableCell className="text-center text-sm">
+                                                            <TableCell className="hidden text-center text-sm sm:table-cell">
                                                                 {getCategoryPercentage(p.weights, 'cash')}%
                                                             </TableCell>
-                                                            <TableCell className="text-center text-sm">
+                                                            <TableCell className="hidden text-center text-sm sm:table-cell">
                                                                 {getCategoryPercentage(p.weights, 'gold')}%
                                                             </TableCell>
                                                             <TableCell className="text-muted-foreground text-xs">
                                                                 {new Date(p.date).toLocaleDateString()}
                                                             </TableCell>
-                                                            <TableCell className="text-right space-x-2">
-                                                                <Button variant="secondary" size="sm" onClick={() => {
-                                                                    const url = getShareUrl(p.weights);
-                                                                    navigator.clipboard.writeText(url);
-                                                                    toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
-                                                                }}>
-                                                                    <Share2 className="h-4 w-4 mr-2" />
-                                                                    Share
-                                                                </Button>
-                                                                <Button variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
-                                                                    <Upload className="h-4 w-4" /> Load
-                                                                </Button>
-                                                                <Button variant="secondary" size="sm" onClick={() => duplicatePortfolio(p.id)}>
-                                                                    <Copy className="h-4 w-4" />
-                                                                </Button>
-                                                                <Button variant="destructive" size="sm" onClick={() => handleDeleteClick(p.id, p.name)}>
-                                                                    <Trash2 className="h-4 w-4" />
-                                                                </Button>
+                                                            <TableCell className="text-right">
+                                                                <div className="flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
+                                                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => {
+                                                                        const url = getShareUrl(p.weights);
+                                                                        navigator.clipboard.writeText(url);
+                                                                        toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
+                                                                    }}>
+                                                                        <Share2 className="h-4 w-4 sm:mr-2" />
+                                                                        <span className="hidden sm:inline">Share</span>
+                                                                    </Button>
+                                                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
+                                                                        <Upload className="h-4 w-4 sm:mr-2" />
+                                                                        <span className="hidden sm:inline">Load</span>
+                                                                    </Button>
+                                                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => duplicatePortfolio(p.id)}>
+                                                                        <Copy className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <Button className="w-full sm:w-auto" variant="destructive" size="sm" onClick={() => handleDeleteClick(p.id, p.name)}>
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </div>
                                                             </TableCell>
                                                         </TableRow>
                                                     ))}

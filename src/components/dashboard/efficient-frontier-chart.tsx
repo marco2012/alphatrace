@@ -15,6 +15,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { Input } from "@/components/ui/input";
 import { Download } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 
@@ -72,6 +73,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const [currentPoint, setCurrentPoint] = useState<FrontierPoint | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
+    const [classLimits, setClassLimits] = useState<Record<string, { min: number; max: number }>>({});
+    const [constraintsError, setConstraintsError] = useState<string | null>(null);
+
     useEffect(() => {
         setPoints([]);
         setFrontier([]);
@@ -89,6 +93,27 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         return { activeAssets, assetCount, canCompute: assetCount >= 2 };
     }, [norm, weights]);
 
+    const activeCategories = useMemo(() => {
+        const CATEGORY_ORDER = ["stocks", "bonds", "cash", "gold", "other"];
+        const s = new Set<string>();
+        for (const a of activeAssets) s.add(getAssetCategory(a) || "other");
+        return Array.from(s).sort((a, b) => {
+            const ia = CATEGORY_ORDER.indexOf(a);
+            const ib = CATEGORY_ORDER.indexOf(b);
+            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+        });
+    }, [activeAssets]);
+
+    useEffect(() => {
+        setClassLimits((prev) => {
+            const next: Record<string, { min: number; max: number }> = { ...prev };
+            for (const cat of activeCategories) {
+                if (!next[cat]) next[cat] = { min: 0, max: 1 };
+            }
+            return next;
+        });
+    }, [activeCategories]);
+
     const compute = async () => {
         if (!norm) return;
         if (activeAssets.length < 2) return;
@@ -96,6 +121,19 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setIsLoading(true);
 
         try {
+            setConstraintsError(null);
+
+            const minSum = activeCategories.reduce((acc, cat) => acc + (classLimits[cat]?.min ?? 0), 0);
+            const maxSum = activeCategories.reduce((acc, cat) => acc + (classLimits[cat]?.max ?? 1), 0);
+            if (minSum > 1 + 1e-9) {
+                setConstraintsError("Asset-class minimums sum to more than 100%.");
+                return;
+            }
+            if (maxSum < 1 - 1e-9) {
+                setConstraintsError("Asset-class maximums sum to less than 100%.");
+                return;
+            }
+
             const dates = norm.dates;
             const lastDate = endDate || dates[dates.length - 1];
             const i0 = dates.findIndex((d) => d >= startDate);
@@ -117,6 +155,16 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     comp[cat] = (comp[cat] || 0) + (wVec[i] || 0);
                 }
                 return comp;
+            };
+
+            const withinLimits = (comp: Record<string, number>) => {
+                for (const cat of activeCategories) {
+                    const v = comp[cat] || 0;
+                    const lim = classLimits[cat] || { min: 0, max: 1 };
+                    if (v < (lim.min ?? 0) - 1e-9) return false;
+                    if (v > (lim.max ?? 1) + 1e-9) return false;
+                }
+                return true;
             };
 
             const buildWeightsMap = (wVec: number[]) => {
@@ -148,11 +196,24 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
             const SIMS = 2000;
             const sims: FrontierPoint[] = [];
-            for (let k = 0; k < SIMS; k++) {
+            const MAX_TRIES = SIMS * 80;
+            let tries = 0;
+            while (sims.length < SIMS && tries < MAX_TRIES) {
+                tries++;
                 const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
                 const s = rands.reduce((a, b) => a + b, 0) || 1;
                 const w = rands.map((x) => x / s);
+                const comp = buildComposition(w);
+                if (!withinLimits(comp)) continue;
                 sims.push(statsToPoint("Simulated", w));
+            }
+
+            if (!sims.length) {
+                setConstraintsError("No portfolios matched the current constraints. Try relaxing the min/max limits.");
+                setPoints([]);
+                setFrontier([]);
+                setHighlights([]);
+                return;
             }
 
             const sorted = [...sims].sort((a, b) => a.vol - b.vol);
@@ -180,6 +241,18 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             setIsLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (!canCompute) return;
+        if (!norm) return;
+        if (!currentPoint && points.length === 0) return;
+
+        const t = window.setTimeout(() => {
+            void compute();
+        }, 350);
+        return () => window.clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [classLimits]);
 
     const downloadCSV = () => {
         const csv = [
@@ -210,16 +283,65 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={compute} disabled={!canCompute || isLoading}>
-                        {isLoading ? <Spinner size="sm" className="mr-2" /> : null}
-                        Compute
-                    </Button>
                     <Button variant="outline" size="sm" onClick={downloadCSV} disabled={points.length === 0}>
-                        <Download className="mr-2 h-4 w-4" /> CSV
+                        <Download className="h-4 w-4" />
                     </Button>
                 </div>
             </CardHeader>
             <CardContent className="pl-2">
+                {activeCategories.length > 0 && (
+                    <div className="mb-4 pr-2">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                            {activeCategories.map((cat) => {
+                                const lim = classLimits[cat] || { min: 0, max: 1 };
+                                return (
+                                    <div key={cat} className="rounded-md border p-3">
+                                        <div className="mb-2 text-sm font-medium capitalize">{cat}</div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="space-y-1">
+                                                <div className="text-xs text-muted-foreground">Min %</div>
+                                                <Input
+                                                    type="number"
+                                                    value={Math.round((lim.min ?? 0) * 100)}
+                                                    onChange={(e) => {
+                                                        setConstraintsError(null);
+                                                        const v = Number(e.target.value);
+                                                        const pct = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) / 100 : 0;
+                                                        setClassLimits((prev) => {
+                                                            const cur = prev[cat] || { min: 0, max: 1 };
+                                                            return { ...prev, [cat]: { ...cur, min: pct } };
+                                                        });
+                                                    }}
+                                                    className="h-8"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <div className="text-xs text-muted-foreground">Max %</div>
+                                                <Input
+                                                    type="number"
+                                                    value={Math.round((lim.max ?? 1) * 100)}
+                                                    onChange={(e) => {
+                                                        setConstraintsError(null);
+                                                        const v = Number(e.target.value);
+                                                        const pct = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) / 100 : 1;
+                                                        setClassLimits((prev) => {
+                                                            const cur = prev[cat] || { min: 0, max: 1 };
+                                                            return { ...prev, [cat]: { ...cur, max: pct } };
+                                                        });
+                                                    }}
+                                                    className="h-8"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        {constraintsError && (
+                            <div className="mt-2 pr-2 text-sm text-destructive">{constraintsError}</div>
+                        )}
+                    </div>
+                )}
                 <div className="h-[350px] w-full">
                     {points.length === 0 || !currentPoint ? (
                         <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -238,8 +360,17 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                             )}
                         </div>
                     ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <ScatterChart>
+                        <div className="relative h-full w-full">
+                            {isLoading && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <Spinner size="sm" />
+                                        <span>Recomputing...</span>
+                                    </div>
+                                </div>
+                            )}
+                            <ResponsiveContainer width="100%" height="100%">
+                                <ScatterChart>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                 <XAxis
                                     type="number"
@@ -285,27 +416,41 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         );
                                     }}
                                 />
-                                <Legend />
+                                <Legend verticalAlign="bottom" />
                                 <Scatter name="Simulated" data={points} fill="#94a3b8" />
                                 <Scatter name="Frontier" data={frontier} fill="#3b82f6" />
-                                <Scatter name="My Portfolio" data={[currentPoint]} fill="#ef4444" />
                                 <Scatter
-                                    name="Highest CAGR"
+                                    name={`My Portfolio (${currentPoint.ret.toFixed(2)}%)`}
+                                    data={[currentPoint]}
+                                    fill="#ef4444"
+                                />
+                                <Scatter
+                                    name={(() => {
+                                        const p = highlights.find((h) => h.label === "Highest CAGR");
+                                        return p ? `Highest CAGR (${p.ret.toFixed(2)}%)` : "Highest CAGR";
+                                    })()}
                                     data={highlights.filter((p) => p.label === "Highest CAGR")}
                                     fill="#22c55e"
                                 />
                                 <Scatter
-                                    name="Highest Sharpe"
+                                    name={(() => {
+                                        const p = highlights.find((h) => h.label === "Highest Sharpe");
+                                        return p ? `Highest Sharpe (${p.ret.toFixed(2)}%)` : "Highest Sharpe";
+                                    })()}
                                     data={highlights.filter((p) => p.label === "Highest Sharpe")}
                                     fill="#a855f7"
                                 />
                                 <Scatter
-                                    name="Lowest Risk"
+                                    name={(() => {
+                                        const p = highlights.find((h) => h.label === "Lowest Risk");
+                                        return p ? `Lowest Risk (${p.ret.toFixed(2)}%)` : "Lowest Risk";
+                                    })()}
                                     data={highlights.filter((p) => p.label === "Lowest Risk")}
                                     fill="#f59e0b"
                                 />
-                            </ScatterChart>
-                        </ResponsiveContainer>
+                                </ScatterChart>
+                            </ResponsiveContainer>
+                        </div>
                     )}
                 </div>
             </CardContent>

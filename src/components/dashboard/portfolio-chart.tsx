@@ -5,7 +5,7 @@ import {
     AreaChart,
     CartesianGrid,
     ResponsiveContainer,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
 } from "recharts";
@@ -51,21 +51,21 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
 
     return (
         <Card className="col-span-4">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div>
+            <CardHeader className="flex flex-col items-start justify-between gap-3 space-y-0 pb-2 sm:flex-row sm:items-center">
+                <div className="min-w-0">
                     <CardTitle>Portfolio Growth</CardTitle>
                     <CardDescription>
                         {isMonetary ? 'Portfolio value over time' : 'Growth of 100 units invested at the start'}.
                     </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={downloadCSV}>
-                    <Download className="mr-2 h-4 w-4" /> CSV
+                <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={downloadCSV}>
+                    <Download className="h-4 w-4" />
                 </Button>
             </CardHeader>
-            <CardContent className="pl-2">
-                <div className="h-[350px] w-full">
+            <CardContent className="px-2 sm:pl-2">
+                <div className="h-[240px] w-full sm:h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data}>
+                        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                             <defs>
                                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor="#8884d8" stopOpacity={0.3} />
@@ -76,6 +76,7 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
                                 dataKey="date"
                                 stroke="#888888"
                                 fontSize={12}
+                                tickMargin={8}
                                 tickLine={false}
                                 axisLine={false}
                                 minTickGap={30}
@@ -87,13 +88,14 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
                             <YAxis
                                 stroke="#888888"
                                 fontSize={12}
+                                tickMargin={8}
                                 tickLine={false}
                                 axisLine={false}
                                 tickFormatter={(value) => isMonetary ? `€${(value / 1000).toFixed(0)}k` : value.toFixed(0)}
                                 domain={['auto', 'auto']}
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                            <Tooltip
+                            <RechartsTooltip
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [

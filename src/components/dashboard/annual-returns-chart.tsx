@@ -5,7 +5,7 @@ import {
     BarChart,
     CartesianGrid,
     ResponsiveContainer,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     XAxis,
     YAxis,
     Cell
@@ -59,7 +59,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                     </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
-                    <Download className="mr-2 h-4 w-4" /> CSV
+                    <Download className="h-4 w-4" />
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">
@@ -81,7 +81,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                                 tickFormatter={(value) => `${value.toFixed(0)}%`}
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                            <Tooltip
+                            <RechartsTooltip
                                 cursor={{ fill: 'transparent' }}
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}

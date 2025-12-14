@@ -23,9 +23,9 @@ export function Dashboard() {
     }
 
     return (
-        <div className="grid gap-6 md:grid-cols-12 h-[calc(100vh-100px)]">
+        <div className="grid gap-6 md:grid-cols-12 md:h-[calc(100vh-100px)]">
             {/* Left Column: Asset Allocation */}
-            <div className="md:col-span-4 lg:col-span-3 h-full flex flex-col gap-4">
+            <div className="md:col-span-4 lg:col-span-3 flex flex-col gap-4 md:h-full">
                 <AssetAllocation
                     weights={weights}
                     onWeightChange={handleWeightChange}
@@ -34,7 +34,7 @@ export function Dashboard() {
             </div>
 
             {/* Right Column: Charts & Metrics */}
-            <div className="md:col-span-8 lg:col-span-9 space-y-6 overflow-y-auto pr-2 pb-10">
+            <div className="md:col-span-8 lg:col-span-9 space-y-6 pb-6 md:overflow-y-auto md:pr-2 md:pb-10">
                 <div className="grid gap-4 md:grid-cols-1">
                     <div className="flex items-center justify-between">
                         <h2 className="text-2xl font-bold tracking-tight">Overview</h2>
