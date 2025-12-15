@@ -4,10 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DatePicker } from "@/components/ui/date-picker";
+import { MonthPickerInput } from "@/components/ui/month-picker-input";
 import { usePortfolio } from "@/context/portfolio-context";
-import { InvestmentMode, RebalancePeriod } from "@/lib/finance";
-import { SlidersHorizontal, TrendingUp, RefreshCw, Calendar, DollarSign } from "lucide-react";
+import { InvestmentMode, RebalancePeriod, YearSelection } from "@/lib/finance";
+import { SlidersHorizontal, TrendingUp, RefreshCw, Calendar, DollarSign, History } from "lucide-react";
 
 export function PortfolioControls() {
     const {
@@ -16,7 +16,8 @@ export function PortfolioControls() {
         initialInvestment, setInitialInvestment,
         monthlyInvestment, setMonthlyInvestment,
         investmentMode, setInvestmentMode,
-        rebalance, setRebalance
+        rebalance, setRebalance,
+        yearSelection, handleYearSelectionChange
     } = usePortfolio();
 
     return (
@@ -28,7 +29,7 @@ export function PortfolioControls() {
                 </div>
             </CardHeader>
             <CardContent className="p-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3 w-3" /> Mode</Label>
                         <Select value={investmentMode} onValueChange={(v) => setInvestmentMode(v as InvestmentMode)}>
@@ -58,21 +59,41 @@ export function PortfolioControls() {
                     </div>
 
                     <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground flex items-center gap-1"><History className="h-3 w-3" /> Years</Label>
+                        <Select value={yearSelection.toString()} onValueChange={(v) => handleYearSelectionChange(v === "MAX" ? "MAX" : Number(v) as YearSelection)}>
+                            <SelectTrigger className="h-8 text-sm w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="1">1 Year</SelectItem>
+                                <SelectItem value="3">3 Years</SelectItem>
+                                <SelectItem value="5">5 Years</SelectItem>
+                                <SelectItem value="10">10 Years</SelectItem>
+                                <SelectItem value="15">15 Years</SelectItem>
+                                <SelectItem value="20">20 Years</SelectItem>
+                                <SelectItem value="25">25 Years</SelectItem>
+                                <SelectItem value="30">30 Years</SelectItem>
+                                <SelectItem value="MAX">MAX</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> Start Date</Label>
-                        <DatePicker
+                        <MonthPickerInput
                             value={startDate}
                             onChange={setStartDate}
-                            placeholder="Select start date"
+                            placeholder="Select start month"
                             className="h-8 text-sm px-2 w-full"
                         />
                     </div>
 
                     <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> End Date</Label>
-                        <DatePicker
+                        <MonthPickerInput
                             value={endDate}
                             onChange={setEndDate}
-                            placeholder="Select end date"
+                            placeholder="Select end month"
                             className="h-8 text-sm px-2 w-full"
                         />
                     </div>

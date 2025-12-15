@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import { PortfolioResult, computeAnnualReturns } from "@/lib/finance";
+import { PortfolioResult, computeAnnualReturns, cagr } from "@/lib/finance";
 import { useMemo } from "react";
 
 interface AnnualReturnsChartProps {
@@ -31,6 +31,12 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
     }, [portfolio]);
 
     if (!portfolio) return null;
+
+    const portfolioCAGR = useMemo(() => {
+        const values = Object.values(portfolio.idxMap);
+        if (values.length < 2) return 0;
+        return cagr(values.map((value, index) => ({ value })));
+    }, [portfolio]);
 
     const downloadCSV = () => {
         const csv = [
@@ -53,10 +59,12 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
         <Card className="col-span-4 lg:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
-                    <CardTitle>Annual Returns</CardTitle>
-                    <CardDescription>
-                        Year-over-year performance.
-                    </CardDescription>
+                    <div>
+                        <CardTitle>Annual Returns {portfolioCAGR ? `(${(portfolioCAGR * 100).toFixed(2)}% CAGR)` : ''}</CardTitle>
+                        <CardDescription>
+                            Year-over-year performance.
+                        </CardDescription>
+                    </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
                     <Download className="h-4 w-4" />

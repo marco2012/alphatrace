@@ -44,7 +44,8 @@ import {
     CartesianGrid,
     Tooltip,
     Legend,
-    ResponsiveContainer
+    ResponsiveContainer,
+    ReferenceLine
 } from "recharts";
 
 import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus } from "lucide-react";
@@ -622,7 +623,14 @@ export function AnalysisSection() {
                                                 )
                                         }
                                     >
-                                        <Plus className="h-4 w-4" />
+                                        {typeToAdd === "portfolio" 
+                                            ? (savedPortfolios.length > 0 && savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id)))
+                                                ? <X className="h-4 w-4" />
+                                                : <Plus className="h-4 w-4" />
+                                            : (assets.length > 0 && assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a)))
+                                                ? <X className="h-4 w-4" />
+                                                : <Plus className="h-4 w-4" />
+                                        }
                                     </Button>
                                 </div>
 
@@ -835,14 +843,34 @@ export function AnalysisSection() {
                                         <Tooltip
                                             contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
                                             labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
-                                            formatter={(value: number, name: string) => [`€${value.toFixed(0)}`, name]}
+                                            formatter={(value: number, name: string) => {
+                                                const formattedValue = new Intl.NumberFormat('de-DE', {
+                                                    style: 'currency',
+                                                    currency: 'EUR',
+                                                    minimumFractionDigits: 0,
+                                                    maximumFractionDigits: 0
+                                                }).format(Math.round(value));
+                                                return [formattedValue, name];
+                                            }}
                                         />
-                                        <Legend />
+                                        <Legend 
+                                            formatter={(value: string) => {
+                                                const item = validItems.find(item => item.name === value);
+                                                if (!item?.result) return value;
+                                                
+                                                const cagrValue = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
+                                                    ? cagrRecurring(item.result.portValues, item.result.totalInvested)
+                                                    : cagr(Object.keys(item.result.idxMap).sort().map((d) => ({ value: item.result!.idxMap[d] })));
+                                                
+                                                return `${value} (${(cagrValue * 100).toFixed(2)}%)`;
+                                            }}
+                                        />
                                         {validItems.map((item) => (
                                             <Line
                                                 key={item.name}
                                                 type="monotone"
                                                 dataKey={item.name}
+                                                name={item.name}
                                                 stroke={item.color}
                                                 strokeWidth={2}
                                                 dot={false}
@@ -1063,7 +1091,14 @@ export function AnalysisSection() {
 
                         <div className="grid gap-6 md:grid-cols-2">
                             <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
-                            <DrawdownChart key={`single-dd-${calcKey}`} portfolio={primaryResult} />
+                            <DrawdownChart 
+                                key={`single-dd-${calcKey}`} 
+                                portfolios={[{
+                                    name: primaryResult.name || "Current Portfolio",
+                                    portfolio: primaryResult,
+                                    color: COLORS[0]
+                                }]} 
+                            />
                             <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
                         </div>
                     </>

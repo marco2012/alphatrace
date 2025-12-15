@@ -12,6 +12,7 @@ import {
     computeHybridPortfolio,
     InvestmentMode,
     RebalancePeriod,
+    YearSelection,
     PortfolioResult
 } from "@/lib/finance";
 
@@ -42,6 +43,11 @@ interface PortfolioContextType {
 
     rebalance: RebalancePeriod;
     setRebalance: (r: RebalancePeriod) => void;
+
+    // Year Selection
+    yearSelection: YearSelection;
+    setYearSelection: (y: YearSelection) => void;
+    handleYearSelectionChange: (y: YearSelection) => void;
 
     // Financial Settings
     riskFreeRate: number;
@@ -84,9 +90,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
     const [investmentMode, setInvestmentMode] = useState<InvestmentMode>("lump_sum");
-    const [initialInvestment, setInitialInvestment] = useState(100000);
+    const [initialInvestment, setInitialInvestment] = useState(10000);
     const [monthlyInvestment, setMonthlyInvestment] = useState(1000);
     const [rebalance, setRebalance] = useState<RebalancePeriod>("Annual");
+    const [yearSelection, setYearSelection] = useState<YearSelection>("MAX");
     const [riskFreeRate, setRiskFreeRateState] = useState(0.02);
     const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>([]);
 
@@ -112,12 +119,22 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    // Initialize with MAX years setting the appropriate start date
+    useEffect(() => {
+        if (yearSelection === "MAX") {
+            const maxStartDate = calculateStartDate("MAX");
+            if (startDate !== maxStartDate) {
+                setStartDate(maxStartDate);
+            }
+        }
+    }, []);
+
     // Load Data
     useEffect(() => {
         async function loadData() {
             try {
                 let buffer: ArrayBuffer;
-                
+
                 // Check for custom file first
                 const customFileData = localStorage.getItem("alphatrace_custom_file_data");
                 if (customFileData) {
@@ -135,7 +152,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     if (!response.ok) throw new Error('Failed to fetch data');
                     buffer = await response.arrayBuffer();
                 }
-                
+
                 const wb = XLSX.read(buffer, { type: "array" });
                 const ws = wb.Sheets[wb.SheetNames[0]];
                 const json = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any[][];
@@ -205,6 +222,86 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         }
         loadData();
     }, []);
+
+    // Effect to update startDate to the earliest common date (latest start date among assets) when composition changes
+    useEffect(() => {
+        if (!rows.length) return;
+
+        // Identify active assets
+        const activeAssets = Object.entries(weights)
+            .filter(([, w]) => Math.abs(w) > 1e-6) // non-zero weight
+            .map(([k]) => k);
+
+        if (activeAssets.length === 0) return;
+
+        // For each active asset, find its first valid data point date
+        let maxMinDateStr = "1900-01-01"; // We want the LATEST of the start dates (intersection)
+
+        // Columns are keys in rows[0]. But we need to scan rows for nulls.
+        // Optimization: Pre-calculate start dates for all columns once?
+        // For now, scanning is okay if not too slow. rows ~300-400 length hopefully.
+        // Actually, let's just find the first row where the asset has a value.
+
+        const columnStartDates: Record<string, string> = {};
+
+        // We can scan the rows once
+        for (const row of rows) {
+            const d = row["Date"];
+            if (!d) continue;
+            for (const asset of activeAssets) {
+                if (columnStartDates[asset]) continue; // already found
+                const val = row[asset];
+                if (val !== null && val !== undefined && val !== "") {
+                    columnStartDates[asset] = d;
+                }
+            }
+            // Early exit if all found?
+            if (Object.keys(columnStartDates).length === activeAssets.length) break;
+        }
+
+        // Find the maximum of these start dates
+        for (const asset of activeAssets) {
+            const d = columnStartDates[asset];
+            if (d && d > maxMinDateStr) {
+                maxMinDateStr = d;
+            }
+        }
+
+        // Now update startDate if the current startDate is BEFORE this limit. 
+        // OR, the user requested "update start date to be the lowest common date".
+        // This suggests forcing it to be the valid date, effectively resetting user's choice to the max available range?
+        // "lowest common date across all selected assets" -> The earliest date where ALL assets exist.
+        // Yes, that is maxMinDateStr.
+
+        // Determine if we should update. 
+        // If we only update when invalid, use: if (startDate < maxMinDateStr) setStartDate(maxMinDateStr);
+        // But the user might want to see the full available history by default.
+        // If I switch from a newer asset back to an old one, I might want to see 1994 data again.
+        // So let's set it to maxMinDateStr always, unless the user explicitly zoomed in?
+        // But we don't know if the user explicitly zoomed in.
+        // A safe bet is: specifically set it if the current range is invalid OR if we want to "reset" to max data.
+        // The user said: "update start date to be the lowest common date". This implies a hard update.
+
+        // Also need to handle "YearSelection". If it's "MAX", we definitely want this date.
+        // If it's "10Y", we might want 10Y from now, provided it's valid.
+
+        // Let's stick to: Update startDate to this calculated date IF it is "MAX" mode OR if current startDate is invalid (too early).
+        // Actually, if the user added a new asset that only starts in 2020, we MUST move start date to 2020.
+        // If the user removes that asset, should we move start date back to 1994? Only if they want "MAX".
+
+        // Let's implement this logic:
+        // 1. Calculate safe start date (maxMinDateStr).
+        // 2. If valid start date > current start date, we MUST update (correction).
+        // 3. If valid start date < current start date, we OPTIONALLY update. 
+        //    The user's prompt implies we should help them see the most data. "lowest common date" = Start of valid intersection.
+        //    So I will update it to maxMinDateStr. This effectively resets the time window to the maximum possible intersection.
+
+        // One check: prevents infinite loops if date is already correct.
+        if (startDate !== maxMinDateStr) {
+            setStartDate(maxMinDateStr);
+        }
+
+    }, [weights, rows]);
 
     // Load saved portfolios from local storage and check for share_all
     useEffect(() => {
@@ -340,6 +437,61 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             localStorage.setItem("alphatrace_risk_free_rate", rate.toString());
         }
     };
+
+    // Calculate start date based on year selection
+    const calculateStartDate = (years: YearSelection): string => {
+        const now = new Date();
+        if (years === "MAX") {
+            // Return the earliest possible date (when data starts)
+            return "1994-11-01";
+        }
+
+        const yearsBack = now.getFullYear() - years;
+        const resultDate = new Date(yearsBack, now.getMonth(), 1);
+        const startDateStr = toMonthStr(resultDate);
+
+        // Ensure start date is not earlier than available data (1994-11-01)
+        const minDate = new Date("1994-11-01");
+        if (resultDate < minDate) {
+            return "1994-11-01";
+        }
+
+        return startDateStr;
+    };
+
+    // Update start date when year selection changes
+    const handleYearSelectionChange = (years: YearSelection) => {
+        setYearSelection(years);
+        const newStartDate = calculateStartDate(years);
+        setStartDate(newStartDate);
+
+        // Also update end date to ensure it's within available data
+        validateAndUpdateEndDate();
+    };
+
+    // Validate and update end date to ensure it's within available data range
+    const validateAndUpdateEndDate = () => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        // End date should not be later than current month
+        const maxEndDate = toMonthStr(new Date(currentYear, currentMonth, 1));
+
+        // Also ensure end date is not earlier than start date
+        const minEndDate = startDate;
+
+        if (endDate > maxEndDate) {
+            setEndDate(maxEndDate);
+        } else if (endDate < minEndDate) {
+            setEndDate(maxEndDate); // Default to max if end date is too early
+        }
+    };
+
+    // Validate dates when they change to ensure they're within available data range
+    useEffect(() => {
+        validateAndUpdateEndDate();
+    }, [startDate]);
 
     const savePortfolio = (name: string) => {
         const trimmed = (name || "").trim();
@@ -503,6 +655,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             setMonthlyInvestment,
             rebalance,
             setRebalance,
+            yearSelection,
+            setYearSelection,
+            handleYearSelectionChange,
             riskFreeRate,
             setRiskFreeRate,
             portfolio,

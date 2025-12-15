@@ -3,6 +3,7 @@ export * from "./constants";
 
 export type RebalancePeriod = "Monthly" | "Quarterly" | "Annual";
 export type InvestmentMode = "lump_sum" | "recurring" | "hybrid";
+export type YearSelection = 1 | 3 | 5 | 10 | 15 | 20 | 25 | 30 | "MAX";
 
 export function getAssetCategory(name: string): string {
     const n = (name || "").toLowerCase();

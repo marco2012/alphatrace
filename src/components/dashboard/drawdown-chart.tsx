@@ -4,6 +4,7 @@ import {
     Area,
     AreaChart,
     CartesianGrid,
+    Legend,
     ResponsiveContainer,
     Tooltip as RechartsTooltip,
     XAxis,
@@ -13,24 +14,63 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
+import { useMemo } from "react";
 
 interface DrawdownChartProps {
-    portfolio: PortfolioResult | null;
+    portfolios: Array<{
+        name: string;
+        portfolio: PortfolioResult;
+        color: string;
+    }>;
 }
 
-export function DrawdownChart({ portfolio }: DrawdownChartProps) {
-    if (!portfolio) return null;
+export function DrawdownChart({ portfolios }: DrawdownChartProps) {
+    if (!portfolios.length) return null;
 
-    const data = portfolio.drawdowns.map(d => ({
-        date: d.date,
-        value: d.value * 100 // Convert to percentage
-    }));
+    // Transform data for the chart
+    const data = useMemo(() => {
+        // Get all unique dates from all portfolios
+        const allDates = new Set<string>();
+        portfolios.forEach(({ portfolio }) => {
+            portfolio.drawdowns.forEach(d => allDates.add(d.date));
+        });
+
+        // Create data points for each date
+        return Array.from(allDates).map(date => {
+            const point: any = { date };
+            portfolios.forEach(({ portfolio, name }) => {
+                const drawdown = portfolio.drawdowns.find(d => d.date === date);
+                point[name] = drawdown ? drawdown.value * 100 : null;
+            });
+            return point as Record<string, any>;
+        }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) as Array<Record<string, any>>;
+    }, [portfolios]);
+
+    // Calculate max drawdown for each portfolio
+    const maxDrawdowns = useMemo(() => {
+        return portfolios.map(({ portfolio, name }) => {
+            const maxDD = Math.min(...portfolio.drawdowns.map(d => d.value));
+            return {
+                name,
+                value: maxDD * 100, // Convert to percentage
+                color: portfolios.find(p => p.name === name)?.color || '#888888'
+            };
+        });
+    }, [portfolios]);
 
     const downloadCSV = () => {
+        const headers = ['Date', ...portfolios.map(p => p.name)];
         const csv = [
-            ['Date', 'Drawdown (%)'],
-            ...data.map(row => [row.date, row.value.toFixed(2)])
-        ].map(row => row.join(',')).join('\n');
+            headers.join(','),
+            ...data.map(row => {
+                const values = [row.date];
+                portfolios.forEach(({ name }) => {
+                    const val = row[name];
+                    values.push(val !== null && val !== undefined ? Number(val).toFixed(2) : '');
+                });
+                return values.join(',');
+            })
+        ].join('\n');
 
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
@@ -47,10 +87,21 @@ export function DrawdownChart({ portfolio }: DrawdownChartProps) {
         <Card className="col-span-4 lg:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
-                    <CardTitle>Drawdowns</CardTitle>
-                    <CardDescription>
-                        Historical decline from peak.
-                    </CardDescription>
+                    <div>
+                        <CardTitle>Drawdowns</CardTitle>
+                        <CardDescription>
+                            Historical decline from peak.
+                            {maxDrawdowns.length > 0 && (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                    Max: {maxDrawdowns.map((dd: { name: string; value: number; color: string }) => (
+                                        <span key={dd.name} style={{ color: dd.color }} className="ml-2">
+                                            {dd.name}: {dd.value.toFixed(2)}%
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </CardDescription>
+                    </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
                     <Download className="h-4 w-4" />
@@ -89,17 +140,35 @@ export function DrawdownChart({ portfolio }: DrawdownChartProps) {
                             <RechartsTooltip
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
-                                formatter={(value: number) => [`${value.toFixed(2)}%`, "Drawdown"]}
+                                formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                 labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
-                            <Area
-                                type="monotone"
-                                dataKey="value"
-                                stroke="#ef4444"
-                                strokeWidth={2}
-                                fillOpacity={1}
-                                fill="url(#colorDrawdown)"
+                            <Legend
+                                formatter={(value: string) => {
+                                    const dd = maxDrawdowns.find((d: { name: string; value: number }) => d.name === value);
+                                    return dd ? `${value} (${dd.value.toFixed(2)}%)` : value;
+                                }}
                             />
+                            {portfolios.map(({ name, color }) => (
+                                <defs key={`gradient-${name}`}>
+                                    <linearGradient id={`gradient-${name}`} x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor={color} stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                            ))}
+                            {portfolios.map(({ name, color }) => (
+                                <Area
+                                    key={name}
+                                    type="monotone"
+                                    dataKey={name}
+                                    stroke={color}
+                                    strokeWidth={2}
+                                    fillOpacity={0.3}
+                                    fill={`url(#gradient-${name})`}
+                                    name={name}
+                                />
+                            ))}
                         </AreaChart>
                     </ResponsiveContainer>
                 </div>
