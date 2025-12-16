@@ -243,23 +243,23 @@ export function AnalysisSection() {
                 };
             })
             .filter(Boolean) as Array<{
-            key: string;
-            name: string;
-            cagrValue: number;
-            cagr: string;
-            volValue: number;
-            vol: string;
-            sharpeValue: number;
-            sharpe: string;
-            sortinoValue: number;
-            sortino: string;
-            maxDDValue: number;
-            maxDD: string;
-            avgRolling10YearCAGRValue: number;
-            avgRolling10YearCAGR: string;
-            recoveryMonthsValue: number;
-            recoveryMonths: string;
-        }>;
+                key: string;
+                name: string;
+                cagrValue: number;
+                cagr: string;
+                volValue: number;
+                vol: string;
+                sharpeValue: number;
+                sharpe: string;
+                sortinoValue: number;
+                sortino: string;
+                maxDDValue: number;
+                maxDD: string;
+                avgRolling10YearCAGRValue: number;
+                avgRolling10YearCAGR: string;
+                recoveryMonthsValue: number;
+                recoveryMonths: string;
+            }>;
 
         const sortedRows = [...rows].sort((a, b) => {
             if (!sortConfig) return 0;
@@ -623,7 +623,7 @@ export function AnalysisSection() {
                                                 )
                                         }
                                     >
-                                        {typeToAdd === "portfolio" 
+                                        {typeToAdd === "portfolio"
                                             ? (savedPortfolios.length > 0 && savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id)))
                                                 ? <X className="h-4 w-4" />
                                                 : <Plus className="h-4 w-4" />
@@ -804,7 +804,7 @@ export function AnalysisSection() {
                         </CardContent>
                     </Card>
                 ) : (
-                    <MetricsCards key={`metrics-cards-${calcKey}`} portfolio={primaryResult} rf={riskFreeRate} />
+                    primaryResult && <MetricsCards key={`metrics-cards-${calcKey}`} portfolio={primaryResult} rf={riskFreeRate} />
                 )}
 
                 {validItems.length > 1 && (
@@ -853,15 +853,15 @@ export function AnalysisSection() {
                                                 return [formattedValue, name];
                                             }}
                                         />
-                                        <Legend 
+                                        <Legend
                                             formatter={(value: string) => {
                                                 const item = validItems.find(item => item.name === value);
                                                 if (!item?.result) return value;
-                                                
+
                                                 const cagrValue = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
                                                     ? cagrRecurring(item.result.portValues, item.result.totalInvested)
                                                     : cagr(Object.keys(item.result.idxMap).sort().map((d) => ({ value: item.result!.idxMap[d] })));
-                                                
+
                                                 return `${value} (${(cagrValue * 100).toFixed(2)}%)`;
                                             }}
                                         />
@@ -1076,32 +1076,34 @@ export function AnalysisSection() {
                         />
                     </>
                 ) : (
-                    <>
-                        <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} />
-                        <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} />
-                        <EfficientFrontierChart
-                            key={`single-frontier-${calcKey}`}
-                            norm={norm}
-                            weights={weights}
-                            startDate={startDate}
-                            endDate={endDate}
-                            rf={riskFreeRate}
-                        />
-                        <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
-
-                        <div className="grid gap-6 md:grid-cols-2">
-                            <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
-                            <DrawdownChart 
-                                key={`single-dd-${calcKey}`} 
-                                portfolios={[{
-                                    name: primaryResult.name || "Current Portfolio",
-                                    portfolio: primaryResult,
-                                    color: COLORS[0]
-                                }]} 
+                    primaryResult && (
+                        <>
+                            <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} />
+                            <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} />
+                            <EfficientFrontierChart
+                                key={`single-frontier-${calcKey}`}
+                                norm={norm}
+                                weights={weights}
+                                startDate={startDate}
+                                endDate={endDate}
+                                rf={riskFreeRate}
                             />
-                            <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
-                        </div>
-                    </>
+                            <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
+
+                            <div className="grid gap-6 md:grid-cols-2">
+                                <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
+                                <DrawdownChart
+                                    key={`single-dd-${calcKey}`}
+                                    portfolios={[{
+                                        name: validItems[0]?.name || "Current Portfolio",
+                                        portfolio: primaryResult,
+                                        color: COLORS[0]
+                                    }]}
+                                />
+                                <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
+                            </div>
+                        </>
+                    )
                 )}
             </div>
         </div>

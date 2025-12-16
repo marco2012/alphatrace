@@ -56,7 +56,13 @@ export function SingleAssetAnalysis() {
 
                     <div className="grid gap-6 md:grid-cols-2">
                         <AnnualReturnsChart portfolio={result} />
-                        <DrawdownChart portfolio={result} />
+                        <DrawdownChart
+                            portfolios={[{
+                                name: currentAsset,
+                                portfolio: result,
+                                color: "#2563eb"
+                            }]}
+                        />
                         <RollingReturnsChart portfolio={result} />
                         <TimeToRecoveryChart portfolio={result} />
                     </div>

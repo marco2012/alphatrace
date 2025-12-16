@@ -125,7 +125,7 @@ export function ComparisonAnalysis() {
         const csv = [
             headers.join(','),
             ...chartData.map(row => {
-                const values = itemsWithResults.map(item => 
+                const values = itemsWithResults.map(item =>
                     row[item.name] !== undefined ? row[item.name].toFixed(2) : ''
                 );
                 return [row.date, ...values].join(',');
@@ -175,6 +175,8 @@ export function ComparisonAnalysis() {
             return point;
         });
     }, [itemsWithResults]);
+
+    const currentItem = itemsWithResults.find(item => item.id === 'current');
 
     return (
         <div className="space-y-6">
@@ -340,10 +342,19 @@ export function ComparisonAnalysis() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
-                <AnnualReturnsChart portfolio={itemsWithResults.find(item => item.id === 'current')?.result || null} />
-                <DrawdownChart portfolio={itemsWithResults.find(item => item.id === 'current')?.result || null} />
-                <RollingReturnsChart portfolio={itemsWithResults.find(item => item.id === 'current')?.result || null} />
-                <TimeToRecoveryChart portfolio={itemsWithResults.find(item => item.id === 'current')?.result || null} />
+                <AnnualReturnsChart portfolio={currentItem?.result || null} />
+                <DrawdownChart
+                    portfolios={currentItem?.result
+                        ? [{
+                            name: currentItem.name,
+                            portfolio: currentItem.result,
+                            color: currentItem.color
+                        }]
+                        : []
+                    }
+                />
+                <RollingReturnsChart portfolio={currentItem?.result || null} />
+                <TimeToRecoveryChart portfolio={currentItem?.result || null} />
             </div>
         </div>
     );

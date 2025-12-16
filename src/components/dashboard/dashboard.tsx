@@ -47,7 +47,16 @@ export function Dashboard() {
 
                 <div className="grid gap-6 md:grid-cols-4">
                     <AnnualReturnsChart portfolio={portfolio} />
-                    <DrawdownChart portfolio={portfolio} />
+                    <DrawdownChart
+                        portfolios={portfolio
+                            ? [{
+                                name: "Current Portfolio",
+                                portfolio: portfolio,
+                                color: "#2563eb"
+                            }]
+                            : []
+                        }
+                    />
                 </div>
             </div>
         </div>
