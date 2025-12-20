@@ -193,6 +193,8 @@ export interface NormalizedData {
     dates: string[];
     series: Record<string, (number | null)[]>;
     columns: string[];
+    firstValidDates: Record<string, string>;
+    lastValidDates: Record<string, string>;
 }
 
 export function normalizeAndInterpolate(priceTable: any[], startDateStr: string): NormalizedData {
@@ -202,16 +204,37 @@ export function normalizeAndInterpolate(priceTable: any[], startDateStr: string)
 
     const cols = Object.keys(priceTable[0] || {}).filter(k => k.toLowerCase() !== "date");
     const rawByDate: Record<string, Record<string, number | null>> = {};
+    const rawDates = priceTable.map(r => toMonthStr(r.Date || r.date || r["Date"])).filter(Boolean).sort();
+
     for (const row of priceTable) {
         const d = toMonthStr(row.Date || row.date || row["Date"]); if (!rawByDate[d]) rawByDate[d] = {};
         for (const c of cols) { const v = row[c]; rawByDate[d][c] = (v === null || v === undefined || v === "") ? null : Number(v); }
     }
 
     const series: Record<string, (number | null)[]> = {};
+    const firstValidDates: Record<string, string> = {};
+    const lastValidDates: Record<string, string> = {};
+
     for (const c of cols) {
         const LIMIT = "2003-01-01";
+        // To find true valid range, we look at the raw data relative to the aligned range, or just raw data?
+        // We'll look at the 'aligned' range because that's the universe we return.
+
         const orig = aligned.map(d => rawByDate[d]?.[c] ?? null);
         const firstIdx = orig.findIndex(x => x != null && !isNaN(x as number));
+
+        // Find last valid index
+        let lastIdx = -1;
+        for (let k = orig.length - 1; k >= 0; k--) {
+            if (orig[k] != null && !isNaN(orig[k] as number)) {
+                lastIdx = k;
+                break;
+            }
+        }
+
+        if (firstIdx !== -1) firstValidDates[c] = aligned[firstIdx];
+        if (lastIdx !== -1) lastValidDates[c] = aligned[lastIdx];
+
         let scaled = Array.from(orig);
         if (firstIdx >= 0) { const base = orig[firstIdx]!; scaled = orig.map(x => (x == null || isNaN(x as number)) ? null : (x / base) * 100); }
         const a = scaled.slice();
@@ -231,12 +254,13 @@ export function normalizeAndInterpolate(priceTable: any[], startDateStr: string)
         if (sIdx !== -1 && firstIdx > sIdx) {
             const endI = Math.max(firstIdx, clampIdx); const endVal = a[firstIdx] as number; const steps = endI - sIdx;
             if (steps > 0) { for (let k = 0; k <= steps; k++) { const t = k / steps; a[sIdx + k] = 100 + (endVal - 100) * t; } }
+            // If we artificially backfilled, the 'firstValidDates' remains the 'real' one we found earlier. Good.
         }
         for (let k = 1; k < a.length; k++) if (a[k] == null) a[k] = a[k - 1];
         for (let k = a.length - 2; k >= 0; k--) if (a[k] == null) a[k] = a[k + 1];
         series[c] = a;
     }
-    return { dates: aligned, series, columns: cols };
+    return { dates: aligned, series, columns: cols, firstValidDates, lastValidDates };
 }
 
 export interface PortfolioResult {
@@ -462,14 +486,94 @@ export function averageRollingNCAGR(idxMap: Record<string, number>, years: numbe
 
 export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
     // Use monetary series if available, otherwise use normalized index
-    const series = portfolio.portValues && portfolio.totalInvested 
+    const series = portfolio.portValues && portfolio.totalInvested
         ? portfolio.portValues.map((val, i) => val / portfolio.totalInvested![i] * 100)
         : portfolio.normalizedIndex || Object.values(portfolio.idxMap);
-    
+
     const idxMap: Record<string, number> = {};
     for (let i = 0; i < portfolio.dates.length; i++) {
         idxMap[portfolio.dates[i]] = series[i];
     }
-    
+
     return averageRollingNCAGR(idxMap, 10);
+}
+
+export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string): PortfolioResult {
+    // Find indices
+    const sIdx = res.dates.findIndex(d => d >= startDate);
+    let eIdx = -1;
+    // Find last index <= endDate
+    for (let i = res.dates.length - 1; i >= 0; i--) {
+        if (res.dates[i] <= endDate) {
+            eIdx = i;
+            break;
+        }
+    }
+
+    if (sIdx === -1 || eIdx === -1 || sIdx > eIdx) {
+        // Return empty or original if invalid slice? Return null-ish result equivalent.
+        // For safety, return as is or minimal
+        return res;
+    }
+
+    const newDates = res.dates.slice(sIdx, eIdx + 1);
+
+    // Slice arrays
+    const newPortValues = res.portValues ? res.portValues.slice(sIdx, eIdx + 1) : undefined;
+    const newTotalInvested = res.totalInvested ? res.totalInvested.slice(sIdx, eIdx + 1) : undefined;
+
+    // Slice idxMap
+    const newIdxMap: Record<string, number> = {};
+    for (const d of newDates) {
+        // We technically should normalize idxMap to start at same base or 100?
+        // Usually idxMap is cumulative.
+        // If we just slice, the visual curve is fine.
+        // But for CAGR calc, it's relative, so absolute magnitude doesn't matter much.
+        // However, standard practices often rebase to 100.
+        // Let's keep original values to maintain context of wealth if it's monetary, 
+        // but idxMap is typically an index.
+        newIdxMap[d] = res.idxMap[d];
+    }
+
+    // Recompute returns for the window?
+    // portRets matches dates? usually portRets[i] is return from dates[i-1] to dates[i] or something.
+    // In computePortfolio:
+    // portRets has length N. portValues has length N+1 (start + N rets)? 
+    // Wait, let's check computePortfolio.
+    // portRets.push(r). 
+    // portValues starts with initialInvestment. Then updates.
+    // So portValues.length = portRets.length + 1.
+    // And dates.length = portValues.length.
+
+    // So if we slice dates from sIdx to eIdx.
+    // corresponds to portValues[sIdx ... eIdx].
+    // What about portRets?
+    // portRets[0] is return of period 0 (transition from T-1 to T0? or T0 to T1?).
+    // In computePortfolio: for t=0..N. portRets.push. portValues pushes. 
+    // The dates array passed to computePortfolio usually matches the simulation steps?
+    // Actually computePortfolio takes `dates` same length as `series`.
+    // N = assetRets[0].length (which is series.length - 1 since pctChangeSeries reduces length by 1).
+    // So portRets length = dates.length - 1.
+    // portValues has length dates.length.
+
+    // If we slice dates at index sIdx (relative to original 0).
+    // The new portRets should correspond to the returns happening IN the new window.
+    // The return at newDates[0] is undefined (it's the start).
+    // So newRets should be portRets.slice(sIdx, eIdx).
+
+    const newPortRets = res.portRets.slice(sIdx, eIdx);
+
+    // Recompute drawdowns for this specific window
+    const newDrawdowns = drawdownsFromIndex(newIdxMap);
+
+    return {
+        ...res,
+        dates: newDates,
+        idxMap: newIdxMap,
+        portValues: newPortValues,
+        totalInvested: newTotalInvested,
+        portRets: newPortRets,
+        drawdowns: newDrawdowns
+        // normalizedIndex: ... we can slice but idxMap is better source
+    };
 }

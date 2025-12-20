@@ -27,27 +27,54 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
     const data = useMemo(() => {
         if (!portfolio) return [];
 
-        // Convert portfolio idxMap to array of {date: string, value: number}
-        const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
-            date: d,
-            value: portfolio.idxMap[d]
-        }));
+        const hasInvested = portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.dates.length;
+
+        let seriesValues: number[];
+        let investedValues: number[] | undefined;
+        let dates: string[];
+
+        if (hasInvested) {
+            dates = portfolio.dates;
+            seriesValues = portfolio.portValues!;
+            investedValues = portfolio.totalInvested!;
+        } else {
+            const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
+                date: d,
+                value: portfolio.idxMap[d]
+            }));
+            dates = idxArray.map(x => x.date);
+            seriesValues = idxArray.map(x => x.value);
+        }
 
         // Calculate Rolling CAGR
         // years * 12 months
         const period = years * 12;
-        if (idxArray.length < period) return [];
+        if (seriesValues.length < period) return [];
 
         const result = [];
-        for (let i = period; i < idxArray.length; i++) {
-            const start = idxArray[i - period];
-            const end = idxArray[i];
+        for (let i = period; i < seriesValues.length; i++) {
+            const date = dates[i];
+            const startVal = seriesValues[i - period];
+            const endVal = seriesValues[i];
 
-            // CAGR = (EndValue / StartValue)^(1/n) - 1
-            const cagr = Math.pow(end.value / start.value, 1 / years) - 1;
+            let cagr = 0;
+            if (investedValues) {
+                const startInv = investedValues[i - period];
+                const endInv = investedValues[i];
+                const netContrib = endInv - startInv;
+                const denominator = startVal + netContrib;
+                if (denominator > 0) {
+                    cagr = Math.pow(endVal / denominator, 1 / years) - 1;
+                }
+            } else {
+                // CAGR = (EndValue / StartValue)^(1/n) - 1
+                if (startVal > 0) {
+                    cagr = Math.pow(endVal / startVal, 1 / years) - 1;
+                }
+            }
 
             result.push({
-                date: end.date,
+                date: date,
                 value: cagr * 100 // percent
             });
         }

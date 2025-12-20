@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { usePortfolio } from "@/context/portfolio-context";
 
 import { PortfolioControls } from "@/components/dashboard/portfolio-controls";
@@ -31,7 +31,8 @@ import {
     PortfolioResult,
     sharpe,
     sortino,
-    timeToRecoverFromIndex
+    timeToRecoverFromIndex,
+    slicePortfolioResult
 } from "@/lib/finance";
 
 import {
@@ -116,7 +117,9 @@ export function AnalysisSection() {
         monthlyInvestment,
         rebalance,
         endDate,
-        startDate
+        startDate,
+        setStartDate,
+        setEndDate
     } = usePortfolio();
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
@@ -167,18 +170,127 @@ export function AnalysisSection() {
         startDate
     ]);
 
+    // Listen for changes in weights to update Current Portfolio definition, or saving new portfolios
+    // But specific dependencies are handled in the hooks below.
+
     const validItems = useMemo(() => itemsWithResults.filter(item => item.result), [itemsWithResults]);
 
-    const chartData = useMemo(() => {
-        if (!validItems.length || !validItems[0].result) return [];
+    // Calculate the strictly required date range based on data availability of the selected items.
+    const availableDateRange = useMemo(() => {
+        if (!validItems.length || !norm) return null;
 
-        const base = validItems[0].result;
+        const firstValidDates = (norm as any).firstValidDates || {};
+        const lastValidDates = (norm as any).lastValidDates || {};
+
+        let maxStartDate = "0000-00-00";
+        let minEndDate = "9999-12-31";
+
+        let foundAny = false;
+
+        validItems.forEach(item => {
+            let itemStart = "0000-00-00";
+            let itemEnd = "9999-12-31";
+            let isValidItem = false;
+
+            if (item.type === "asset") {
+                itemStart = firstValidDates[item.id] || "1994-11-01";
+                itemEnd = lastValidDates[item.id] || "9999-12-31";
+                isValidItem = true;
+            } else if (item.type === "portfolio") {
+                let itemWeights: Record<string, number> = {};
+                if (item.id === "current") {
+                    itemWeights = weights;
+                } else {
+                    const p = savedPortfolios.find(sp => sp.id === item.id);
+                    if (p) itemWeights = p.weights;
+                }
+
+                if (itemWeights && Object.keys(itemWeights).length > 0) {
+                    let pMaxStart = "0000-00-00";
+                    let pMinEnd = "9999-12-31";
+
+                    Object.keys(itemWeights).forEach(asset => {
+                        if (itemWeights[asset] > 0) {
+                            const s = firstValidDates[asset];
+                            const e = lastValidDates[asset];
+                            if (s && s > pMaxStart) pMaxStart = s;
+                            if (e && e < pMinEnd) pMinEnd = e;
+                        }
+                    });
+
+                    if (pMaxStart !== "0000-00-00") {
+                        itemStart = pMaxStart;
+                        isValidItem = true;
+                    }
+                    if (pMinEnd !== "9999-12-31") itemEnd = pMinEnd;
+                }
+            }
+
+            if (isValidItem) {
+                if (itemStart > maxStartDate) maxStartDate = itemStart;
+                if (itemEnd < minEndDate) minEndDate = itemEnd;
+                foundAny = true;
+            }
+        });
+
+        if (!foundAny) return null;
+        return { start: maxStartDate, end: minEndDate };
+    }, [validItems, norm, weights, savedPortfolios]);
+
+    // Sync global simulation dates to the required analysis range if it changes
+    // This allows the charts and settings to reflect the true comparable range
+    useEffect(() => {
+        if (availableDateRange) {
+            const { start, end } = availableDateRange;
+
+            // Auto-adjust start date if the common valid range has moved
+            if (start !== startDate) {
+                setStartDate(start);
+            }
+
+            // Auto-adjust end date if constrained by data end (e.g. delisting)
+            if (end !== endDate && end < "9999-12-31") {
+                setEndDate(end);
+            }
+        }
+    }, [availableDateRange]); // Don't add startDate/endDate to deps to allow manual override
+
+    const slicedItems = useMemo(() => {
+        if (!validItems.length) return validItems;
+
+        let maxStartDate = availableDateRange?.start || "0000-00-00";
+        let minEndDate = availableDateRange?.end || "9999-12-31";
+
+        // Also constrain by global start/end (User Override / Drill down)
+        // This ensures that if the Effect hasn't run yet, or if user manually constrained further, we respect it.
+        // Check if user has zoomed in further than the required max start
+        if (startDate > maxStartDate) maxStartDate = startDate;
+        if (endDate < minEndDate) minEndDate = endDate;
+
+        return validItems.map(item => {
+            if (!item.result) return item;
+            // Only slice if necessary
+            // Note: computePortfolio already slices (or should) based on startDate/endDate,
+            // but slicing again ensures consistency with maxStartDate calculated from availabilty 
+            const sliced = slicePortfolioResult(item.result, maxStartDate, minEndDate);
+            return {
+                ...item,
+                result: sliced
+            };
+        });
+
+    }, [validItems, availableDateRange, startDate, endDate]);
+
+    const chartData = useMemo(() => {
+        if (!slicedItems.length || !slicedItems[0].result) return [];
+
+        const base = slicedItems[0].result;
         const dates = (base.portValues && base.dates && base.portValues.length === base.dates.length)
             ? base.dates
             : Object.keys(base.idxMap).sort();
 
         const seriesByName: Record<string, Record<string, number>> = {};
-        for (const item of validItems) {
+        for (const item of slicedItems) {
             const r = item.result;
             if (!r) continue;
             if (r.portValues && r.dates && r.portValues.length === r.dates.length) {
@@ -193,19 +305,19 @@ export function AnalysisSection() {
 
         return dates.map((date) => {
             const point: any = { date };
-            for (const item of validItems) {
+            for (const item of slicedItems) {
                 const v = seriesByName[item.name]?.[date];
                 if (v !== undefined) point[item.name] = v;
             }
             return point;
         });
-    }, [validItems]);
+    }, [slicedItems]);
 
     const metricsTableRows = useMemo(() => {
         const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
         const fmtNum = (v: number) => v.toFixed(2);
 
-        const rows = validItems
+        const rows = slicedItems
             .map((item) => {
                 const r = item.result;
                 if (!r) return null;
@@ -275,39 +387,81 @@ export function AnalysisSection() {
         });
 
         return sortedRows;
-    }, [validItems, riskFreeRate, makeKey, sortConfig]);
+    }, [slicedItems, riskFreeRate, makeKey, sortConfig]);
 
     const rollingComparisonData = useMemo(() => {
-        if (validItems.length < 2) return [];
+        if (slicedItems.length < 2) return [];
 
         const period = rollingYears * 12;
-        const seriesByName: Record<string, Array<{ date: string; value: number }>> = {};
-        for (const item of validItems) {
+        const seriesByName: Record<string, { dates: string[]; values: number[]; invested?: number[] }> = {};
+
+        for (const item of slicedItems) {
             if (!item.result) continue;
-            seriesByName[item.name] = Object.keys(item.result.idxMap).sort().map((d) => ({
-                date: d,
-                value: item.result!.idxMap[d]
-            }));
+
+            const dates = item.result.dates || Object.keys(item.result.idxMap).sort();
+
+            // Determine if we should use totalInvested logic (Recurring/Hybrid) or Index logic (Lump Sum)
+            // Recurring/Hybrid results have portValues and totalInvested arrays
+            const hasInvested = item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.dates.length;
+
+            if (hasInvested) {
+                seriesByName[item.name] = {
+                    dates: item.result.dates,
+                    values: item.result.portValues!,
+                    invested: item.result.totalInvested!
+                };
+            } else {
+                // Fallback to idxMap (Lump Sum / Single Asset normalized)
+                seriesByName[item.name] = {
+                    dates,
+                    values: dates.map(d => item.result!.idxMap[d])
+                };
+            }
         }
 
-        const base = seriesByName[validItems[0].name];
-        if (!base || base.length <= period) return [];
+        const baseItem = validItems[0];
+        const baseSeries = seriesByName[baseItem.name];
+        if (!baseSeries || baseSeries.values.length <= period) return [];
 
-        return base.slice(period).map((pt, i) => {
-            const idx = i + period;
-            const row: Record<string, any> = { date: pt.date };
+        // Align by index since dates should be synchronized for comparison if from same dataset/range
+        // If not, this simple index mapping might be slightly off if date ranges differ, 
+        // but typically in this app, they share the same 'dates' axis from the main simulation context.
+        // We'll iterate through the base series indices.
+
+        const result = [];
+        for (let i = period; i < baseSeries.values.length; i++) {
+            const date = baseSeries.dates[i];
+            const row: Record<string, any> = { date };
 
             for (const item of validItems) {
-                const arr = seriesByName[item.name];
-                if (!arr || arr.length <= idx) continue;
-                const start = arr[idx - period];
-                const end = arr[idx];
-                if (start?.value && end?.value) {
-                    row[item.name] = (Math.pow(end.value / start.value, 1 / rollingYears) - 1) * 100;
+                const s = seriesByName[item.name];
+                if (!s || i >= s.values.length) continue;
+
+                const startVal = s.values[i - period];
+                const endVal = s.values[i];
+
+                if (startVal && endVal) {
+                    if (s.invested) {
+                        const startInv = s.invested[i - period];
+                        const endInv = s.invested[i];
+                        const netContrib = endInv - startInv;
+                        // Return on Capital approximation: (EndValue / (StartValue + NetContributions)) ^ (1/N) - 1
+                        // This aligns with the 'cagrRecurring' logic used in metrics.
+                        const denominator = startVal + netContrib;
+                        if (denominator > 0) {
+                            row[item.name] = (Math.pow(endVal / denominator, 1 / rollingYears) - 1) * 100;
+                        } else {
+                            row[item.name] = 0;
+                        }
+                    } else {
+                        // Standard Rolling CAGR for Index
+                        row[item.name] = (Math.pow(endVal / startVal, 1 / rollingYears) - 1) * 100;
+                    }
                 }
             }
-            return row;
-        });
+            result.push(row);
+        }
+        return result;
     }, [validItems, rollingYears]);
 
     const annualComparisonData = useMemo(() => {
@@ -318,10 +472,48 @@ export function AnalysisSection() {
 
         for (const item of validItems) {
             if (!item.result) continue;
-            const annual = computeAnnualReturns(item.result.idxMap).map((a) => ({
-                year: String(a.year),
-                value: a.nominal * 100
-            }));
+
+            let annual: { year: string; value: number }[] = [];
+
+            const hasInvested = item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.dates.length;
+
+            if (hasInvested) {
+                // Determine years from dates
+                const yearMap: Record<string, { start?: number; end?: number; startInv?: number; endInv?: number }> = {};
+
+                item.result.dates.forEach((d, i) => {
+                    const y = new Date(d).getFullYear().toString();
+                    if (!yearMap[y]) yearMap[y] = {};
+
+                    // We need the value at the START of the year (end of previous year usually, but here we take first point available in year)
+                    // Better: Annual return is typically r_t. 
+                    // Let's approximate using first/last of the year.
+                    if (yearMap[y].start === undefined) {
+                        yearMap[y].start = item.result!.portValues![i];
+                        yearMap[y].startInv = item.result!.totalInvested![i];
+                    }
+                    yearMap[y].end = item.result!.portValues![i];
+                    yearMap[y].endInv = item.result!.totalInvested![i];
+                });
+
+                annual = Object.entries(yearMap).map(([year, data]) => {
+                    if (data.start === undefined || data.end === undefined || data.startInv === undefined || data.endInv === undefined) return null;
+
+                    // If it's the very first partial year, data.start might be 0 or equal to first contribution.
+                    // Logic: (End / (Start + NetContrib)) - 1
+                    const netContrib = data.endInv - data.startInv;
+                    const denominator = data.start + netContrib;
+                    const val = denominator > 0 ? (data.end / denominator) - 1 : 0;
+                    return { year, value: val * 100 };
+                }).filter(Boolean) as { year: string; value: number }[];
+
+            } else {
+                annual = computeAnnualReturns(item.result.idxMap).map((a) => ({
+                    year: String(a.year),
+                    value: a.nominal * 100
+                }));
+            }
+
             byName[item.name] = annual;
             annual.forEach((a) => years.add(a.year));
         }
@@ -342,10 +534,15 @@ export function AnalysisSection() {
         if (validItems.length < 2) return [];
         if (!validItems[0]?.result) return [];
 
-        const dates = Object.keys(validItems[0].result.idxMap).sort();
+        const dates = validItems[0].result.dates || Object.keys(validItems[0].result.idxMap).sort();
+
         const ddMaps: Record<string, Record<string, number>> = {};
         for (const item of validItems) {
             if (!item.result) continue;
+            // For drawdowns, we generally use the "Strategy Drawdown" (TWR) which is what 'drawdownsFromIndex' calculates on idxMap.
+            // idxMap is already Time-Weighted Index for Recurring/Hybrid in computeRecurringPortfolio.
+            // So this remains consistent with "Strategy Risk".
+            // If we wanted "Money Drawdown" (loss of capital), we'd need a different logic, but TWR is standard.
             ddMaps[item.name] = item.result.drawdowns.reduce((acc, d) => {
                 acc[d.date] = d.value * 100;
                 return acc;
@@ -855,7 +1052,7 @@ export function AnalysisSection() {
                                         />
                                         <Legend
                                             formatter={(value: string) => {
-                                                const item = validItems.find(item => item.name === value);
+                                                const item = slicedItems.find(item => item.name === value);
                                                 if (!item?.result) return value;
 
                                                 const cagrValue = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
@@ -1072,7 +1269,7 @@ export function AnalysisSection() {
                         <TimeToRecoveryChart
                             key={`recovery-${calcKey}`}
                             portfolio={primaryResult}
-                            items={validItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
+                            items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
                         />
                     </>
                 ) : (
@@ -1095,7 +1292,7 @@ export function AnalysisSection() {
                                 <DrawdownChart
                                     key={`single-dd-${calcKey}`}
                                     portfolios={[{
-                                        name: validItems[0]?.name || "Current Portfolio",
+                                        name: slicedItems[0]?.name || "Current Portfolio",
                                         portfolio: primaryResult,
                                         color: COLORS[0]
                                     }]}
@@ -1105,6 +1302,10 @@ export function AnalysisSection() {
                         </>
                     )
                 )}
+                {/* Debugging info can be hidden or removed in prod */}
+                {/* <div className="text-xs text-muted-foreground mt-2">
+                Debug: Common Range {slicedItems[0]?.result?.dates[0]} - {slicedItems[0]?.result?.dates[slicedItems[0].result.dates.length-1]}
+            </div> */}
             </div>
         </div>
     );

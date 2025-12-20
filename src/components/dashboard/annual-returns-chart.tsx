@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import { PortfolioResult, computeAnnualReturns, cagr } from "@/lib/finance";
+import { PortfolioResult, computeAnnualReturns, cagr, cagrRecurring } from "@/lib/finance";
 import { useMemo } from "react";
 
 interface AnnualReturnsChartProps {
@@ -23,16 +23,70 @@ interface AnnualReturnsChartProps {
 export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
     const data = useMemo(() => {
         if (!portfolio) return [];
-        const annual = computeAnnualReturns(portfolio.idxMap);
-        return annual.map(a => ({
-            year: a.year,
-            value: a.nominal * 100
-        }));
+
+        const hasInvested = portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.dates.length;
+
+        if (hasInvested) {
+            const yearMap: Record<string, { endVal?: number; endInv?: number }> = {};
+            portfolio.dates.forEach((d, i) => {
+                const y = new Date(d).getFullYear().toString();
+                // Overwrite to get the last value of the year
+                yearMap[y] = {
+                    endVal: portfolio.portValues![i],
+                    endInv: portfolio.totalInvested![i]
+                };
+            });
+
+            const years = Object.keys(yearMap).sort();
+            const result: { year: number; nominal: number }[] = [];
+
+            let prevVal: number | undefined;
+            let prevInv: number | undefined;
+
+            for (const y of years) {
+                const { endVal, endInv } = yearMap[y];
+                if (endVal === undefined || endInv === undefined) continue;
+
+                if (prevVal !== undefined && prevInv !== undefined) {
+                    const netContrib = endInv - prevInv;
+                    const denominator = prevVal + netContrib;
+                    const ret = denominator > 0 ? (endVal / denominator) - 1 : 0;
+                    result.push({ year: parseInt(y), nominal: ret });
+                } else {
+                    // First Year logic
+                    // If we assume start val was 0 ?? or StartInv?
+                    // Return on Invested Capital for the first period
+                    // Simple proxy: EndVal / EndInv - 1. 
+                    // This underestimates if market was up and you put money in late.
+                    // But strictly, (Ending Value - Total Cost) / Total Cost is the "Total Return" of that first year.
+                    const ret = endInv > 0 ? (endVal / endInv) - 1 : 0;
+                    result.push({ year: parseInt(y), nominal: ret });
+                }
+
+                prevVal = endVal;
+                prevInv = endInv;
+            }
+
+            return result.map(a => ({
+                year: String(a.year),
+                value: a.nominal * 100
+            }));
+
+        } else {
+            const annual = computeAnnualReturns(portfolio.idxMap);
+            return annual.map(a => ({
+                year: String(a.year),
+                value: a.nominal * 100
+            }));
+        }
     }, [portfolio]);
 
     if (!portfolio) return null;
 
     const portfolioCAGR = useMemo(() => {
+        if (portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.totalInvested.length) {
+            return cagrRecurring(portfolio.portValues, portfolio.totalInvested);
+        }
         const values = Object.values(portfolio.idxMap);
         if (values.length < 2) return 0;
         return cagr(values.map((value, index) => ({ value })));
