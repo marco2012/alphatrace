@@ -63,7 +63,7 @@ interface PortfolioContextType {
     savePortfolio: (name: string) => void;
     deletePortfolio: (id: string) => void;
     loadPortfolio: (id: string) => void;
-    duplicatePortfolio: (id: string) => void;
+    duplicatePortfolio: (id: string) => SavedPortfolio | null;
 
     // Analysis
     computeAssetPortfolio: (asset: string) => PortfolioResult | null;
@@ -466,7 +466,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
     const duplicatePortfolio = (id: string) => {
         const p = savedPortfolios.find(p => p.id === id);
-        if (!p) return;
+        if (!p) return null;
 
         const base = `${p.name} Copy`;
         let candidate = base;
@@ -487,6 +487,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = [...savedPortfolios, clone];
         setSavedPortfolios(updated);
         localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+
+        // Load the duplicated portfolio
+        setWeights(clone.weights);
+        setActivePortfolioId(clone.id);
+        setActivePortfolioName(clone.name);
+
+        return clone;
     };
 
     useEffect(() => {

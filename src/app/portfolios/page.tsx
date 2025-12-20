@@ -87,6 +87,14 @@ export default function PortfoliosPage() {
         setNewPortfolioName(name);
     };
 
+    const handleDuplicate = (id: string) => {
+        const cloned = duplicatePortfolio(id);
+        if (cloned) {
+            setNewPortfolioName(cloned.name);
+            toast.success(`Portfolio duplicated as '${cloned.name}' and loaded!`);
+        }
+    };
+
     const handleDeleteClick = (id: string, name: string) => {
         setPortfolioToDelete({ id, name });
         setDeleteDialogOpen(true);
@@ -193,7 +201,7 @@ export default function PortfoliosPage() {
                                                                         <Upload className="h-4 w-4 sm:mr-2" />
                                                                         <span className="hidden sm:inline">Load</span>
                                                                     </Button>
-                                                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => duplicatePortfolio(p.id)}>
+                                                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleDuplicate(p.id)}>
                                                                         <Copy className="h-4 w-4" />
                                                                     </Button>
                                                                     <Button className="w-full sm:w-auto" variant="destructive" size="sm" onClick={() => handleDeleteClick(p.id, p.name)}>
