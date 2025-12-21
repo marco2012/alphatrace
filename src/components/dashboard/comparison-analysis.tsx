@@ -8,18 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Download } from "lucide-react";
-import { PortfolioResult, cagr, cagrRecurring, annualVol, sharpe, maxDrawdown, averageRolling10YearCAGR } from "@/lib/finance";
+import { PortfolioResult, cagr, cagrRecurring, annualVol, sharpe, sortino, maxDrawdown, averageRolling10YearCAGR, calmar, ulcerIndex } from "@/lib/finance";
 import {
     LineChart,
     Line,
     XAxis,
     YAxis,
     CartesianGrid,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     Legend,
     ResponsiveContainer
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
 import { AnnualReturnsChart } from "@/components/dashboard/annual-returns-chart";
 import { DrawdownChart } from "@/components/dashboard/drawdown-chart";
 import { RollingReturnsChart } from "@/components/dashboard/rolling-returns-chart";
@@ -41,7 +43,30 @@ const COLORS = [
     "#9333ea", // purple-600
     "#0891b2", // cyan-600
     "#db2777", // pink-600
+    "#4f46e5", // indigo-600
+    "#059669", // emerald-600
+    "#ea580c", // orange-600
+    "#7c3aed", // violet-600
+    "#e11d48", // rose-600
 ];
+
+const METRIC_EXPLANATIONS = {
+    cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
+    volValue: "Annualized Volatility. A statistical measure of the dispersion of returns, representing the risk/variability of the investment.",
+    sharpeValue: "Sharpe Ratio. Measures the performance of an investment compared to a risk-free asset, after adjusting for its risk.",
+    sortinoValue: "Sortino Ratio. A variation of the Sharpe ratio that only considers downside volatility (negative returns).",
+    maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
+    calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
+    ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
+    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates."
+};
+
+const getNextColor = (items: ComparisonItem[]) => {
+    const usedColors = new Set(items.map(i => i.color));
+    const available = COLORS.filter(c => !usedColors.has(c));
+    if (available.length > 0) return available[0];
+    return COLORS[items.length % COLORS.length];
+};
 
 export function ComparisonAnalysis() {
     const {
@@ -93,7 +118,7 @@ export function ComparisonAnalysis() {
                     id: p.id,
                     type: 'portfolio',
                     name: p.name,
-                    color: COLORS[selectedItems.length % COLORS.length],
+                    color: getNextColor(selectedItems),
                     result: null
                 };
             }
@@ -103,7 +128,7 @@ export function ComparisonAnalysis() {
                 id: itemToAdd,
                 type: 'asset',
                 name: itemToAdd,
-                color: COLORS[selectedItems.length % COLORS.length],
+                color: getNextColor(selectedItems),
                 result: null
             };
         }
@@ -118,6 +143,19 @@ export function ComparisonAnalysis() {
         const newItems = [...selectedItems];
         newItems.splice(index, 1);
         setSelectedItems(newItems);
+    };
+
+    const handleClearAll = () => {
+        setSelectedItems([
+            {
+                id: 'current',
+                type: 'portfolio',
+                name: 'Current Portfolio',
+                color: COLORS[0],
+                result: null
+            }
+        ]);
+        setItemToAdd("");
     };
 
     const downloadComparisonCSV = () => {
@@ -181,9 +219,16 @@ export function ComparisonAnalysis() {
     return (
         <div className="space-y-6">
             <Card>
-                <CardHeader>
-                    <CardTitle>Compare</CardTitle>
-                    <CardDescription>Compare saved portfolios and assets.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle>Compare</CardTitle>
+                        <CardDescription>Compare saved portfolios and assets.</CardDescription>
+                    </div>
+                    {selectedItems.length > 1 && (
+                        <Button variant="outline" size="sm" onClick={handleClearAll} className="text-destructive hover:text-destructive">
+                            Clear All
+                        </Button>
+                    )}
                 </CardHeader>
                 <CardContent>
                     <div className="flex flex-col md:flex-row gap-4 items-end">
@@ -271,9 +316,9 @@ export function ComparisonAnalysis() {
                                         axisLine={false}
                                         domain={['auto', 'auto']}
                                     />
-                                    <Tooltip
+                                    <RechartsTooltip
                                         contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
-                                        labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+                                        labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                                         formatter={(value: number) => [`€${value.toFixed(0)}`, 'Value']}
                                     />
                                     <Legend />
@@ -303,11 +348,110 @@ export function ComparisonAnalysis() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Strategies</TableHead>
-                                    <TableHead>CAGR</TableHead>
-                                    <TableHead>Vol (Ann)</TableHead>
-                                    <TableHead>Sharpe</TableHead>
-                                    <TableHead>Max DD</TableHead>
-                                    <TableHead>Avg 10Y Rolling CAGR</TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    CAGR
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.cagrValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Volatility
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.volValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Sharpe
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.sharpeValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Sortino
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.sortinoValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Max DD
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.maxDDValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Calmar
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.calmarValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Ulcer Index
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.ulcerIndexValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Avg 10Y Rolling CAGR
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -318,7 +462,10 @@ export function ComparisonAnalysis() {
                                         : cagr(Object.keys(item.result.idxMap).sort().map(d => ({ value: item.result!.idxMap[d] })));
                                     const volVal = annualVol(item.result.portRets);
                                     const sharpeVal = sharpe(item.result.portRets, 0.02); // assuming rf=2%
+                                    const sortinoVal = sortino(item.result.portRets, 0.02);
                                     const maxDD = item.result.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
+                                    const calmarVal = calmar(cagrVal, maxDD);
+                                    const ulcerIndexVal = ulcerIndex(item.result.drawdowns);
                                     const avgRolling10Y = averageRolling10YearCAGR(item.result);
 
                                     return (
@@ -327,11 +474,14 @@ export function ComparisonAnalysis() {
                                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
                                                 {item.name}
                                             </TableCell>
-                                            <TableCell className={(cagrVal >= 0 ? "text-green-600" : "text-red-600")}>{(cagrVal * 100).toFixed(2)}%</TableCell>
-                                            <TableCell>{(volVal * 100).toFixed(2)}%</TableCell>
-                                            <TableCell>{sharpeVal.toFixed(2)}</TableCell>
-                                            <TableCell className="text-red-600">{(maxDD * 100).toFixed(2)}%</TableCell>
-                                            <TableCell className={(avgRolling10Y >= 0 ? "text-blue-600" : "text-red-600")}>{(avgRolling10Y * 100).toFixed(2)}%</TableCell>
+                                            <TableCell className={(cagrVal >= 0 ? "text-green-600" : "text-red-600") + " text-right"}>{(cagrVal * 100).toFixed(2)}%</TableCell>
+                                            <TableCell className="text-right">{(volVal * 100).toFixed(2)}%</TableCell>
+                                            <TableCell className="text-right">{sharpeVal.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right">{sortinoVal.toFixed(2)}</TableCell>
+                                            <TableCell className="text-red-600 text-right">{(maxDD * 100).toFixed(2)}%</TableCell>
+                                            <TableCell className="text-right">{calmarVal.toFixed(2)}</TableCell>
+                                            <TableCell className="text-right">{ulcerIndexVal.toFixed(2)}</TableCell>
+                                            <TableCell className={(avgRolling10Y >= 0 ? "text-blue-600" : "text-red-600") + " text-right"}>{(avgRolling10Y * 100).toFixed(2)}%</TableCell>
                                         </TableRow>
                                     );
                                 })}

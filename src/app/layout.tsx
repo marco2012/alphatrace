@@ -4,11 +4,12 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PortfolioProvider } from "@/context/portfolio-context";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const font = Outfit({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Alphatrace",
+  title: "AlphaTrace",
   description: "Advanced Portfolio Backtesting",
 };
 
@@ -27,8 +28,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <PortfolioProvider>
-            {children}
-            <Toaster />
+            <TooltipProvider>
+              {children}
+              <Toaster />
+            </TooltipProvider>
           </PortfolioProvider>
         </ThemeProvider>
       </body>

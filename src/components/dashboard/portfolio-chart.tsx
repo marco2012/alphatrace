@@ -102,7 +102,7 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
                                     isMonetary ? `€${value.toLocaleString('en-IE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : value.toFixed(2),
                                     "Value"
                                 ]}
-                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Area
                                 type="monotone"

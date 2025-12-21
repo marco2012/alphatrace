@@ -110,7 +110,7 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
                                     }
                                     return [value.toFixed(2), label];
                                 }}
-                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
+                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                             />
                             <Line type="monotone" dataKey="nominal" stroke="#3b82f6" strokeWidth={2} dot={false} />
                             <Line type="monotone" dataKey="real" stroke="#ef4444" strokeWidth={2} dot={false} />

@@ -223,7 +223,7 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                         if (name === "recoveryTimeMonths") return [`${value} months`, "Recovery Time"];
                                         return [value, name];
                                     }}
-                                    labelFormatter={(label) => `Drawdown started: ${new Date(label).toLocaleDateString()}`}
+                                    labelFormatter={(label: any) => `Drawdown started: ${new Date(label).toLocaleDateString()}`}
                                 />
                                 <Bar dataKey="recoveryTimeMonths" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                             </BarChart>

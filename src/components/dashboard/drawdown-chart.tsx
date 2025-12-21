@@ -141,7 +141,7 @@ export function DrawdownChart({ portfolios }: DrawdownChartProps) {
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
-                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Legend
                                 formatter={(value: string) => {

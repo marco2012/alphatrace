@@ -109,6 +109,18 @@ export function maxDrawdown(drawdowns: DrawdownPoint[]): number {
     return drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
 }
 
+export function ulcerIndex(drawdowns: DrawdownPoint[]): number {
+    if (!drawdowns.length) return 0;
+    const squaredSum = drawdowns.reduce((sum, d) => sum + Math.pow(d.value * 100, 2), 0);
+    return Math.sqrt(squaredSum / drawdowns.length);
+}
+
+export function calmar(cagrValue: number, maxDDValue: number): number {
+    const absMaxDD = Math.abs(maxDDValue);
+    if (absMaxDD === 0) return 0;
+    return cagrValue / absMaxDD;
+}
+
 export interface RecoveryInfo {
     date: string | null; // Drawdown start date
     recoveryDate: string;
@@ -576,4 +588,49 @@ export function slicePortfolioResult(res: PortfolioResult, startDate: string, en
         drawdowns: newDrawdowns
         // normalizedIndex: ... we can slice but idxMap is better source
     };
+}
+
+export function computeBeta(portRets: number[], benchmarkRets: number[]): number {
+    if (portRets.length === 0 || portRets.length !== benchmarkRets.length) return 0;
+
+    const meanPort = portRets.reduce((a, b) => a + b, 0) / portRets.length;
+    const meanBenchmark = benchmarkRets.reduce((a, b) => a + b, 0) / benchmarkRets.length;
+
+    let covariance = 0;
+    let varianceBenchmark = 0;
+
+    for (let i = 0; i < portRets.length; i++) {
+        const diffPort = portRets[i] - meanPort;
+        const diffBenchmark = benchmarkRets[i] - meanBenchmark;
+        covariance += diffPort * diffBenchmark;
+        varianceBenchmark += diffBenchmark * diffBenchmark;
+    }
+
+    if (varianceBenchmark === 0) return 0;
+    return covariance / varianceBenchmark;
+}
+
+export function computeRollingBeta(
+    portRets: number[],
+    benchmarkRets: number[],
+    dates: string[],
+    windowMonths: number
+): { date: string; value: number }[] {
+    if (portRets.length !== benchmarkRets.length || portRets.length < windowMonths) return [];
+
+    const result = [];
+    // portRets[i] is return from dates[i] to dates[i+1]? 
+    // Actually in computePortfolio, portRets has length N, dates has length N+1.
+    // portRets[t] matches transition from dates[t] to dates[t+1].
+
+    for (let i = windowMonths; i <= portRets.length; i++) {
+        const windowPort = portRets.slice(i - windowMonths, i);
+        const windowBenchmark = benchmarkRets.slice(i - windowMonths, i);
+        const beta = computeBeta(windowPort, windowBenchmark);
+        result.push({
+            date: dates[i], // The date at the end of the window
+            value: beta
+        });
+    }
+    return result;
 }

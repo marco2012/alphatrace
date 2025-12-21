@@ -14,12 +14,14 @@ import { EfficientFrontierChart } from "@/components/dashboard/efficient-frontie
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
 
 import {
     annualVol,
@@ -32,7 +34,11 @@ import {
     sharpe,
     sortino,
     timeToRecoverFromIndex,
-    slicePortfolioResult
+    slicePortfolioResult,
+    ulcerIndex,
+    calmar,
+    computeBeta,
+    computeRollingBeta
 } from "@/lib/finance";
 
 import {
@@ -43,13 +49,26 @@ import {
     XAxis,
     YAxis,
     CartesianGrid,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     Legend,
     ResponsiveContainer,
     ReferenceLine
 } from "recharts";
 
-import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info } from "lucide-react";
+
+const METRIC_EXPLANATIONS = {
+    cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
+    volValue: "Annualized Volatility. A statistical measure of the dispersion of returns, representing the risk/variability of the investment.",
+    sharpeValue: "Sharpe Ratio. Measures the performance of an investment compared to a risk-free asset, after adjusting for its risk.",
+    sortinoValue: "Sortino Ratio. A variation of the Sharpe ratio that only considers downside volatility (negative returns).",
+    maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
+    calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
+    ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
+    recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
+    betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
+    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates."
+};
 
 function downloadCSV(data: any[], filename: string) {
     if (!data || data.length === 0) return;
@@ -99,7 +118,19 @@ const COLORS = [
     "#9333ea", // purple-600
     "#0891b2", // cyan-600
     "#db2777", // pink-600
+    "#4f46e5", // indigo-600
+    "#059669", // emerald-600
+    "#ea580c", // orange-600
+    "#7c3aed", // violet-600
+    "#e11d48", // rose-600
 ];
+
+const getNextColor = (items: AnalysisItem[], offset = 0) => {
+    const usedColors = new Set(items.map(i => i.color));
+    const available = COLORS.filter(c => !usedColors.has(c));
+    if (available.length > offset) return available[offset];
+    return COLORS[(items.length + offset) % COLORS.length];
+};
 
 export function AnalysisSection() {
     const {
@@ -137,6 +168,18 @@ export function AnalysisSection() {
     const [typeToAdd, setTypeToAdd] = useState<"portfolio" | "asset">("portfolio");
     const [selectedForAdd, setSelectedForAdd] = useState<string[]>([]);
     const [rollingYears, setRollingYears] = useState(10);
+    const [rollingBetaYears, setRollingBetaYears] = useState(3);
+    const [betaBenchmark, setBetaBenchmark] = useState<string | null>(null);
+
+    // Default benchmark to MSCI World if nothing is selected
+    useEffect(() => {
+        if (!betaBenchmark && assets.length > 0) {
+            const msciWorld = assets.find(a => a.toLowerCase() === "msci world" || a.toLowerCase().includes("msci world"));
+            if (msciWorld) {
+                setBetaBenchmark(`asset:${msciWorld}`);
+            }
+        }
+    }, [assets, betaBenchmark]);
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>({
         key: "cagrValue",
         direction: "desc"
@@ -255,6 +298,12 @@ export function AnalysisSection() {
         }
     }, [availableDateRange]); // Don't add startDate/endDate to deps to allow manual override
 
+    useEffect(() => {
+        if (!betaBenchmark && validItems.length > 0) {
+            setBetaBenchmark(makeKey(validItems[0]));
+        }
+    }, [validItems, betaBenchmark]);
+
     const slicedItems = useMemo(() => {
         if (!validItems.length) return validItems;
 
@@ -313,9 +362,27 @@ export function AnalysisSection() {
         });
     }, [slicedItems]);
 
+    const benchmarkResult = useMemo(() => {
+        if (!betaBenchmark) return null;
+
+        // Check if it's already in validItems
+        const item = validItems.find(i => makeKey(i) === betaBenchmark);
+        if (item?.result) return item.result;
+
+        // If it's a single asset not in comparison, compute it
+        const [type, id] = betaBenchmark.split(":");
+        if (type === "asset") {
+            return computeAssetPortfolio(id);
+        }
+
+        return null;
+    }, [betaBenchmark, validItems, computeAssetPortfolio]);
+
     const metricsTableRows = useMemo(() => {
         const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
         const fmtNum = (v: number) => v.toFixed(2);
+
+        const benchmarkRets = benchmarkResult?.portRets;
 
         const rows = slicedItems
             .map((item) => {
@@ -330,10 +397,16 @@ export function AnalysisSection() {
                 const sortinoValue = sortino(r.portRets, riskFreeRate);
                 const maxDD = r.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
                 const avgRolling10YearCAGRValue = averageRolling10YearCAGR(r);
+                const calmarValue = calmar(cagrValue, maxDD);
+                const ulcerIndexValue = ulcerIndex(r.drawdowns);
 
                 const recoveries = timeToRecoverFromIndex(r.idxMap);
                 const recoveryMonthsValue = recoveries.reduce((mx, rec) => Math.max(mx, rec.months || 0), 0);
                 const recoveryMonths = formatMonthsAsYearsAndMonths(recoveryMonthsValue);
+
+                const betaValue = (benchmarkRets && r.portRets && r.portRets.length === benchmarkRets.length)
+                    ? computeBeta(r.portRets, benchmarkRets)
+                    : (makeKey(item) === betaBenchmark ? 1 : 0);
 
                 return {
                     key: makeKey(item),
@@ -348,10 +421,16 @@ export function AnalysisSection() {
                     sortino: fmtNum(sortinoValue),
                     maxDDValue: maxDD,
                     maxDD: fmtPct(maxDD),
+                    calmarValue,
+                    calmar: fmtNum(calmarValue),
+                    ulcerIndexValue,
+                    ulcerIndex: fmtNum(ulcerIndexValue),
                     avgRolling10YearCAGRValue,
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
                     recoveryMonthsValue,
-                    recoveryMonths
+                    recoveryMonths,
+                    betaValue,
+                    beta: fmtNum(betaValue)
                 };
             })
             .filter(Boolean) as Array<{
@@ -367,10 +446,16 @@ export function AnalysisSection() {
                 sortino: string;
                 maxDDValue: number;
                 maxDD: string;
+                calmarValue: number;
+                calmar: string;
+                ulcerIndexValue: number;
+                ulcerIndex: string;
                 avgRolling10YearCAGRValue: number;
                 avgRolling10YearCAGR: string;
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
+                betaValue: number;
+                beta: string;
             }>;
 
         const sortedRows = [...rows].sort((a, b) => {
@@ -387,7 +472,7 @@ export function AnalysisSection() {
         });
 
         return sortedRows;
-    }, [slicedItems, riskFreeRate, makeKey, sortConfig]);
+    }, [slicedItems, riskFreeRate, makeKey, sortConfig, betaBenchmark]);
 
     const rollingComparisonData = useMemo(() => {
         if (slicedItems.length < 2) return [];
@@ -463,6 +548,37 @@ export function AnalysisSection() {
         }
         return result;
     }, [validItems, rollingYears]);
+
+    const rollingBetaData = useMemo(() => {
+        if (validItems.length === 0 || !benchmarkResult) return [];
+
+        const benchmarkRets = benchmarkResult.portRets;
+        const dates = benchmarkResult.dates;
+        const window = rollingBetaYears * 12;
+
+        const series: Record<string, { date: string; value: number }[]> = {};
+
+        validItems.forEach(item => {
+            if (!item.result || makeKey(item) === betaBenchmark) return;
+            series[item.name] = computeRollingBeta(
+                item.result.portRets,
+                benchmarkRets,
+                dates,
+                window
+            );
+        });
+
+        const allDates = Array.from(new Set(Object.values(series).flatMap(s => s.map(pt => pt.date)))).sort();
+
+        return allDates.map(date => {
+            const point: any = { date };
+            Object.keys(series).forEach(name => {
+                const pt = series[name].find(p => p.date === date);
+                if (pt) point[name] = pt.value;
+            });
+            return point;
+        });
+    }, [validItems, betaBenchmark, rollingBetaYears]);
 
     const annualComparisonData = useMemo(() => {
         if (validItems.length < 2) return [];
@@ -619,19 +735,25 @@ export function AnalysisSection() {
 
             const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
             const idsToAdd = savedPortfolios.map(p => p.id);
+            const currentSelected = [...baseSelected];
             const itemsToAdd = idsToAdd
                 .map(id => {
                     const p = savedPortfolios.find(sp => sp.id === id);
                     if (!p) return null;
-                    return {
+                    if (currentSelected.find(i => i.id === p.id && i.type === "portfolio")) return null;
+
+                    const color = getNextColor(currentSelected);
+                    const newItem: AnalysisItem = {
                         id: p.id,
                         type: "portfolio" as const,
                         name: p.name,
-                        color: COLORS[(baseSelected.length + idsToAdd.indexOf(id)) % COLORS.length],
+                        color,
                         result: null
                     };
+                    currentSelected.push(newItem);
+                    return newItem;
                 })
-                .filter(item => item !== null && !baseSelected.find(i => i.id === item!.id && i.type === item!.type)) as AnalysisItem[];
+                .filter(item => item !== null) as AnalysisItem[];
 
             if (itemsToAdd.length > 0) {
                 setSelectedItems([...baseSelected, ...itemsToAdd]);
@@ -644,34 +766,38 @@ export function AnalysisSection() {
             ? selectedForAdd
             : (typeToAdd === "portfolio" ? savedPortfolios.map(p => p.id) : assets);
 
+        const currentItems = [...selectedItems];
         const itemsToAdd = idsToAdd
             .map(id => {
                 let newItem: AnalysisItem | null = null;
 
                 if (typeToAdd === "portfolio") {
                     const p = savedPortfolios.find(sp => sp.id === id);
-                    if (p) {
+                    if (p && !currentItems.find(i => i.id === p.id && i.type === "portfolio")) {
                         newItem = {
                             id: p.id,
                             type: "portfolio",
                             name: p.name,
-                            color: COLORS[(selectedItems.length + idsToAdd.indexOf(id)) % COLORS.length],
+                            color: getNextColor(currentItems),
                             result: null
                         };
                     }
                 } else {
-                    newItem = {
-                        id,
-                        type: "asset",
-                        name: id,
-                        color: COLORS[(selectedItems.length + idsToAdd.indexOf(id)) % COLORS.length],
-                        result: null
-                    };
+                    if (!currentItems.find(i => i.id === id && i.type === "asset")) {
+                        newItem = {
+                            id,
+                            type: "asset",
+                            name: id,
+                            color: getNextColor(currentItems),
+                            result: null
+                        };
+                    }
                 }
 
+                if (newItem) currentItems.push(newItem);
                 return newItem;
             })
-            .filter(item => item !== null && !selectedItems.find(i => i.id === item!.id && i.type === item!.type)) as AnalysisItem[];
+            .filter(item => item !== null) as AnalysisItem[];
 
         if (itemsToAdd.length > 0) {
             setSelectedItems([...selectedItems, ...itemsToAdd]);
@@ -690,7 +816,7 @@ export function AnalysisSection() {
                         id: p.id,
                         type: "portfolio",
                         name: p.name,
-                        color: COLORS[selectedItems.length % COLORS.length],
+                        color: getNextColor(selectedItems),
                         result: null
                     };
                 }
@@ -699,7 +825,7 @@ export function AnalysisSection() {
                     id,
                     type: "asset",
                     name: id,
-                    color: COLORS[selectedItems.length % COLORS.length],
+                    color: getNextColor(selectedItems),
                     result: null
                 };
             }
@@ -755,6 +881,19 @@ export function AnalysisSection() {
         }
     };
 
+    const handleClearAll = () => {
+        setSelectedItems([
+            {
+                id: "current",
+                type: "portfolio",
+                name: "Current Portfolio",
+                color: COLORS[0],
+                result: null
+            }
+        ]);
+        setSelectedForAdd([]);
+    };
+
     if (isLoading) {
         return (
             <div className="flex h-48 items-center justify-center">
@@ -771,9 +910,16 @@ export function AnalysisSection() {
             <PortfolioControls />
 
             <Card>
-                <CardHeader>
-                    <CardTitle>Select Items to Analyze</CardTitle>
-                    <CardDescription>Choose portfolios and assets to compare performance.</CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle>Select Items to Analyze</CardTitle>
+                        <CardDescription>Choose portfolios and assets to compare performance.</CardDescription>
+                    </div>
+                    {selectedItems.length > 1 && (
+                        <Button variant="outline" size="sm" onClick={handleClearAll} className="text-destructive hover:text-destructive">
+                            Clear All
+                        </Button>
+                    )}
                 </CardHeader>
                 <CardContent>
                     <div className="flex flex-col gap-4">
@@ -924,61 +1070,165 @@ export function AnalysisSection() {
                                                     )}
                                                 </div>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    CAGR
-                                                    {sortConfig?.key === "cagrValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            CAGR
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "cagrValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.cagrValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Volatility
-                                                    {sortConfig?.key === "volValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Volatility
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "volValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.volValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Sharpe
-                                                    {sortConfig?.key === "sharpeValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Sharpe
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "sharpeValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.sharpeValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Sortino
-                                                    {sortConfig?.key === "sortinoValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Sortino
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "sortinoValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.sortinoValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Max DD
-                                                    {sortConfig?.key === "maxDDValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Max DD
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "maxDDValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.maxDDValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Longest Recovery
-                                                    {sortConfig?.key === "recoveryMonthsValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("calmarValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Calmar
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "calmarValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.calmarValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right">
-                                                <div className="flex items-center justify-end">
-                                                    Avg 10Y Rolling CAGR
-                                                    {sortConfig?.key === "avgRolling10YearCAGRValue" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
+                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Ulcer Index
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "ulcerIndexValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.ulcerIndexValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Longest Recovery
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "recoveryMonthsValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.recoveryMonthsValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("betaValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Beta
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "betaValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.betaValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Avg 10Y Rolling CAGR
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "avgRolling10YearCAGRValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
                                             </TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -991,7 +1241,10 @@ export function AnalysisSection() {
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
                                                 <TableCell className="text-right">{row.sortino}</TableCell>
                                                 <TableCell className="text-right">{row.maxDD}</TableCell>
+                                                <TableCell className="text-right">{row.calmar}</TableCell>
+                                                <TableCell className="text-right">{row.ulcerIndex}</TableCell>
                                                 <TableCell className="text-right">{row.recoveryMonths}</TableCell>
+                                                <TableCell className="text-right">{row.beta}</TableCell>
                                                 <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
                                             </TableRow>
                                         ))}
@@ -1037,9 +1290,9 @@ export function AnalysisSection() {
                                             axisLine={false}
                                             domain={["auto", "auto"]}
                                         />
-                                        <Tooltip
+                                        <RechartsTooltip
                                             contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                            labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
+                                            labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                                             formatter={(value: number, name: string) => {
                                                 const formattedValue = new Intl.NumberFormat('de-DE', {
                                                     style: 'currency',
@@ -1097,20 +1350,19 @@ export function AnalysisSection() {
                                         <Download className="h-4 w-4" />
                                     </Button>
                                 </div>
-                                <div className="w-full md:w-[180px]">
-                                    <Select value={String(rollingYears)} onValueChange={(v: any) => setRollingYears(Number(v))}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="1">1 Year</SelectItem>
-                                            <SelectItem value="3">3 Years</SelectItem>
-                                            <SelectItem value="5">5 Years</SelectItem>
-                                            <SelectItem value="10">10 Years</SelectItem>
-                                            <SelectItem value="15">15 Years</SelectItem>
-                                            <SelectItem value="20">20 Years</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted-foreground whitespace-nowrap">Period (Years):</span>
+                                    <Input
+                                        type="number"
+                                        value={rollingYears}
+                                        onChange={(e) => {
+                                            const val = Number(e.target.value);
+                                            if (val > 0) setRollingYears(val);
+                                        }}
+                                        className="w-[80px] h-9"
+                                        min={1}
+                                        max={50}
+                                    />
                                 </div>
                             </CardHeader>
                             <CardContent>
@@ -1135,15 +1387,16 @@ export function AnalysisSection() {
                                                 tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
                                                 domain={["auto", "auto"]}
                                             />
-                                            <Tooltip
+                                            <RechartsTooltip
                                                 contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
+                                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                             />
                                             <Legend
                                                 verticalAlign="bottom"
                                                 formatter={(value: any) => rollingLegendLabel[String(value)] ?? String(value)}
                                             />
+                                            <ReferenceLine y={0} stroke="#ef4444" strokeWidth={2} />
                                             {validItems.map((item) => (
                                                 <Line
                                                     key={item.name}
@@ -1195,7 +1448,7 @@ export function AnalysisSection() {
                                                 tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
                                                 domain={["auto", "auto"]}
                                             />
-                                            <Tooltip
+                                            <RechartsTooltip
                                                 contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
                                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                             />
@@ -1244,9 +1497,9 @@ export function AnalysisSection() {
                                                 axisLine={false}
                                                 tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
                                             />
-                                            <Tooltip
+                                            <RechartsTooltip
                                                 contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
+                                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                             />
                                             <Legend />
@@ -1271,6 +1524,7 @@ export function AnalysisSection() {
                             portfolio={primaryResult}
                             items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
                         />
+
                     </>
                 ) : (
                     primaryResult && (
@@ -1301,6 +1555,117 @@ export function AnalysisSection() {
                             </div>
                         </>
                     )
+                )}
+
+                {(primaryResult || validItems.length > 0) && (
+                    <Card key={`beta-${calcKey}`}>
+                        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div className="flex items-center gap-4">
+                                <div>
+                                    <CardTitle>Rolling Beta</CardTitle>
+                                    <CardDescription>Systematic risk relative to {validItems.find(item => makeKey(item) === betaBenchmark)?.name || (betaBenchmark?.startsWith('asset:') ? betaBenchmark.replace('asset:', '') : 'benchmark')}.</CardDescription>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => downloadCSV(rollingBetaData, "rolling-beta")}
+                                >
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted-foreground whitespace-nowrap">Benchmark:</span>
+                                    <Select
+                                        value={betaBenchmark || ""}
+                                        onValueChange={setBetaBenchmark}
+                                    >
+                                        <SelectTrigger className="w-[200px] h-9">
+                                            <SelectValue placeholder="Select benchmark" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectGroup>
+                                                <SelectLabel>Current Comparison</SelectLabel>
+                                                {validItems.map(item => (
+                                                    <SelectItem key={makeKey(item)} value={makeKey(item)}>
+                                                        {item.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectGroup>
+                                            <SelectGroup>
+                                                <SelectLabel>All Assets</SelectLabel>
+                                                {assets.map(asset => (
+                                                    <SelectItem key={`asset:${asset}`} value={`asset:${asset}`}>
+                                                        {asset}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectGroup>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted-foreground whitespace-nowrap">Period (Years):</span>
+                                    <Input
+                                        type="number"
+                                        value={rollingBetaYears}
+                                        onChange={(e) => {
+                                            const val = Number(e.target.value);
+                                            if (val > 0) setRollingBetaYears(val);
+                                        }}
+                                        className="w-[80px] h-9"
+                                        min={1}
+                                        max={10}
+                                    />
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="h-[300px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={rollingBetaData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                        <XAxis
+                                            dataKey="date"
+                                            stroke="#888888"
+                                            fontSize={12}
+                                            tickLine={false}
+                                            axisLine={false}
+                                            minTickGap={30}
+                                            tickFormatter={(value) => new Date(value).getFullYear().toString()}
+                                        />
+                                        <YAxis
+                                            stroke="#888888"
+                                            fontSize={12}
+                                            tickLine={false}
+                                            axisLine={false}
+                                            domain={['auto', 'auto']}
+                                            tickFormatter={(v) => v.toFixed(1)}
+                                        />
+                                        <RechartsTooltip
+                                            contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
+                                            labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
+                                            formatter={(value: number, name: string) => [value.toFixed(2), name]}
+                                        />
+                                        <Legend />
+                                        <ReferenceLine y={1} stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3" label={{ position: 'right', value: 'Market Beta (1.0)', fill: '#ef4444', fontSize: 10 }} />
+                                        {validItems
+                                            .filter(item => makeKey(item) !== betaBenchmark)
+                                            .map((item) => (
+                                                <Line
+                                                    key={item.name}
+                                                    type="monotone"
+                                                    dataKey={item.name}
+                                                    name={item.name}
+                                                    stroke={item.color}
+                                                    strokeWidth={2}
+                                                    dot={false}
+                                                />
+                                            ))}
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
                 {/* Debugging info can be hidden or removed in prod */}
                 {/* <div className="text-xs text-muted-foreground mt-2">

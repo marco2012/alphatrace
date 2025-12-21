@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, averageRolling10YearCAGR } from "@/lib/finance";
+import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, averageRolling10YearCAGR, calmar, ulcerIndex } from "@/lib/finance";
 
 interface MetricsCardsProps {
     portfolio: PortfolioResult | null;
@@ -11,8 +11,8 @@ interface MetricsCardsProps {
 export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
     if (!portfolio) {
         return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-                {["CAGR", "Volatility", "Sharpe Ratio", "Max Drawdown", "Avg 10Y Rolling CAGR"].map((label) => (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {["CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR"].map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">{label}</CardTitle>
@@ -34,9 +34,16 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
 
     const volValue = annualVol(portRets);
     const sharpeValue = sharpe(portRets, rf);
+    const sortinoValue = sortino(portRets, rf);
 
     // Max Drawdown
     const maxDD = drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
+
+    // Calmar Ratio
+    const calmarValue = calmar(cagrValue, maxDD);
+
+    // Ulcer Index
+    const ulcerIndexValue = ulcerIndex(drawdowns);
 
     // Average Rolling 10-Year CAGR
     const avgRolling10YearCAGR = averageRolling10YearCAGR(portfolio);
@@ -45,7 +52,7 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
     const formatNumber = (v: number) => v.toFixed(2);
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">CAGR</CardTitle>
@@ -73,10 +80,21 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
                     <CardTitle className="text-sm font-medium">Sharpe Ratio</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                         {formatNumber(sharpeValue)}
                     </div>
                     <p className="text-xs text-muted-foreground">Risk-adjusted return (Rf={(rf * 100).toFixed(0)}%)</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Sortino Ratio</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                        {formatNumber(sortinoValue)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Risk-adj return (downside risk)</p>
                 </CardContent>
             </Card>
             <Card>
@@ -87,7 +105,29 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
                     <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                         {formatPercent(maxDD)}
                     </div>
-                    <p className="text-xs text-muted-foreground">Calculated from peak</p>
+                    <p className="text-xs text-muted-foreground">Maximum peak-to-trough decline</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Calmar Ratio</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                        {formatNumber(calmarValue)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">CAGR / Max Drawdown</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Ulcer Index</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                        {formatNumber(ulcerIndexValue)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Depth/duration of drawdowns</p>
                 </CardContent>
             </Card>
             <Card>
@@ -95,10 +135,10 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
                     <CardTitle className="text-sm font-medium">Avg 10Y Rolling CAGR</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
                         {formatPercent(avgRolling10YearCAGR)}
                     </div>
-                    <p className="text-xs text-muted-foreground">Average of rolling 10-year CAGRs</p>
+                    <p className="text-xs text-muted-foreground">Average of rolling 10Y periods</p>
                 </CardContent>
             </Card>
         </div>

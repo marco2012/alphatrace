@@ -16,6 +16,7 @@ import { Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
 import { useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 interface RollingReturnsChartProps {
     portfolio: PortfolioResult | null;
@@ -119,19 +120,18 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Select value={String(years)} onValueChange={(v) => setYears(Number(v))}>
-                        <SelectTrigger className="w-[100px]">
-                            <SelectValue placeholder="Years" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="1">1 Year</SelectItem>
-                            <SelectItem value="3">3 Years</SelectItem>
-                            <SelectItem value="5">5 Years</SelectItem>
-                            <SelectItem value="10">10 Years</SelectItem>
-                            <SelectItem value="15">15 Years</SelectItem>
-                            <SelectItem value="20">20 Years</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">Period (Years):</span>
+                    <Input
+                        type="number"
+                        value={years}
+                        onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (val > 0) setYears(val);
+                        }}
+                        className="w-[80px] h-9"
+                        min={1}
+                        max={50}
+                    />
                     <Button variant="outline" size="sm" onClick={downloadCSV}>
                         <Download className="h-4 w-4" />
                     </Button>
@@ -167,7 +167,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [`${value.toFixed(2)}%`, seriesLabel]}
-                                labelFormatter={(label) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Line
                                 type="monotone"
