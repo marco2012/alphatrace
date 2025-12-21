@@ -90,6 +90,14 @@ function MonthCal({ selectedMonth, onMonthSelect, callbacks, variant, minDate, m
     const [month, setMonth] = React.useState<number>(selectedMonth?.getMonth() ?? new Date().getMonth());
     const [menuYear, setMenuYear] = React.useState<number>(year);
 
+    React.useEffect(() => {
+        if (selectedMonth) {
+            setYear(selectedMonth.getFullYear());
+            setMonth(selectedMonth.getMonth());
+            setMenuYear(selectedMonth.getFullYear());
+        }
+    }, [selectedMonth]);
+
     if (minDate && maxDate && minDate > maxDate) minDate = maxDate;
 
     const disabledDatesMapped = disabledDates?.map((d) => {

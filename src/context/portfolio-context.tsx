@@ -379,6 +379,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         return startDateStr;
     };
 
+
     // Update start date when year selection changes
     const handleYearSelectionChange = (years: YearSelection) => {
         setYearSelection(years);
@@ -386,7 +387,15 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         setStartDate(newStartDate);
 
         // Also update end date to ensure it's within available data
-        validateAndUpdateEndDate();
+        // We validate against newStartDate immediately to avoid invalid state
+        const now = new Date();
+        const maxEndDate = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
+
+        if (endDate > maxEndDate) {
+            setEndDate(maxEndDate);
+        } else if (endDate < newStartDate) {
+            setEndDate(maxEndDate);
+        }
     };
 
     // Validate and update end date to ensure it's within available data range

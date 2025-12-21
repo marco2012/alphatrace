@@ -15,6 +15,12 @@ export function getAssetCategory(name: string): string {
 }
 
 export const toMonthStr = (d: string | number | Date): string => {
+    if (typeof d === 'string' && /^\d{4}-\d{1,2}(?:-\d{1,2})?/.test(d)) {
+        const parts = d.split('-');
+        const y = parts[0];
+        const m = parts[1].padStart(2, '0');
+        return `${y}-${m}-01`;
+    }
     const dt = new Date(d);
     const y = dt.getFullYear();
     const m = (dt.getMonth() + 1).toString().padStart(2, "0");
@@ -523,60 +529,62 @@ export function slicePortfolioResult(res: PortfolioResult, startDate: string, en
     }
 
     if (sIdx === -1 || eIdx === -1 || sIdx > eIdx) {
-        // Return empty or original if invalid slice? Return null-ish result equivalent.
-        // For safety, return as is or minimal
         return res;
     }
 
     const newDates = res.dates.slice(sIdx, eIdx + 1);
 
-    // Slice arrays
-    const newPortValues = res.portValues ? res.portValues.slice(sIdx, eIdx + 1) : undefined;
-    const newTotalInvested = res.totalInvested ? res.totalInvested.slice(sIdx, eIdx + 1) : undefined;
+    // Calculate scale factor to rebase to 10,000
+    const BASE_VALUE = 10000;
+    let scale = 1.0;
 
-    // Slice idxMap
-    const newIdxMap: Record<string, number> = {};
-    for (const d of newDates) {
-        // We technically should normalize idxMap to start at same base or 100?
-        // Usually idxMap is cumulative.
-        // If we just slice, the visual curve is fine.
-        // But for CAGR calc, it's relative, so absolute magnitude doesn't matter much.
-        // However, standard practices often rebase to 100.
-        // Let's keep original values to maintain context of wealth if it's monetary, 
-        // but idxMap is typically an index.
-        newIdxMap[d] = res.idxMap[d];
+    // Determine scale from portValues if available, or idxMap
+    if (res.portValues && res.portValues.length > sIdx) {
+        const startVal = res.portValues[sIdx];
+        if (startVal > 0) scale = BASE_VALUE / startVal;
+    } else {
+        const startKey = res.dates[sIdx];
+        const startVal = res.idxMap[startKey];
+        if (startVal > 0) scale = BASE_VALUE / startVal;
     }
 
-    // Recompute returns for the window?
-    // portRets matches dates? usually portRets[i] is return from dates[i-1] to dates[i] or something.
-    // In computePortfolio:
-    // portRets has length N. portValues has length N+1 (start + N rets)? 
-    // Wait, let's check computePortfolio.
-    // portRets.push(r). 
-    // portValues starts with initialInvestment. Then updates.
-    // So portValues.length = portRets.length + 1.
-    // And dates.length = portValues.length.
+    // Slice and scale arrays
+    const newPortValues = res.portValues
+        ? res.portValues.slice(sIdx, eIdx + 1).map(v => v * scale)
+        : undefined;
 
-    // So if we slice dates from sIdx to eIdx.
-    // corresponds to portValues[sIdx ... eIdx].
-    // What about portRets?
-    // portRets[0] is return of period 0 (transition from T-1 to T0? or T0 to T1?).
-    // In computePortfolio: for t=0..N. portRets.push. portValues pushes. 
-    // The dates array passed to computePortfolio usually matches the simulation steps?
-    // Actually computePortfolio takes `dates` same length as `series`.
-    // N = assetRets[0].length (which is series.length - 1 since pctChangeSeries reduces length by 1).
-    // So portRets length = dates.length - 1.
-    // portValues has length dates.length.
+    const newTotalInvested = res.totalInvested
+        ? res.totalInvested.slice(sIdx, eIdx + 1).map(v => v * scale)
+        : undefined;
 
-    // If we slice dates at index sIdx (relative to original 0).
-    // The new portRets should correspond to the returns happening IN the new window.
-    // The return at newDates[0] is undefined (it's the start).
-    // So newRets should be portRets.slice(sIdx, eIdx).
+    // Slice and scale idxMap
+    const newIdxMap: Record<string, number> = {};
+    for (const d of newDates) {
+        if (newPortValues) {
+            const idx = newDates.indexOf(d);
+            if (idx !== -1) newIdxMap[d] = newPortValues[idx];
+        } else {
+            // Safety fallback, though usually if no portValues, we rely on idxMap
+            newIdxMap[d] = res.idxMap[d] * scale;
+        }
+    }
 
+    // Fallback if portValues was missing but we used idxMap for scaling
+    if (!newPortValues) {
+        // Logic above handles it (newIdxMap filled from idxMap * scale)
+    }
+
+    // Slice portRets
     const newPortRets = res.portRets.slice(sIdx, eIdx);
 
     // Recompute drawdowns for this specific window
     const newDrawdowns = drawdownsFromIndex(newIdxMap);
+
+    // Recompute normalizedIndex (start at 100)
+    const newNormalizedIndex = [100];
+    for (const r of newPortRets) {
+        newNormalizedIndex.push(newNormalizedIndex[newNormalizedIndex.length - 1] * (1 + r));
+    }
 
     return {
         ...res,
@@ -585,8 +593,8 @@ export function slicePortfolioResult(res: PortfolioResult, startDate: string, en
         portValues: newPortValues,
         totalInvested: newTotalInvested,
         portRets: newPortRets,
-        drawdowns: newDrawdowns
-        // normalizedIndex: ... we can slice but idxMap is better source
+        drawdowns: newDrawdowns,
+        normalizedIndex: newNormalizedIndex
     };
 }
 

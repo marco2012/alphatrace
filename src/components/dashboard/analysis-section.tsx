@@ -346,13 +346,15 @@ export function AnalysisSection() {
         if (availableDateRange) {
             const { start, end } = availableDateRange;
 
-            // Auto-adjust start date if the common valid range has moved
-            if (start !== startDate) {
+            // Only auto-adjust if the current date is OUT of valid bounds
+            // This preserves user's manual zoom/selection
+            if (startDate < start) {
                 setStartDate(start);
             }
 
-            // Auto-adjust end date if constrained by data end (e.g. delisting)
-            if (end !== endDate && end < "9999-12-31") {
+            // For end date: if data ends earlier than selected end date, we must constrain it.
+            // But if user selected an earlier end date, we allow it.
+            if (endDate > end && end < "9999-12-31") {
                 setEndDate(end);
             }
         }
