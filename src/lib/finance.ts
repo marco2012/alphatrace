@@ -634,3 +634,116 @@ export function computeRollingBeta(
     }
     return result;
 }
+
+export interface MonteCarloPath {
+    date: string;
+    p10: number;
+    p50: number;
+    p90: number;
+    p25: number;
+    p75: number;
+}
+
+export function runMonteCarlo(
+    historicalRets: number[],
+    initialInvestment: number,
+    years: number,
+    simulations: number = 10000
+): MonteCarloPath[] {
+    if (historicalRets.length === 0) return [];
+
+    const monthlyResults: number[][] = Array.from({ length: years * 12 + 1 }, () => []);
+
+    for (let s = 0; s < simulations; s++) {
+        let currentVal = initialInvestment;
+        monthlyResults[0].push(currentVal);
+        for (let m = 1; m <= years * 12; m++) {
+            // Bootstrap resampling: pick a random month's return from history
+            const randomRet = historicalRets[Math.floor(Math.random() * historicalRets.length)];
+            currentVal *= (1 + randomRet);
+            monthlyResults[m].push(currentVal);
+        }
+    }
+
+    const paths: MonteCarloPath[] = [];
+    const startDate = new Date();
+
+    for (let m = 0; m <= years * 12; m++) {
+        const sorted = monthlyResults[m].sort((a, b) => a - b);
+        const date = new Date(startDate.getFullYear(), startDate.getMonth() + m, 1);
+        const dateStr = date.toISOString().split("T")[0].substring(0, 7); // YYYY-MM
+
+        paths.push({
+            date: dateStr,
+            p10: sorted[Math.floor(simulations * 0.1)],
+            p25: sorted[Math.floor(simulations * 0.25)],
+            p50: sorted[Math.floor(simulations * 0.5)],
+            p75: sorted[Math.floor(simulations * 0.75)],
+            p90: sorted[Math.floor(simulations * 0.9)],
+        });
+    }
+
+    return paths;
+}
+
+export type OptimizationType = "max_sharpe" | "max_cagr" | "min_vol" | "balanced";
+
+export function findOptimalWeights(
+    activeAssets: string[],
+    means: number[],
+    cov: number[][],
+    rf: number,
+    type: OptimizationType = "max_sharpe",
+    sims: number = 5000
+): Record<string, number> {
+    let bestScore = -Infinity;
+    let bestWeights: number[] = [];
+
+    for (let i = 0; i < sims; i++) {
+        const rands = activeAssets.map(() => Math.random());
+        const sum = rands.reduce((a, b) => a + b, 0);
+        const w = rands.map(x => x / sum);
+
+        let mu = 0;
+        for (let j = 0; j < w.length; j++) mu += w[j] * means[j];
+
+        let v = 0;
+        for (let j = 0; j < w.length; j++) {
+            for (let k = 0; k < w.length; k++) {
+                v += w[j] * w[k] * cov[j][k];
+            }
+        }
+
+        const annualReturn = Math.pow(1 + mu, 12) - 1;
+        const annualVol = Math.sqrt(Math.max(v, 0) * 12);
+        const sharpeRatio = annualVol > 0 ? (annualReturn - rf) / annualVol : 0;
+
+        let score = 0;
+        switch (type) {
+            case "max_sharpe":
+                score = sharpeRatio;
+                break;
+            case "max_cagr":
+                score = annualReturn;
+                break;
+            case "min_vol":
+                score = -annualVol;
+                break;
+            case "balanced":
+                // 50% weight on sharpe, 50% on minimizing volatility relative to return
+                score = sharpeRatio * 0.5 + (annualReturn / (annualVol + 0.1));
+                break;
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestWeights = w;
+        }
+    }
+
+    const result: Record<string, number> = {};
+    activeAssets.forEach((asset, idx) => {
+        result[asset] = bestWeights[idx];
+    });
+    return result;
+}
