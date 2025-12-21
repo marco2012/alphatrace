@@ -1,3 +1,5 @@
+"use client";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -5,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAssetCategory } from "@/lib/finance";
+import { usePortfolio } from "@/context/portfolio-context";
 import { Badge } from "@/components/ui/badge";
 import {
     Table,
@@ -23,7 +26,15 @@ interface AssetAllocationProps {
 }
 
 export function AssetAllocation({ weights, onWeightChange, assets, portfolioName }: AssetAllocationProps) {
+    const { norm } = usePortfolio();
     const formatPercent = (val: number) => Math.round(val * 100);
+
+    const formatDate = (d: string) => {
+        if (!d || d === "0000-00-00" || d === "9999-12-31") return "";
+        const [y, m] = d.split("-");
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return `${months[parseInt(m, 10) - 1]} ${y}`;
+    };
     const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
     const totalPercent = Math.round(totalWeight * 100);
     const isValid = totalPercent === 100;
@@ -109,7 +120,20 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="font-medium py-2 text-foreground">
-                                        {asset}
+                                        <div className="flex flex-col">
+                                            <span>{asset}</span>
+                                            {(() => {
+                                                const firstValidDates = (norm as any)?.firstValidDates || {};
+                                                const lastValidDates = (norm as any)?.lastValidDates || {};
+                                                const start = firstValidDates[asset];
+                                                const end = lastValidDates[asset];
+                                                return start && end ? (
+                                                    <span className="text-[10px] text-muted-foreground font-normal">
+                                                        {formatDate(start)} - {formatDate(end)}
+                                                    </span>
+                                                ) : null;
+                                            })()}
+                                        </div>
                                     </TableCell>
                                     <TableCell className="text-right py-2 pr-6">
                                         <div className="flex items-center justify-end gap-2">

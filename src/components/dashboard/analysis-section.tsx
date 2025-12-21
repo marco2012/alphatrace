@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { usePortfolio } from "@/context/portfolio-context";
+import { usePortfolio, type SavedPortfolio } from "@/context/portfolio-context";
 
 import { PortfolioControls } from "@/components/dashboard/portfolio-controls";
 import { MetricsCards } from "@/components/dashboard/metrics-cards";
@@ -155,6 +155,65 @@ export function AnalysisSection() {
     } = usePortfolio();
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
+
+    const formatDate = (d: string) => {
+        if (!d || d === "0000-00-00" || d === "9999-12-31") return "";
+        const [y, m] = d.split("-");
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return `${months[parseInt(m, 10) - 1]} ${y}`;
+    };
+
+    const getItemRange = useMemo(() => (item: AnalysisItem | SavedPortfolio | { type: "asset", id: string }) => {
+        if (!norm) return null;
+        const firstValidDates = (norm as any).firstValidDates || {};
+        const lastValidDates = (norm as any).lastValidDates || {};
+
+        let itemStart = "0000-00-00";
+        let itemEnd = "9999-12-31";
+        let found = false;
+
+        if ('type' in item && item.type === "asset") {
+            itemStart = firstValidDates[item.id] || "1994-11-01";
+            itemEnd = lastValidDates[item.id] || "9999-12-31";
+            found = true;
+        } else {
+            // For portfolios
+            let itemWeights: Record<string, number> = {};
+            if ('weights' in item) {
+                itemWeights = (item as SavedPortfolio).weights;
+            } else if ('type' in item && item.type === "portfolio") {
+                if (item.id === "current") {
+                    itemWeights = weights;
+                } else {
+                    const p = savedPortfolios.find(sp => sp.id === item.id);
+                    if (p) itemWeights = p.weights;
+                }
+            }
+
+            if (itemWeights && Object.keys(itemWeights).length > 0) {
+                let pMaxStart = "0000-00-00";
+                let pMinEnd = "9999-12-31";
+
+                Object.keys(itemWeights).forEach(asset => {
+                    if (itemWeights[asset] > 0) {
+                        const s = firstValidDates[asset];
+                        const e = lastValidDates[asset];
+                        if (s && s > pMaxStart) pMaxStart = s;
+                        if (e && e < pMinEnd) pMinEnd = e;
+                        found = true;
+                    }
+                });
+
+                if (found) {
+                    itemStart = pMaxStart;
+                    itemEnd = pMinEnd;
+                }
+            }
+        }
+
+        if (!found) return null;
+        return { start: itemStart, end: itemEnd };
+    }, [norm, weights, savedPortfolios]);
 
     const [selectedItems, setSelectedItems] = useState<AnalysisItem[]>([
         {
@@ -429,9 +488,7 @@ export function AnalysisSection() {
                     avgRolling10YearCAGRValue,
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
                     recoveryMonthsValue,
-                    recoveryMonths,
-                    betaValue,
-                    beta: fmtNum(betaValue)
+                    recoveryMonths
                 };
             })
             .filter(Boolean) as Array<{
@@ -455,8 +512,6 @@ export function AnalysisSection() {
                 avgRolling10YearCAGR: string;
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
-                betaValue: number;
-                beta: string;
             }>;
 
         const sortedRows = [...rows].sort((a, b) => {
@@ -981,21 +1036,30 @@ export function AnalysisSection() {
                                 <TabsContent value="portfolio">
                                     <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
                                         <div className="space-y-2">
-                                            {savedPortfolios.map(p => (
-                                                <div key={p.id} className="flex items-center space-x-2">
-                                                    <Checkbox
-                                                        id={p.id}
-                                                        checked={selectedForAdd.includes(p.id) || selectedItems.some(item => item.type === "portfolio" && item.id === p.id)}
-                                                        onCheckedChange={() => handleToggleSelection(p.id)}
-                                                    />
-                                                    <label
-                                                        htmlFor={p.id}
-                                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                                    >
-                                                        {p.name}
-                                                    </label>
-                                                </div>
-                                            ))}
+                                            {savedPortfolios.map(p => {
+                                                const range = getItemRange(p);
+                                                return (
+                                                    <div key={p.id} className="flex items-start space-x-2">
+                                                        <Checkbox
+                                                            id={p.id}
+                                                            checked={selectedForAdd.includes(p.id) || selectedItems.some(item => item.type === "portfolio" && item.id === p.id)}
+                                                            onCheckedChange={() => handleToggleSelection(p.id)}
+                                                            className="mt-1"
+                                                        />
+                                                        <label
+                                                            htmlFor={p.id}
+                                                            className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                        >
+                                                            <span className="text-sm font-medium">{p.name}</span>
+                                                            {range && (
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {formatDate(range.start)} - {formatDate(range.end)}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </TabsContent>
@@ -1003,21 +1067,30 @@ export function AnalysisSection() {
                                 <TabsContent value="asset">
                                     <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
                                         <div className="space-y-2">
-                                            {assets.map(a => (
-                                                <div key={a} className="flex items-center space-x-2">
-                                                    <Checkbox
-                                                        id={a}
-                                                        checked={selectedForAdd.includes(a) || selectedItems.some(item => item.type === "asset" && item.id === a)}
-                                                        onCheckedChange={() => handleToggleSelection(a)}
-                                                    />
-                                                    <label
-                                                        htmlFor={a}
-                                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                                    >
-                                                        {a}
-                                                    </label>
-                                                </div>
-                                            ))}
+                                            {assets.map(a => {
+                                                const range = getItemRange({ type: "asset", id: a });
+                                                return (
+                                                    <div key={a} className="flex items-start space-x-2">
+                                                        <Checkbox
+                                                            id={a}
+                                                            checked={selectedForAdd.includes(a) || selectedItems.some(item => item.type === "asset" && item.id === a)}
+                                                            onCheckedChange={() => handleToggleSelection(a)}
+                                                            className="mt-1"
+                                                        />
+                                                        <label
+                                                            htmlFor={a}
+                                                            className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                        >
+                                                            <span className="text-sm font-medium">{a}</span>
+                                                            {range && (
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {formatDate(range.start)} - {formatDate(range.end)}
+                                                                </span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </TabsContent>
@@ -1026,32 +1099,52 @@ export function AnalysisSection() {
                         </div>
 
                         <div className="flex flex-wrap gap-2 mt-4">
-                            {selectedItems.map((item, idx) => (
-                                <Badge
-                                    key={`${item.type}-${item.id}`}
-                                    variant="outline"
-                                    className="pl-2 pr-1 py-1 flex items-center gap-1"
-                                    style={{ borderColor: item.color }}
-                                >
-                                    <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: item.color }}></span>
-                                    {item.name}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-4 w-4 ml-1 hover:bg-transparent"
-                                        onClick={() => handleRemoveItem(idx)}
+                            {selectedItems.map((item, idx) => {
+                                const range = getItemRange(item);
+                                return (
+                                    <Badge
+                                        key={`${item.type}-${item.id}`}
+                                        variant="outline"
+                                        className="pl-2 pr-1 py-1.5 flex items-center gap-1"
+                                        style={{ borderColor: item.color }}
                                     >
-                                        <X className="h-3 w-3" />
-                                    </Button>
-                                </Badge>
-                            ))}
+                                        <span className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: item.color }}></span>
+                                        <div className="flex flex-col items-start leading-none gap-0.5">
+                                            <span className="text-[11px] font-medium">{item.name}</span>
+                                            {range && (
+                                                <span className="text-[9px] opacity-70 font-normal">
+                                                    {formatDate(range.start)} - {formatDate(range.end)}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-4 w-4 ml-1 hover:bg-transparent"
+                                            onClick={() => handleRemoveItem(idx)}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                    </Badge>
+                                );
+                            })}
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
             <div className="space-y-6">
-                <h2 className="text-xl font-semibold tracking-tight">Performance Analysis</h2>
+                <div className="flex flex-col gap-1">
+                    <h2 className="text-xl font-semibold tracking-tight">Performance Analysis</h2>
+                    {validItems.length === 1 && (() => {
+                        const range = getItemRange(validItems[0]);
+                        return range ? (
+                            <p className="text-sm text-muted-foreground">
+                                Data range: {formatDate(range.start)} - {formatDate(range.end)}
+                            </p>
+                        ) : null;
+                    })()}
+                </div>
 
                 {validItems.length > 1 ? (
                     <Card key={`metrics-${calcKey}`}>
@@ -1199,22 +1292,6 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("betaValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Beta
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "betaValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.betaValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
                                             <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1236,7 +1313,20 @@ export function AnalysisSection() {
                                     <TableBody>
                                         {metricsTableRows.map((row) => (
                                             <TableRow key={row.key}>
-                                                <TableCell className="font-medium">{row.name}</TableCell>
+                                                <TableCell className="font-medium py-2">
+                                                    <div className="flex flex-col">
+                                                        <span>{row.name}</span>
+                                                        {(() => {
+                                                            const item = slicedItems.find(si => makeKey(si) === row.key);
+                                                            const range = item ? getItemRange(item) : null;
+                                                            return range ? (
+                                                                <span className="text-[10px] text-muted-foreground font-normal">
+                                                                    {formatDate(range.start)} - {formatDate(range.end)}
+                                                                </span>
+                                                            ) : null;
+                                                        })()}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
                                                 <TableCell className="text-right">{row.vol}</TableCell>
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
@@ -1245,7 +1335,6 @@ export function AnalysisSection() {
                                                 <TableCell className="text-right">{row.calmar}</TableCell>
                                                 <TableCell className="text-right">{row.ulcerIndex}</TableCell>
                                                 <TableCell className="text-right">{row.recoveryMonths}</TableCell>
-                                                <TableCell className="text-right">{row.beta}</TableCell>
                                                 <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
                                             </TableRow>
                                         ))}
