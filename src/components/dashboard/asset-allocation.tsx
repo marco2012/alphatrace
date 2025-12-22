@@ -113,7 +113,13 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                             const category = getAssetCategory(asset);
 
                             return (
-                                <TableRow key={asset} className="hover:bg-muted/50">
+                                <TableRow
+                                    key={asset}
+                                    className={cn(
+                                        "hover:bg-muted/50 transition-colors",
+                                        weight > 0 && "bg-blue-50/80 dark:bg-blue-900/20"
+                                    )}
+                                >
                                     <TableCell className="py-2 pl-6">
                                         <Badge className={cn("font-medium text-xs uppercase rounded-md border-0", getCategoryBadgeClass(category))}>
                                             {category}
