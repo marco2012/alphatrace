@@ -164,7 +164,7 @@ export default function Home() {
                             <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
-                            <TableHead>Date</TableHead>
+                            <TableHead className="hidden md:table-cell">Date</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -184,7 +184,7 @@ export default function Home() {
                               <TableCell className="hidden text-center text-sm sm:table-cell">
                                 {getCategoryPercentage(p.weights, 'gold')}%
                               </TableCell>
-                              <TableCell className="text-muted-foreground text-xs">
+                              <TableCell className="hidden md:table-cell text-muted-foreground text-xs">
                                 {new Date(p.date).toLocaleDateString()}
                               </TableCell>
                               <TableCell className="text-right">

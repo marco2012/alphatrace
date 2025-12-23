@@ -16,6 +16,7 @@ const CATEGORY_COLORS: Record<string, string> = {
     bonds: "#16a34a",
     cash: "#64748b",
     gold: "#d97706",
+    alternatives: "#a855f7", // purple-500
     other: "#9333ea",
 };
 
@@ -43,6 +44,10 @@ export function CategoryAllocationPie({ weights }: { weights: Record<string, num
         gold: {
             label: "Gold",
             color: CATEGORY_COLORS.gold,
+        },
+        alternatives: {
+            label: "Alternatives",
+            color: CATEGORY_COLORS.alternatives,
         },
         other: {
             label: "Other",
@@ -100,12 +105,11 @@ export function CategoryAllocationPie({ weights }: { weights: Record<string, num
                                     className="fill-background"
                                     stroke="none"
                                     fontSize={12}
-                                    formatter={(value: any) => {
-                                        // Find the corresponding data entry to get the category
-                                        const entry = data.find(d => d.value === value);
-                                        if (!entry) return `${Math.round(Number(value))}%`;
-                                        
-                                        const category = entry.category;
+                                    formatter={(value: any, entry?: any) => {
+                                        // entry.payload contains the full data object
+                                        if (!entry || !entry.payload) return `${Math.round(Number(value))}%`;
+
+                                        const category = entry.payload.category;
                                         const label = (chartConfig as any)[category]?.label ?? titleCase(category);
                                         return `${label} (${Math.round(Number(value))}%)`;
                                     }}

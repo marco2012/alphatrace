@@ -62,6 +62,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
             case "bonds": return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 shadow-none";
             case "cash": return "bg-slate-500/10 text-slate-700 dark:text-slate-400 hover:bg-slate-500/20 shadow-none";
             case "gold": return "bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 shadow-none";
+            case "alternatives": return "bg-purple-500/10 text-purple-700 dark:text-purple-400 hover:bg-purple-500/20 shadow-none";
             default: return "bg-secondary text-secondary-foreground hover:bg-secondary/80 shadow-none";
         }
     };
@@ -72,8 +73,9 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                 <div className="flex items-center justify-between">
                     <div>
                         <CardTitle>Asset Allocation</CardTitle>
-                        <CardDescription>
-                            {portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights using manual inputs"}
+                        <CardDescription className="flex flex-col gap-1">
+                            <span>{portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights using manual inputs"}</span>
+                            <span className="text-xs">Data source: <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">curvo.eu/backtest</a></span>
                         </CardDescription>
                     </div>
                     <div className="flex items-center gap-4">
@@ -101,8 +103,8 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                 <Table>
                     <TableHeader className="bg-card shadow-sm">
                         <TableRow>
-                            <TableHead className="w-[25%] pl-6">Category</TableHead>
-                            <TableHead className="w-[45%]">Asset</TableHead>
+                            <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
+                            <TableHead className="w-[70%] sm:w-[45%]">Asset</TableHead>
                             <TableHead className="text-right w-[30%] pr-6">Allocation (%)</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -117,16 +119,21 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                     key={asset}
                                     className={cn(
                                         "hover:bg-muted/50 transition-colors",
-                                        weight > 0 && "bg-blue-50/80 dark:bg-blue-900/20"
+                                        weight > 0 && "bg-yellow-50 dark:bg-yellow-300/30"
                                     )}
                                 >
-                                    <TableCell className="py-2 pl-6">
+                                    <TableCell className="hidden sm:table-cell py-2 pl-6">
                                         <Badge className={cn("font-medium text-xs uppercase rounded-md border-0", getCategoryBadgeClass(category))}>
                                             {category}
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="font-medium py-2 text-foreground">
                                         <div className="flex flex-col">
+                                            <div className="flex items-center gap-2 sm:hidden mb-1">
+                                                <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0", getCategoryBadgeClass(category))}>
+                                                    {category}
+                                                </Badge>
+                                            </div>
                                             <span>{asset}</span>
                                             {(() => {
                                                 const firstValidDates = (norm as any)?.firstValidDates || {};

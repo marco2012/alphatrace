@@ -12,6 +12,8 @@ import { DrawdownChart } from "@/components/dashboard/drawdown-chart";
 import { TimeToRecoveryChart } from "@/components/dashboard/recovery-chart";
 import { EfficientFrontierChart } from "@/components/dashboard/efficient-frontier-chart";
 import { MonteCarloChart } from "@/components/dashboard/monte-carlo-chart";
+import { CorrelationMatrix } from "@/components/dashboard/correlation-matrix";
+import { RiskReturnScatterChart } from "@/components/dashboard/risk-return-scatter-chart";
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +58,8 @@ import {
     ReferenceLine
 } from "recharts";
 
-import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy } from "lucide-react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 const METRIC_EXPLANATIONS = {
     cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
@@ -107,6 +110,7 @@ type AnalysisItem = {
     name: string;
     color: string;
     result: PortfolioResult | null;
+    weights?: Record<string, number>;
 };
 
 type AnalysisItemKey = `${AnalysisItem["type"]}:${string}`;
@@ -151,8 +155,17 @@ export function AnalysisSection() {
         endDate,
         startDate,
         setStartDate,
-        setEndDate
+        setEndDate,
+        setInitialInvestment,
+        setMonthlyInvestment,
+        setInvestmentMode,
+        setRebalance
     } = usePortfolio();
+
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
+    const [justCopied, setJustCopied] = useState(false);
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
 
@@ -215,15 +228,108 @@ export function AnalysisSection() {
         return { start: itemStart, end: itemEnd };
     }, [norm, weights, savedPortfolios]);
 
-    const [selectedItems, setSelectedItems] = useState<AnalysisItem[]>([
-        {
-            id: "current",
-            type: "portfolio",
-            name: "Current Portfolio",
-            color: COLORS[0],
-            result: null
+    const [selectedItems, setSelectedItems] = useState<AnalysisItem[]>([{
+        id: "current",
+        type: "portfolio",
+        name: "Current Portfolio",
+        color: COLORS[0],
+        result: null
+    }]);
+
+    // Handle Share URL on mount
+    useEffect(() => {
+        const shareParam = searchParams.get("share");
+        if (shareParam) {
+            try {
+                const decoded = JSON.parse(atob(shareParam));
+                const { items, settings, config } = decoded;
+
+                if (items && Array.isArray(items)) {
+                    // Reconstruct items
+                    // Note: We don't check savedPortfolios here because we want to faithfully reproduce the shared view
+                    // even if the user doesn't have those portfolios saved.
+                    const restoredItems = items.map((item: any) => ({
+                        ...item,
+                        result: null
+                    }));
+                    setSelectedItems(restoredItems);
+                }
+
+                if (settings) {
+                    if (settings.startDate) setStartDate(settings.startDate);
+                    if (settings.endDate) setEndDate(settings.endDate);
+                    if (settings.initialInvestment) setInitialInvestment(settings.initialInvestment);
+                    if (settings.monthlyInvestment) setMonthlyInvestment(settings.monthlyInvestment);
+                    if (settings.investmentMode) setInvestmentMode(settings.investmentMode as any);
+                    if (settings.rebalance) setRebalance(settings.rebalance as any);
+                }
+
+                if (config) {
+                    if (config.rollingYears) setRollingYears(config.rollingYears);
+                    if (config.rollingBetaYears) setRollingBetaYears(config.rollingBetaYears);
+                    if (config.betaBenchmark) setBetaBenchmark(config.betaBenchmark);
+                }
+
+                // Clear the param
+                router.replace(pathname);
+            } catch (e) {
+                console.error("Failed to parse share URL", e);
+            }
         }
-    ]);
+    }, [searchParams, pathname, router, setStartDate, setEndDate, setInitialInvestment, setMonthlyInvestment, setInvestmentMode, setRebalance]);
+
+    const handleShare = () => {
+        const payload = {
+            items: selectedItems.map(item => {
+                const minimalItem: any = {
+                    id: item.id,
+                    type: item.type,
+                    name: item.name,
+                    color: item.color
+                };
+
+                // If it's a portfolio, we must include weights so it can be reconstructed
+                // If it's "current", we grab current weights.
+                // If it's saved, we grab saved weights.
+                // If it already has weights (was shared), keep them.
+                if (item.type === "portfolio") {
+                    if (item.weights) {
+                        minimalItem.weights = item.weights;
+                    } else if (item.id === "current") {
+                        minimalItem.weights = weights;
+                    } else {
+                        const p = savedPortfolios.find(sp => sp.id === item.id);
+                        if (p) minimalItem.weights = p.weights;
+                    }
+                }
+
+                return minimalItem;
+            }),
+            settings: {
+                startDate,
+                endDate,
+                initialInvestment,
+                monthlyInvestment,
+                investmentMode,
+                rebalance
+            },
+            config: {
+                rollingYears,
+                rollingBetaYears,
+                betaBenchmark
+            }
+        };
+
+        try {
+            const encoded = btoa(JSON.stringify(payload));
+            const url = `${window.location.origin}${window.location.pathname}?share=${encoded}`;
+            navigator.clipboard.writeText(url);
+            setJustCopied(true);
+            setTimeout(() => setJustCopied(false), 2000);
+        } catch (e) {
+            console.error("Failed to generate share URL", e);
+        }
+    };
 
     const [typeToAdd, setTypeToAdd] = useState<"portfolio" | "asset">("portfolio");
     const [selectedForAdd, setSelectedForAdd] = useState<string[]>([]);
@@ -248,11 +354,15 @@ export function AnalysisSection() {
     const itemsWithResults = useMemo(() => {
         return selectedItems.map(item => {
             let result: PortfolioResult | null = null;
-            if (item.id === "current") {
-                result = portfolio;
-            } else if (item.type === "portfolio") {
-                const p = savedPortfolios.find(sp => sp.id === item.id);
-                if (p) result = computeCustomPortfolio(p.weights);
+            if (item.type === "portfolio") {
+                if (item.weights) {
+                    result = computeCustomPortfolio(item.weights);
+                } else if (item.id === "current") {
+                    result = portfolio;
+                } else {
+                    const p = savedPortfolios.find(sp => sp.id === item.id);
+                    if (p) result = computeCustomPortfolio(p.weights);
+                }
             } else if (item.type === "asset") {
                 result = computeAssetPortfolio(item.id);
             }
@@ -798,7 +908,9 @@ export function AnalysisSection() {
                 .map(id => {
                     const p = savedPortfolios.find(sp => sp.id === id);
                     if (!p) return null;
-                    if (currentSelected.find(i => i.id === p.id && i.type === "portfolio")) return null;
+                    // Check if already selected in the base set (which excludes 'current' to avoid duplicates if 'current' is effectively one of the saved ones, though IDs differ)
+                    // Actually, we just want to ensure we don't duplicate by ID.
+                    if (currentSelected.some(i => i.id === p.id && i.type === "portfolio")) return null;
 
                     const color = getNextColor(currentSelected);
                     const newItem: AnalysisItem = {
@@ -814,7 +926,11 @@ export function AnalysisSection() {
                 .filter(item => item !== null) as AnalysisItem[];
 
             if (itemsToAdd.length > 0) {
-                setSelectedItems([...baseSelected, ...itemsToAdd]);
+                // We used currentSelected to track colors, but we should just append the new items to the original filtered list
+                // actually currentSelected already contains baseSelected + itemsToAdd because of the push above?
+                // No, currentSelected was [...baseSelected]. We pushed to it.
+                // So currentSelected is the final list we want!
+                setSelectedItems(currentSelected);
                 setSelectedForAdd([]);
             }
             return;
@@ -968,23 +1084,34 @@ export function AnalysisSection() {
             <PortfolioControls />
 
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <CardTitle>Select Items to Analyze</CardTitle>
                         <CardDescription>Choose portfolios and assets to compare performance.</CardDescription>
                     </div>
-                    {selectedItems.length > 1 && (
-                        <Button variant="outline" size="sm" onClick={handleClearAll} className="text-destructive hover:text-destructive">
-                            Clear All
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        {selectedItems.length > 1 && (
+                            <Button variant="outline" size="sm" onClick={handleClearAll} className="flex-1 sm:flex-none text-destructive hover:text-destructive">
+                                Clear All
+                            </Button>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleShare}
+                            className="gap-2 flex-1 sm:flex-none"
+                        >
+                            {justCopied ? <Check className="h-4 w-4 text-green-500" /> : <Share2 className="h-4 w-4" />}
+                            {justCopied ? "Copied Link" : "Share Analysis"}
                         </Button>
-                    )}
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <div className="flex flex-col gap-4">
                         <div className="space-y-4">
                             <Tabs value={typeToAdd} onValueChange={(v: any) => { setTypeToAdd(v); setSelectedForAdd([]); }}>
                                 <div className="flex items-center gap-2">
-                                    <TabsList>
+                                    <TabsList className="grid w-full grid-cols-2 max-w-[300px]">
                                         <TabsTrigger value="portfolio">Portfolios</TabsTrigger>
                                         <TabsTrigger value="asset">Assets</TabsTrigger>
                                     </TabsList>
@@ -1036,7 +1163,7 @@ export function AnalysisSection() {
                                 </div>
 
                                 <TabsContent value="portfolio">
-                                    <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
+                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto">
                                         <div className="space-y-2">
                                             {savedPortfolios.map(p => {
                                                 const range = getItemRange(p);
@@ -1067,7 +1194,7 @@ export function AnalysisSection() {
                                 </TabsContent>
 
                                 <TabsContent value="asset">
-                                    <div className="border rounded-md p-3 max-h-48 overflow-y-auto">
+                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto">
                                         <div className="space-y-2">
                                             {assets.map(a => {
                                                 const range = getItemRange({ type: "asset", id: a });
@@ -1100,7 +1227,7 @@ export function AnalysisSection() {
 
                         </div>
 
-                        <div className="flex flex-wrap gap-2 mt-4">
+                        <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t">
                             {selectedItems.map((item, idx) => {
                                 const range = getItemRange(item);
                                 return (
@@ -1166,7 +1293,7 @@ export function AnalysisSection() {
                                                     )}
                                                 </div>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1182,7 +1309,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("volValue")} className="hidden md:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1198,7 +1325,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1214,7 +1341,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("sortinoValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1230,7 +1357,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1246,7 +1373,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("calmarValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("calmarValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1262,7 +1389,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1278,7 +1405,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
+                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1294,7 +1421,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
+                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1330,14 +1457,14 @@ export function AnalysisSection() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
-                                                <TableCell className="text-right">{row.vol}</TableCell>
+                                                <TableCell className="hidden md:table-cell text-right">{row.vol}</TableCell>
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
-                                                <TableCell className="text-right">{row.sortino}</TableCell>
+                                                <TableCell className="hidden lg:table-cell text-right">{row.sortino}</TableCell>
                                                 <TableCell className="text-right">{row.maxDD}</TableCell>
-                                                <TableCell className="text-right">{row.calmar}</TableCell>
-                                                <TableCell className="text-right">{row.ulcerIndex}</TableCell>
-                                                <TableCell className="text-right">{row.recoveryMonths}</TableCell>
-                                                <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
+                                                <TableCell className="hidden lg:table-cell text-right">{row.calmar}</TableCell>
+                                                <TableCell className="hidden lg:table-cell text-right">{row.ulcerIndex}</TableCell>
+                                                <TableCell className="hidden xl:table-cell text-right">{row.recoveryMonths}</TableCell>
+                                                <TableCell className="hidden xl:table-cell text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -1349,14 +1476,13 @@ export function AnalysisSection() {
                     primaryResult && <MetricsCards key={`metrics-cards-${calcKey}`} portfolio={primaryResult} rf={riskFreeRate} />
                 )}
 
-                <Tabs defaultValue="returns" className="w-full">
-                    <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="returns">Returns</TabsTrigger>
-                        <TabsTrigger value="drawdowns">Drawdowns</TabsTrigger>
+                <Tabs defaultValue="performance" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="performance">Performance</TabsTrigger>
                         <TabsTrigger value="simulations">Simulations</TabsTrigger>
                     </TabsList>
 
-                    <TabsContent value="returns" className="space-y-6 mt-6">
+                    <TabsContent value="performance" className="space-y-6 mt-6">
                         {validItems.length > 1 ? (
                             <>
                                 <Card key={`growth-${calcKey}`}>
@@ -1559,22 +1685,7 @@ export function AnalysisSection() {
                                         </div>
                                     </CardContent>
                                 </Card>
-                            </>
-                        ) : (
-                            primaryResult && (
-                                <div className="space-y-6">
-                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} />
-                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} />
-                                    <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
-                                    <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
-                                </div>
-                            )
-                        )}
-                    </TabsContent>
 
-                    <TabsContent value="drawdowns" className="space-y-6 mt-6">
-                        {validItems.length > 1 ? (
-                            <>
                                 <Card key={`drawdowns-${calcKey}`}>
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <div>
@@ -1637,10 +1748,64 @@ export function AnalysisSection() {
                                     portfolio={primaryResult}
                                     items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
                                 />
+
+                                <RiskReturnScatterChart
+                                    key={`risk-return-${calcKey}`}
+                                    items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
+                                />
+
+                                {(() => {
+                                    const portfoliosList = validItems
+                                        .filter(item => item.type === "portfolio")
+                                        .map(item => {
+                                            let itemWeights: Record<string, number> = {};
+                                            if (item.id === "current") {
+                                                itemWeights = weights;
+                                            } else {
+                                                const p = savedPortfolios.find(sp => sp.id === item.id);
+                                                if (p) itemWeights = p.weights;
+                                            }
+                                            const assets = Object.entries(itemWeights)
+                                                .filter(([_, weight]) => weight > 0)
+                                                .map(([asset]) => asset);
+                                            return {
+                                                id: item.id,
+                                                name: item.name,
+                                                assets
+                                            };
+                                        })
+                                        .filter(p => p.assets.length >= 2);
+
+                                    // Handle case where individual assets are selected for comparison
+                                    const selectedIndividualAssets = validItems
+                                        .filter(item => item.type === "asset")
+                                        .map(item => item.id);
+
+                                    if (selectedIndividualAssets.length >= 2) {
+                                        portfoliosList.push({
+                                            id: "selected-assets",
+                                            name: "Selected Assets",
+                                            assets: selectedIndividualAssets
+                                        });
+                                    }
+
+                                    return portfoliosList.length > 0 ? (
+                                        <CorrelationMatrix
+                                            norm={norm}
+                                            portfolios={portfoliosList}
+                                            startDate={startDate}
+                                            endDate={endDate}
+                                        />
+                                    ) : null;
+                                })()}
                             </>
                         ) : (
                             primaryResult && (
                                 <div className="space-y-6">
+                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} />
+                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} />
+                                    <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
+                                    <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
                                     <DrawdownChart
                                         key={`single-dd-${calcKey}`}
                                         portfolios={[{
@@ -1650,10 +1815,40 @@ export function AnalysisSection() {
                                         }]}
                                     />
                                     <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
+                                    <RiskReturnScatterChart
+                                        key={`single-risk-return-${calcKey}`}
+                                        items={[{
+                                            name: slicedItems[0]?.name || "Current Portfolio",
+                                            color: COLORS[0],
+                                            result: primaryResult
+                                        }]}
+                                    />
+                                    {(() => {
+                                        const assetList = Object.entries(weights)
+                                            .filter(([_, w]) => w > 0)
+                                            .map(([a]) => a);
+
+                                        return assetList.length >= 2 ? (
+                                            <CorrelationMatrix
+                                                norm={norm}
+                                                portfolios={[{
+                                                    id: "current",
+                                                    name: slicedItems[0]?.name || "Current Portfolio",
+                                                    assets: assetList
+                                                }]}
+                                                startDate={startDate}
+                                                endDate={endDate}
+                                            />
+                                        ) : null;
+                                    })()}
                                 </div>
                             )
                         )}
+                    </TabsContent>
 
+
+
+                    <TabsContent value="simulations" className="space-y-6 mt-6">
                         {(primaryResult || validItems.length > 0) && (
                             <Card key={`beta-${calcKey}`}>
                                 <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -1764,9 +1959,6 @@ export function AnalysisSection() {
                                 </CardContent>
                             </Card>
                         )}
-                    </TabsContent>
-
-                    <TabsContent value="simulations" className="space-y-6 mt-6">
                         {validItems.length <= 1 && primaryResult ? (
                             <div className="space-y-6">
                                 <EfficientFrontierChart
