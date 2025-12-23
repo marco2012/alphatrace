@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle2, Scale } from "lucide-react";
+import { AlertCircle, CheckCircle2, Scale, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAssetCategory } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
@@ -48,6 +48,12 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
         });
     };
 
+    const handleReset = () => {
+        assets.forEach(asset => {
+            onWeightChange(asset, 0);
+        });
+    };
+
     const handleInputChange = (asset: string, valueStr: string) => {
         const val = parseFloat(valueStr);
         if (isNaN(val)) return;
@@ -78,14 +84,24 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                             <span className="text-xs">Data source: <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">curvo.eu/backtest</a></span>
                         </CardDescription>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
                         <div className={cn(
-                            "flex items-center gap-2 font-bold text-sm",
+                            "flex items-center gap-2 font-bold text-sm mr-2",
                             isValid ? "text-green-500" : "text-amber-500"
                         )}>
                             {isValid ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                             {totalPercent}% Total
                         </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleReset}
+                            disabled={totalWeight === 0}
+                            title="Reset to 0%"
+                            className="text-muted-foreground hover:text-destructive"
+                        >
+                            <RotateCcw className="w-4 h-4" />
+                        </Button>
                         <Button
                             variant="outline"
                             size="sm"

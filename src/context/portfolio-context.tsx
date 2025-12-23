@@ -69,6 +69,7 @@ interface PortfolioContextType {
     computeAssetPortfolio: (asset: string) => PortfolioResult | null;
     computeCustomPortfolio: (customWeights: Record<string, number>) => PortfolioResult | null;
     norm: any;
+    resetPortfolioSelection: () => void;
 }
 
 export interface SavedPortfolio {
@@ -607,7 +608,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             duplicatePortfolio,
             computeAssetPortfolio,
             computeCustomPortfolio,
-            norm
+            norm,
+            resetPortfolioSelection: () => {
+                setActivePortfolioId(null);
+                setActivePortfolioName(null);
+            }
         }}>
             {children}
         </PortfolioContext.Provider>

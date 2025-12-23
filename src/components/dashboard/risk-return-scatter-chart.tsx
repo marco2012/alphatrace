@@ -5,6 +5,8 @@ import { cagr, cagrRecurring, annualVol, averageRollingNCAGR } from "@/lib/finan
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { ZoomIn, RotateCcw } from "lucide-react";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, ZAxis, Cell, ReferenceArea } from "recharts";
 
@@ -20,6 +22,7 @@ type CalculationPeriod = "full" | "10y" | "15y" | "20y";
 
 export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
     const [period, setPeriod] = useState<CalculationPeriod>("full");
+    const [includeOrigin, setIncludeOrigin] = useState(false);
 
     // Zoom state
     const [refAreaLeft, setRefAreaLeft] = useState<number | null>(null);
@@ -126,27 +129,42 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
         }).filter(item => item !== null && (item.x > 0 || item.y !== 0)) as { name: string; x: number; y: number; color: string }[];
     }, [items, period]);
 
+    const minY = useMemo(() => {
+        if (data.length === 0) return 0;
+        return Math.min(...data.map(d => d.y));
+    }, [data]);
+
     return (
         <Card>
             <CardHeader>
-                <div className="flex flex-row items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                         <CardTitle>Risk vs. Return</CardTitle>
                         <CardDescription>
                             {period === "full" ? "Annualized Return (CAGR) vs. Volatility" : `Average Rolling ${period.toUpperCase()} Return vs. Volatility`}
                         </CardDescription>
                     </div>
-                    <Select value={period} onValueChange={(v: CalculationPeriod) => setPeriod(v)}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="full">Entire Period</SelectItem>
-                            <SelectItem value="10y">Rolling 10 Years</SelectItem>
-                            <SelectItem value="15y">Rolling 15 Years</SelectItem>
-                            <SelectItem value="20y">Rolling 20 Years</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center space-x-2">
+                            <Switch
+                                id="origin-mode"
+                                checked={includeOrigin}
+                                onCheckedChange={setIncludeOrigin}
+                            />
+                            <Label htmlFor="origin-mode" className="text-sm font-normal text-muted-foreground whitespace-nowrap">Start from 0</Label>
+                        </div>
+                        <Select value={period} onValueChange={(v: CalculationPeriod) => setPeriod(v)}>
+                            <SelectTrigger className="w-[160px]">
+                                <SelectValue placeholder="Period" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="full">Entire Period</SelectItem>
+                                <SelectItem value="10y">Rolling 10 Years</SelectItem>
+                                <SelectItem value="15y">Rolling 15 Years</SelectItem>
+                                <SelectItem value="20y">Rolling 20 Years</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
             </CardHeader>
             <CardContent>
@@ -199,7 +217,10 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
-                                domain={[left, right]}
+                                domain={[
+                                    left === "auto" ? (includeOrigin ? 0 : "auto") : left,
+                                    right
+                                ]}
                                 allowDataOverflow
                                 label={{ value: 'Volatility (Risk)', position: 'insideBottom', offset: -20, fontSize: 12, fill: '#666' }}
                             />
@@ -212,7 +233,10 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                                 fontSize={12}
                                 tickLine={false}
                                 axisLine={false}
-                                domain={[bottom, top]}
+                                domain={[
+                                    bottom === "auto" ? (includeOrigin ? Math.min(0, minY) : "auto") : bottom,
+                                    top
+                                ]}
                                 allowDataOverflow
                                 label={{ value: 'Return (Yield)', angle: -90, position: 'insideLeft', fontSize: 12, fill: '#666' }}
                             />

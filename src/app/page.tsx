@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { usePortfolio } from "@/context/portfolio-context";
-import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2 } from "lucide-react";
+import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus } from "lucide-react";
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
 import { AnalysisSection } from "@/components/dashboard/analysis-section";
@@ -16,7 +16,7 @@ import { getAssetCategory } from "@/lib/finance";
 import { toast } from "sonner";
 
 export default function Home() {
-  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns } = usePortfolio();
+  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, resetPortfolioSelection } = usePortfolio();
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [portfolioToDelete, setPortfolioToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -145,9 +145,19 @@ export default function Home() {
                         onChange={(e) => setNewPortfolioName(e.target.value)}
                       />
                     </div>
-                    <Button onClick={handleSave} className="sm:w-auto">
-                      <Plus className="mr-2 h-4 w-4" /> {activePortfolioId ? "Update" : "Save"}
-                    </Button>
+                    <div className="flex gap-2">
+                      {activePortfolioId && (
+                        <Button variant="outline" onClick={() => {
+                          resetPortfolioSelection();
+                          setNewPortfolioName("");
+                        }} className="sm:w-auto">
+                          <FilePlus className="mr-2 h-4 w-4" /> New
+                        </Button>
+                      )}
+                      <Button onClick={handleSave} className="sm:w-auto">
+                        <Plus className="mr-2 h-4 w-4" /> {activePortfolioId ? "Update" : "Save"}
+                      </Button>
+                    </div>
                   </div>
                   {savedPortfolios.length === 0 ? (
                     <div className="text-center py-10 text-muted-foreground">
@@ -189,17 +199,16 @@ export default function Home() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
+                                  <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
+                                    <Upload className="h-4 w-4 sm:mr-2" />
+                                    <span className="hidden sm:inline">Load</span>
+                                  </Button>
                                   <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => {
                                     const url = getShareUrl(p.weights);
                                     navigator.clipboard.writeText(url);
                                     toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
                                   }}>
-                                    <Share2 className="h-4 w-4 sm:mr-2" />
-                                    <span className="hidden sm:inline">Share</span>
-                                  </Button>
-                                  <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
-                                    <Upload className="h-4 w-4 sm:mr-2" />
-                                    <span className="hidden sm:inline">Load</span>
+                                    <Share2 className="h-4 w-4" />
                                   </Button>
                                   <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleDuplicate(p.id)}>
                                     <Copy className="h-4 w-4" />
