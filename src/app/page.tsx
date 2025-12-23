@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { usePortfolio } from "@/context/portfolio-context";
-import { Trash2, Upload, Plus, Briefcase, Share2, Copy } from "lucide-react";
+import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2 } from "lucide-react";
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
 import { AnalysisSection } from "@/components/dashboard/analysis-section";
@@ -240,7 +240,13 @@ export default function Home() {
                 <h2 className="text-2xl font-bold tracking-tight">Analysis</h2>
                 <p className="text-muted-foreground">Analyze and compare performance strategies.</p>
               </div>
-              <AnalysisSection />
+              <Suspense fallback={
+                <div className="flex h-48 items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              }>
+                <AnalysisSection />
+              </Suspense>
             </div>
           </div>
         </div>
