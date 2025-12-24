@@ -58,7 +58,8 @@ const METRIC_EXPLANATIONS = {
     maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
     calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
     ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates."
+    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
+    finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period."
 };
 
 const getNextColor = (items: ComparisonItem[]) => {
@@ -467,12 +468,30 @@ export function ComparisonAnalysis() {
                                     const calmarVal = calmar(cagrVal, maxDD);
                                     const ulcerIndexVal = ulcerIndex(item.result.drawdowns);
                                     const avgRolling10Y = averageRolling10YearCAGR(item.result);
+                                    
+                                    let finalValue = 0;
+                                    if (item.result.portValues && item.result.portValues.length > 0) {
+                                        finalValue = item.result.portValues[item.result.portValues.length - 1];
+                                    } else {
+                                        const dates = Object.keys(item.result.idxMap).sort();
+                                        if (dates.length > 0) {
+                                            finalValue = item.result.idxMap[dates[dates.length - 1]];
+                                        }
+                                    }
 
                                     return (
                                         <TableRow key={item.name}>
                                             <TableCell className="font-medium flex items-center gap-2">
                                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
                                                 {item.name}
+                                            </TableCell>
+                                            <TableCell className="text-right font-medium">
+                                                {new Intl.NumberFormat('de-DE', {
+                                                    style: 'currency',
+                                                    currency: 'EUR',
+                                                    minimumFractionDigits: 0,
+                                                    maximumFractionDigits: 0
+                                                }).format(finalValue)}
                                             </TableCell>
                                             <TableCell className={(cagrVal >= 0 ? "text-green-600" : "text-red-600") + " text-right"}>{(cagrVal * 100).toFixed(2)}%</TableCell>
                                             <TableCell className="text-right">{(volVal * 100).toFixed(2)}%</TableCell>

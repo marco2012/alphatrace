@@ -15,6 +15,8 @@ import { MonteCarloChart } from "@/components/dashboard/monte-carlo-chart";
 import { CorrelationMatrix } from "@/components/dashboard/correlation-matrix";
 import { RiskReturnScatterChart } from "@/components/dashboard/risk-return-scatter-chart";
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
+import { AssetContributionChart } from "@/components/dashboard/asset-contribution-chart";
+import { PortfolioCompositionCards } from "@/components/dashboard/portfolio-composition-cards";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -71,7 +73,8 @@ const METRIC_EXPLANATIONS = {
     ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates."
+    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
+    finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period."
 };
 
 function downloadCSV(data: any[], filename: string) {
@@ -336,6 +339,7 @@ export function AnalysisSection() {
     const [rollingYears, setRollingYears] = useState(10);
     const [rollingBetaYears, setRollingBetaYears] = useState(3);
     const [betaBenchmark, setBetaBenchmark] = useState<string | null>(null);
+    const [simSelectedKey, setSimSelectedKey] = useState<string | null>(null);
 
     // Default benchmark to MSCI World if nothing is selected
     useEffect(() => {
@@ -488,19 +492,21 @@ export function AnalysisSection() {
         if (startDate > maxStartDate) maxStartDate = startDate;
         if (endDate < minEndDate) minEndDate = endDate;
 
+        const baseValue = investmentMode === "recurring" ? monthlyInvestment : initialInvestment;
+
         return validItems.map(item => {
             if (!item.result) return item;
             // Only slice if necessary
             // Note: computePortfolio already slices (or should) based on startDate/endDate,
             // but slicing again ensures consistency with maxStartDate calculated from availabilty 
-            const sliced = slicePortfolioResult(item.result, maxStartDate, minEndDate);
+            const sliced = slicePortfolioResult(item.result, maxStartDate, minEndDate, baseValue);
             return {
                 ...item,
                 result: sliced
             };
         });
 
-    }, [validItems, availableDateRange, startDate, endDate]);
+    }, [validItems, availableDateRange, startDate, endDate, investmentMode, initialInvestment, monthlyInvestment]);
 
     const chartData = useMemo(() => {
         if (!slicedItems.length || !slicedItems[0].result) return [];
@@ -580,6 +586,16 @@ export function AnalysisSection() {
                     ? computeBeta(r.portRets, benchmarkRets)
                     : (makeKey(item) === betaBenchmark ? 1 : 0);
 
+                let finalValue = 0;
+                if (r.portValues && r.portValues.length > 0) {
+                    finalValue = r.portValues[r.portValues.length - 1];
+                } else {
+                    const dates = Object.keys(r.idxMap).sort();
+                    if (dates.length > 0) {
+                        finalValue = r.idxMap[dates[dates.length - 1]];
+                    }
+                }
+
                 return {
                     key: makeKey(item),
                     name: item.name,
@@ -600,7 +616,8 @@ export function AnalysisSection() {
                     avgRolling10YearCAGRValue,
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
                     recoveryMonthsValue,
-                    recoveryMonths
+                    recoveryMonths,
+                    finalValue
                 };
             })
             .filter(Boolean) as Array<{
@@ -624,6 +641,7 @@ export function AnalysisSection() {
                 avgRolling10YearCAGR: string;
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
+                finalValue: number;
             }>;
 
         const sortedRows = [...rows].sort((a, b) => {
@@ -1293,6 +1311,22 @@ export function AnalysisSection() {
                                                     )}
                                                 </div>
                                             </TableHead>
+                                            <TableHead onClick={() => handleSort("finalValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Final Value
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "finalValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.finalValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
                                             <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1456,6 +1490,14 @@ export function AnalysisSection() {
                                                         })()}
                                                     </div>
                                                 </TableCell>
+                                                <TableCell className="text-right font-medium">
+                                                    {new Intl.NumberFormat('de-DE', {
+                                                        style: 'currency',
+                                                        currency: 'EUR',
+                                                        minimumFractionDigits: 0,
+                                                        maximumFractionDigits: 0
+                                                    }).format(row.finalValue)}
+                                                </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
                                                 <TableCell className="hidden md:table-cell text-right">{row.vol}</TableCell>
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
@@ -1474,6 +1516,31 @@ export function AnalysisSection() {
                     </Card>
                 ) : (
                     primaryResult && <MetricsCards key={`metrics-cards-${calcKey}`} portfolio={primaryResult} rf={riskFreeRate} />
+                )}
+
+                {validItems.length > 1 && (
+                    <PortfolioCompositionCards
+                        items={validItems
+                            .filter(item => item.type === "portfolio")
+                            .map(item => {
+                                let itemWeights: Record<string, number> = {};
+                                if (item.id === "current") {
+                                    itemWeights = weights;
+                                } else if (item.weights) {
+                                    itemWeights = item.weights;
+                                } else {
+                                    const p = savedPortfolios.find(sp => sp.id === item.id);
+                                    if (p) itemWeights = p.weights;
+                                }
+                                return {
+                                    id: item.id,
+                                    name: item.name,
+                                    color: item.color,
+                                    weights: itemWeights
+                                };
+                            })
+                        }
+                    />
                 )}
 
                 <Tabs defaultValue="performance" className="w-full">
@@ -1542,17 +1609,19 @@ export function AnalysisSection() {
                                                             return `${value} (${(cagrValue * 100).toFixed(2)}%)`;
                                                         }}
                                                     />
-                                                    {validItems.map((item) => (
-                                                        <Line
-                                                            key={item.name}
-                                                            type="monotone"
-                                                            dataKey={item.name}
-                                                            name={item.name}
-                                                            stroke={item.color}
-                                                            strokeWidth={2}
-                                                            dot={false}
-                                                        />
-                                                    ))}
+                                                    {slicedItems
+                                                        .filter(item => item.result)
+                                                        .map((item) => (
+                                                            <Line
+                                                                key={item.name}
+                                                                type="monotone"
+                                                                dataKey={item.name}
+                                                                name={item.name}
+                                                                stroke={item.color}
+                                                                strokeWidth={2}
+                                                                dot={false}
+                                                            />
+                                                        ))}
                                                 </LineChart>
                                             </ResponsiveContainer>
                                         </div>
@@ -1755,6 +1824,34 @@ export function AnalysisSection() {
                                 />
 
                                 {(() => {
+                                    const portfolioItems = validItems
+                                        .filter(item => item.type === "portfolio" && item.result)
+                                        .map(item => {
+                                            let itemWeights: Record<string, number> = {};
+                                            if (item.id === "current") {
+                                                itemWeights = weights;
+                                            } else {
+                                                const p = savedPortfolios.find(sp => sp.id === item.id);
+                                                if (p) itemWeights = p.weights;
+                                            }
+                                            return {
+                                                name: item.name,
+                                                portfolio: item.result!,
+                                                weights: itemWeights,
+                                                color: item.color
+                                            };
+                                        })
+                                        .filter(p => Object.values(p.weights).some(w => w > 0));
+
+                                    return portfolioItems.length > 0 ? (
+                                        <AssetContributionChart
+                                            key={`comparison-contribution-${calcKey}`}
+                                            items={portfolioItems}
+                                        />
+                                    ) : null;
+                                })()}
+
+                                {(() => {
                                     const portfoliosList = validItems
                                         .filter(item => item.type === "portfolio")
                                         .map(item => {
@@ -1829,16 +1926,27 @@ export function AnalysisSection() {
                                             .map(([a]) => a);
 
                                         return assetList.length >= 2 ? (
-                                            <CorrelationMatrix
-                                                norm={norm}
-                                                portfolios={[{
-                                                    id: "current",
-                                                    name: slicedItems[0]?.name || "Current Portfolio",
-                                                    assets: assetList
-                                                }]}
-                                                startDate={startDate}
-                                                endDate={endDate}
-                                            />
+                                            <>
+                                                <AssetContributionChart
+                                                    key={`single-contribution-${calcKey}`}
+                                                    items={[{
+                                                        name: slicedItems[0]?.name || "Current Portfolio",
+                                                        portfolio: primaryResult,
+                                                        weights: weights,
+                                                        color: COLORS[0]
+                                                    }]}
+                                                />
+                                                <CorrelationMatrix
+                                                    norm={norm}
+                                                    portfolios={[{
+                                                        id: "current",
+                                                        name: slicedItems[0]?.name || "Current Portfolio",
+                                                        assets: assetList
+                                                    }]}
+                                                    startDate={startDate}
+                                                    endDate={endDate}
+                                                />
+                                            </>
                                         ) : null;
                                     })()}
                                 </div>
@@ -1959,31 +2067,84 @@ export function AnalysisSection() {
                                 </CardContent>
                             </Card>
                         )}
-                        {validItems.length <= 1 && primaryResult ? (
-                            <div className="space-y-6">
-                                <EfficientFrontierChart
-                                    key={`single-frontier-${calcKey}`}
-                                    norm={norm}
-                                    weights={weights}
-                                    startDate={startDate}
-                                    endDate={endDate}
-                                    rf={riskFreeRate}
-                                />
-                                <MonteCarloChart
-                                    key={`single-monte-carlo-${calcKey}`}
-                                    norm={norm}
-                                    weights={weights}
-                                    startDate={startDate}
-                                    endDate={endDate}
-                                    rf={riskFreeRate}
-                                    initialInvestment={initialInvestment}
-                                />
-                            </div>
-                        ) : (
-                            <div className="flex h-48 items-center justify-center border rounded-lg bg-muted/10 border-dashed">
-                                <p className="text-muted-foreground text-sm">Simulations (Efficient Frontier, Monte Carlo) are currently available for single portfolio analysis only.</p>
-                            </div>
-                        )}
+                        {(() => {
+                            const targetKey = (validItems.length > 1 && simSelectedKey && validItems.find(i => makeKey(i) === simSelectedKey))
+                                ? simSelectedKey
+                                : (validItems.length > 0 ? makeKey(validItems[0]) : null);
+
+                            const simulationItem = validItems.find(i => makeKey(i) === targetKey);
+
+                            if (!simulationItem) {
+                                return (
+                                    <div className="flex h-48 items-center justify-center border rounded-lg bg-muted/10 border-dashed">
+                                        <p className="text-muted-foreground text-sm">No valid data available for simulations.</p>
+                                    </div>
+                                );
+                            }
+
+                            // Extract weights
+                            let simWeights: Record<string, number> = {};
+                            if (simulationItem.type === "portfolio") {
+                                if (simulationItem.weights) {
+                                    simWeights = simulationItem.weights;
+                                } else if (simulationItem.id === "current") {
+                                    simWeights = weights;
+                                } else {
+                                    const p = savedPortfolios.find(sp => sp.id === simulationItem.id);
+                                    if (p) simWeights = p.weights;
+                                }
+                            } else if (simulationItem.type === "asset") {
+                                simWeights = { [simulationItem.id]: 1 };
+                            }
+
+                            return (
+                                <div className="space-y-6">
+                                    {validItems.length > 1 && (
+                                        <div className="flex items-center justify-end">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm text-muted-foreground">Simulate for:</span>
+                                                <Select
+                                                    value={targetKey || ""}
+                                                    onValueChange={setSimSelectedKey}
+                                                >
+                                                    <SelectTrigger className="w-[200px] h-8">
+                                                        <SelectValue placeholder="Select portfolio" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {validItems.map(item => (
+                                                            <SelectItem key={makeKey(item)} value={makeKey(item)}>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                                                                    {item.name}
+                                                                </div>
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <EfficientFrontierChart
+                                        key={`frontier-${targetKey}-${calcKey}`}
+                                        norm={norm}
+                                        weights={simWeights}
+                                        startDate={startDate}
+                                        endDate={endDate}
+                                        rf={riskFreeRate}
+                                    />
+                                    <MonteCarloChart
+                                        key={`monte-carlo-${targetKey}-${calcKey}`}
+                                        norm={norm}
+                                        weights={simWeights}
+                                        startDate={startDate}
+                                        endDate={endDate}
+                                        rf={riskFreeRate}
+                                        initialInvestment={initialInvestment}
+                                    />
+                                </div>
+                            );
+                        })()}
                     </TabsContent>
                 </Tabs>
                 {/* Debugging info can be hidden or removed in prod */}

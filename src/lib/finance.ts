@@ -516,7 +516,7 @@ export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
     return averageRollingNCAGR(idxMap, 10);
 }
 
-export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string): PortfolioResult {
+export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string, baseValue: number = 10000): PortfolioResult {
     // Find indices
     const sIdx = res.dates.findIndex(d => d >= startDate);
     let eIdx = -1;
@@ -534,18 +534,17 @@ export function slicePortfolioResult(res: PortfolioResult, startDate: string, en
 
     const newDates = res.dates.slice(sIdx, eIdx + 1);
 
-    // Calculate scale factor to rebase to 10,000
-    const BASE_VALUE = 10000;
+    // Calculate scale factor to rebase to baseValue
     let scale = 1.0;
 
     // Determine scale from portValues if available, or idxMap
     if (res.portValues && res.portValues.length > sIdx) {
         const startVal = res.portValues[sIdx];
-        if (startVal > 0) scale = BASE_VALUE / startVal;
+        if (startVal > 0) scale = baseValue / startVal;
     } else {
         const startKey = res.dates[sIdx];
         const startVal = res.idxMap[startKey];
-        if (startVal > 0) scale = BASE_VALUE / startVal;
+        if (startVal > 0) scale = baseValue / startVal;
     }
 
     // Slice and scale arrays

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import {
     CartesianGrid,
     Legend,
@@ -16,7 +16,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
-import { Download } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Download, RotateCcw } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 
 type FrontierPoint = {
@@ -73,15 +74,10 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const [currentPoint, setCurrentPoint] = useState<FrontierPoint | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const [classLimits, setClassLimits] = useState<Record<string, { min: number; max: number }>>({});
-    const [constraintsError, setConstraintsError] = useState<string | null>(null);
-
-    useEffect(() => {
-        setPoints([]);
-        setFrontier([]);
-        setHighlights([]);
-        setCurrentPoint(null);
-    }, [norm, weights, startDate, endDate, rf]);
+    
+    const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
+    const [means, setMeans] = useState<number[]>([]);
+    const [cov, setCov] = useState<number[][]>([]);
 
     const { activeAssets, assetCount, canCompute } = useMemo(() => {
         if (!norm) return { activeAssets: [] as string[], assetCount: 0, canCompute: false };
@@ -93,26 +89,24 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         return { activeAssets, assetCount, canCompute: assetCount >= 2 };
     }, [norm, weights]);
 
-    const activeCategories = useMemo(() => {
-        const CATEGORY_ORDER = ["stocks", "bonds", "cash", "gold", "other"];
-        const s = new Set<string>();
-        for (const a of activeAssets) s.add(getAssetCategory(a) || "other");
-        return Array.from(s).sort((a, b) => {
-            const ia = CATEGORY_ORDER.indexOf(a);
-            const ib = CATEGORY_ORDER.indexOf(b);
-            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-        });
-    }, [activeAssets]);
-
     useEffect(() => {
-        setClassLimits((prev) => {
-            const next: Record<string, { min: number; max: number }> = { ...prev };
-            for (const cat of activeCategories) {
-                if (!next[cat]) next[cat] = { min: 0, max: 1 };
-            }
-            return next;
-        });
-    }, [activeCategories]);
+        setPoints([]);
+        setFrontier([]);
+        setHighlights([]);
+        setCurrentPoint(null);
+        setInteractiveWeights({});
+    }, [norm, weights, startDate, endDate, rf]);
+    
+    useEffect(() => {
+        if (activeAssets.length > 0 && Object.keys(interactiveWeights).length === 0) {
+            const initial: Record<string, number> = {};
+            activeAssets.forEach(asset => {
+                initial[asset] = weights[asset] || 0;
+            });
+            setInteractiveWeights(initial);
+        }
+    }, [activeAssets, weights, interactiveWeights]);
+
 
     const compute = async () => {
         if (!norm) return;
@@ -121,19 +115,6 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setIsLoading(true);
 
         try {
-            setConstraintsError(null);
-
-            const minSum = activeCategories.reduce((acc, cat) => acc + (classLimits[cat]?.min ?? 0), 0);
-            const maxSum = activeCategories.reduce((acc, cat) => acc + (classLimits[cat]?.max ?? 1), 0);
-            if (minSum > 1 + 1e-9) {
-                setConstraintsError("Asset-class minimums sum to more than 100%.");
-                return;
-            }
-            if (maxSum < 1 - 1e-9) {
-                setConstraintsError("Asset-class maximums sum to less than 100%.");
-                return;
-            }
-
             const dates = norm.dates;
             const lastDate = endDate || dates[dates.length - 1];
             const i0 = dates.findIndex((d) => d >= startDate);
@@ -145,27 +126,12 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             const n = rets[0]?.length || 0;
             if (n < 12) return;
 
-            const means = rets.map((r) => mean(r));
-            const cov = rets.map((ri, i) => rets.map((rj, j) => covariance(ri, rj, means[i], means[j])));
+            const meansCalc = rets.map((r) => mean(r));
+            const covCalc = rets.map((ri, i) => rets.map((rj, j) => covariance(ri, rj, meansCalc[i], meansCalc[j])));
+            
+            setMeans(meansCalc);
+            setCov(covCalc);
 
-            const buildComposition = (wVec: number[]) => {
-                const comp: Record<string, number> = {};
-                for (let i = 0; i < activeAssets.length; i++) {
-                    const cat = getAssetCategory(activeAssets[i]) || "stocks";
-                    comp[cat] = (comp[cat] || 0) + (wVec[i] || 0);
-                }
-                return comp;
-            };
-
-            const withinLimits = (comp: Record<string, number>) => {
-                for (const cat of activeCategories) {
-                    const v = comp[cat] || 0;
-                    const lim = classLimits[cat] || { min: 0, max: 1 };
-                    if (v < (lim.min ?? 0) - 1e-9) return false;
-                    if (v > (lim.max ?? 1) + 1e-9) return false;
-                }
-                return true;
-            };
 
             const buildWeightsMap = (wVec: number[]) => {
                 const out: Record<string, number> = {};
@@ -174,7 +140,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             };
 
             const statsToPoint = (label: string, wVec: number[]) => {
-                const st = portfolioStats(wVec, means, cov);
+                const st = portfolioStats(wVec, meansCalc, covCalc);
                 const vol = st.annualVol;
                 const ret = st.annualReturn;
                 const sharpe = vol > 0 ? (ret - rf) / vol : 0;
@@ -184,7 +150,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     ret: ret * 100,
                     sharpe,
                     weights: buildWeightsMap(wVec),
-                    composition: buildComposition(wVec),
+                    composition: {},
                 };
             };
 
@@ -196,24 +162,11 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
             const SIMS = 2000;
             const sims: FrontierPoint[] = [];
-            const MAX_TRIES = SIMS * 80;
-            let tries = 0;
-            while (sims.length < SIMS && tries < MAX_TRIES) {
-                tries++;
+            for (let i = 0; i < SIMS; i++) {
                 const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
                 const s = rands.reduce((a, b) => a + b, 0) || 1;
                 const w = rands.map((x) => x / s);
-                const comp = buildComposition(w);
-                if (!withinLimits(comp)) continue;
                 sims.push(statsToPoint("Simulated", w));
-            }
-
-            if (!sims.length) {
-                setConstraintsError("No portfolios matched the current constraints. Try relaxing the min/max limits.");
-                setPoints([]);
-                setFrontier([]);
-                setHighlights([]);
-                return;
             }
 
             const sorted = [...sims].sort((a, b) => a.vol - b.vol);
@@ -242,17 +195,62 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         }
     };
 
-    useEffect(() => {
-        if (!canCompute) return;
-        if (!norm) return;
-        if (!currentPoint && points.length === 0) return;
 
-        const t = window.setTimeout(() => {
-            void compute();
-        }, 350);
-        return () => window.clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [classLimits]);
+    const calculateInteractivePoint = useCallback((weights: Record<string, number>) => {
+        if (!means.length || !cov.length || activeAssets.length === 0) return null;
+        
+        const wVec = activeAssets.map(asset => weights[asset] || 0);
+        const sum = wVec.reduce((a, b) => a + b, 0);
+        if (sum === 0) return null;
+        
+        const normalized = wVec.map(w => w / sum);
+        const st = portfolioStats(normalized, means, cov);
+        
+        return {
+            label: "Interactive Portfolio",
+            vol: st.annualVol * 100,
+            ret: st.annualReturn * 100,
+            sharpe: st.annualVol > 0 ? (st.annualReturn - rf) / st.annualVol : 0,
+            weights: activeAssets.reduce((acc, asset, i) => {
+                acc[asset] = normalized[i];
+                return acc;
+            }, {} as Record<string, number>),
+            composition: {},
+        };
+    }, [means, cov, activeAssets, rf]);
+    
+    const interactivePoint = useMemo(() => 
+        calculateInteractivePoint(interactiveWeights),
+        [interactiveWeights, calculateInteractivePoint]
+    );
+    
+    const handleWeightChange = useCallback((asset: string, value: number) => {
+        setInteractiveWeights(prev => ({
+            ...prev,
+            [asset]: value / 100,
+        }));
+    }, []);
+    
+    const resetWeights = useCallback(() => {
+        const initial: Record<string, number> = {};
+        activeAssets.forEach(asset => {
+            initial[asset] = weights[asset] || 0;
+        });
+        setInteractiveWeights(initial);
+    }, [activeAssets, weights]);
+    
+    const normalizeWeights = useCallback(() => {
+        setInteractiveWeights(prev => {
+            const sum = Object.values(prev).reduce((a, b) => a + b, 0);
+            if (sum === 0) return prev;
+            
+            const normalized: Record<string, number> = {};
+            Object.keys(prev).forEach(asset => {
+                normalized[asset] = prev[asset] / sum;
+            });
+            return normalized;
+        });
+    }, []);
 
     const downloadCSV = () => {
         const csv = [
@@ -289,59 +287,53 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 </div>
             </CardHeader>
             <CardContent className="pl-2">
-                {activeCategories.length > 0 && (
+                {points.length > 0 && activeAssets.length > 0 && (
                     <div className="mb-4 pr-2">
+                        <div className="mb-3 flex items-center justify-between">
+                            <div className="text-sm font-medium">Interactive Portfolio Locator</div>
+                            <div className="flex gap-2">
+                                <Button variant="outline" size="sm" onClick={normalizeWeights}>
+                                    Normalize to 100%
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={resetWeights}>
+                                    <RotateCcw className="h-4 w-4 mr-1" />
+                                    Reset
+                                </Button>
+                            </div>
+                        </div>
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                            {activeCategories.map((cat) => {
-                                const lim = classLimits[cat] || { min: 0, max: 1 };
+                            {activeAssets.map(asset => {
+                                const value = (interactiveWeights[asset] || 0) * 100;
                                 return (
-                                    <div key={cat} className="rounded-md border p-3">
-                                        <div className="mb-2 text-sm font-medium capitalize">{cat}</div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div className="space-y-1">
-                                                <div className="text-xs text-muted-foreground">Min %</div>
-                                                <Input
-                                                    type="number"
-                                                    value={Math.round((lim.min ?? 0) * 100)}
-                                                    onChange={(e) => {
-                                                        setConstraintsError(null);
-                                                        const v = Number(e.target.value);
-                                                        const pct = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) / 100 : 0;
-                                                        setClassLimits((prev) => {
-                                                            const cur = prev[cat] || { min: 0, max: 1 };
-                                                            return { ...prev, [cat]: { ...cur, min: pct } };
-                                                        });
-                                                    }}
-                                                    className="h-8"
-                                                />
-                                            </div>
-                                            <div className="space-y-1">
-                                                <div className="text-xs text-muted-foreground">Max %</div>
-                                                <Input
-                                                    type="number"
-                                                    value={Math.round((lim.max ?? 1) * 100)}
-                                                    onChange={(e) => {
-                                                        setConstraintsError(null);
-                                                        const v = Number(e.target.value);
-                                                        const pct = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) / 100 : 1;
-                                                        setClassLimits((prev) => {
-                                                            const cur = prev[cat] || { min: 0, max: 1 };
-                                                            return { ...prev, [cat]: { ...cur, max: pct } };
-                                                        });
-                                                    }}
-                                                    className="h-8"
-                                                />
-                                            </div>
+                                    <div key={asset} className="rounded-md border p-3">
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <div className="text-sm font-medium truncate">{asset}</div>
+                                            <div className="text-sm font-bold text-primary ml-2">{value.toFixed(1)}%</div>
                                         </div>
+                                        <Slider
+                                            value={[value]}
+                                            onValueChange={(vals) => handleWeightChange(asset, vals[0])}
+                                            max={100}
+                                            step={1}
+                                            className="w-full"
+                                        />
                                     </div>
                                 );
                             })}
                         </div>
-                        {constraintsError && (
-                            <div className="mt-2 pr-2 text-sm text-destructive">{constraintsError}</div>
+                        {interactivePoint && (
+                            <div className="mt-3 rounded-md bg-muted p-3 text-sm">
+                                <div className="font-medium mb-1">Current Interactive Portfolio:</div>
+                                <div className="grid grid-cols-3 gap-2 text-muted-foreground">
+                                    <div>Return: <span className="font-medium text-foreground">{interactivePoint.ret.toFixed(2)}%</span></div>
+                                    <div>Risk: <span className="font-medium text-foreground">{interactivePoint.vol.toFixed(2)}%</span></div>
+                                    <div>Sharpe: <span className="font-medium text-foreground">{interactivePoint.sharpe.toFixed(2)}</span></div>
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}
+                
                 <div className="h-[350px] w-full">
                     {points.length === 0 || !currentPoint ? (
                         <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -419,10 +411,19 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     <Legend verticalAlign="bottom" />
                                     <Scatter name="Simulated" data={points} fill="#94a3b8" />
                                     <Scatter name="Frontier" data={frontier} fill="#3b82f6" />
+                                    {interactivePoint && (
+                                        <Scatter
+                                            name={`Interactive (${interactivePoint.ret.toFixed(2)}%)`}
+                                            data={[interactivePoint]}
+                                            fill="#ef4444"
+                                            shape="circle"
+                                        />
+                                    )}
                                     <Scatter
-                                        name={`My Portfolio (${currentPoint.ret.toFixed(2)}%)`}
+                                        name={`Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
                                         data={[currentPoint]}
-                                        fill="#ef4444"
+                                        fill="#f97316"
+                                        shape="diamond"
                                     />
                                     <Scatter
                                         name={(() => {
