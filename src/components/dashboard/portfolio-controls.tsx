@@ -83,7 +83,14 @@ export function PortfolioControls() {
 
                         <div className="space-y-1">
                             <Label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1"><History className="h-3 w-3" /> Years</Label>
-                            <Select value={yearSelection.toString()} onValueChange={(v) => handleYearSelectionChange(v === "MAX" ? "MAX" : Number(v) as YearSelection)}>
+                            <Select
+                                value={yearSelection.toString()}
+                                onValueChange={(v) => handleYearSelectionChange(
+                                    (v === "MAX" || v === "dotcom_crash" || v === "financial_crisis" || v === "covid_crash" || v === "2000s")
+                                        ? v as YearSelection
+                                        : Number(v) as YearSelection
+                                )}
+                            >
                                 <SelectTrigger className="h-8 text-xs w-full bg-muted/50 border-none hover:bg-muted transition-colors">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -97,6 +104,10 @@ export function PortfolioControls() {
                                     <SelectItem value="25">25 Years</SelectItem>
                                     <SelectItem value="30">30 Years</SelectItem>
                                     <SelectItem value="MAX">MAX</SelectItem>
+                                    <SelectItem value="dotcom_crash">Dotcom Crash (2000-2003)</SelectItem>
+                                    <SelectItem value="financial_crisis">Financial Crisis (2008-2009)</SelectItem>
+                                    <SelectItem value="covid_crash">Covid Crash (2020)</SelectItem>
+                                    <SelectItem value="2000s">The 2000s (2000-2009)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

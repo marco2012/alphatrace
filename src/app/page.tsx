@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { usePortfolio } from "@/context/portfolio-context";
-import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus } from "lucide-react";
+import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus, Highlighter } from "lucide-react";
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
 import { AnalysisSection } from "@/components/dashboard/analysis-section";
@@ -16,7 +16,7 @@ import { getAssetCategory } from "@/lib/finance";
 import { toast } from "sonner";
 
 export default function Home() {
-  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, createNewPortfolio } = usePortfolio();
+  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, togglePortfolioHighlight, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, createNewPortfolio } = usePortfolio();
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [portfolioToDelete, setPortfolioToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -178,7 +178,16 @@ export default function Home() {
                         </TableHeader>
                         <TableBody>
                           {savedPortfolios.map((p) => (
-                            <TableRow key={p.id} className={activePortfolioId === p.id ? "bg-muted/30" : undefined}>
+                            <TableRow
+                              key={p.id}
+                              className={
+                                p.highlighted
+                                  ? "bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
+                                  : activePortfolioId === p.id
+                                    ? "bg-muted/30"
+                                    : undefined
+                              }
+                            >
                               <TableCell className="max-w-[180px] truncate font-medium sm:max-w-none">{p.name}</TableCell>
                               <TableCell className="hidden text-center text-sm sm:table-cell">
                                 {getCategoryPercentage(p.weights, 'stocks')}%
@@ -197,6 +206,14 @@ export default function Home() {
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
+                                  <Button
+                                    className="w-full sm:w-auto"
+                                    variant={p.highlighted ? "default" : "secondary"}
+                                    size="sm"
+                                    onClick={() => togglePortfolioHighlight(p.id)}
+                                  >
+                                    <Highlighter className="h-4 w-4" />
+                                  </Button>
                                   <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
                                     <Upload className="h-4 w-4 sm:mr-2" />
                                     <span className="hidden sm:inline">Load</span>

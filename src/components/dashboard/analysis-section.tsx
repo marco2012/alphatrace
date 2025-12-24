@@ -60,7 +60,7 @@ import {
     ReferenceLine
 } from "recharts";
 
-import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy, Highlighter } from "lucide-react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 const METRIC_EXPLANATIONS = {
@@ -177,6 +177,42 @@ export function AnalysisSection() {
         const [y, m] = d.split("-");
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         return `${months[parseInt(m, 10) - 1]} ${y}`;
+    };
+
+    const handleToggleHighlightedPortfolios = () => {
+        const highlighted = savedPortfolios.filter(p => p.highlighted);
+        if (highlighted.length === 0) return;
+
+        const highlightedIds = new Set(highlighted.map(p => p.id));
+        const allHighlightedSelected = highlighted.every(p => selectedItems.some(i => i.type === "portfolio" && i.id === p.id));
+
+        if (allHighlightedSelected) {
+            setSelectedItems(prev => prev.filter(i => !(i.type === "portfolio" && highlightedIds.has(i.id))));
+            setSelectedForAdd(prev => prev.filter(id => !highlightedIds.has(id)));
+            return;
+        }
+
+        const currentItems = [...selectedItems];
+        const itemsToAdd = highlighted
+            .filter(p => !currentItems.some(i => i.type === "portfolio" && i.id === p.id))
+            .map(p => {
+                const color = getNextColor(currentItems);
+                const newItem: AnalysisItem = {
+                    id: p.id,
+                    type: "portfolio" as const,
+                    name: p.name,
+                    color,
+                    result: null
+                };
+                currentItems.push(newItem);
+                return newItem;
+            });
+
+        if (itemsToAdd.length > 0) {
+            setSelectedItems([...selectedItems, ...itemsToAdd]);
+        }
+
+        setSelectedForAdd(prev => prev.filter(id => !highlightedIds.has(id)));
     };
 
     const getItemRange = useMemo(() => (item: AnalysisItem | SavedPortfolio | { type: "asset", id: string }) => {
@@ -1133,6 +1169,20 @@ export function AnalysisSection() {
                                         <TabsTrigger value="portfolio">Portfolios</TabsTrigger>
                                         <TabsTrigger value="asset">Assets</TabsTrigger>
                                     </TabsList>
+                                    {typeToAdd === "portfolio" && savedPortfolios.some(p => p.highlighted) && (
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            onClick={handleToggleHighlightedPortfolios}
+                                            title={
+                                                savedPortfolios.filter(p => p.highlighted).every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
+                                                    ? "Remove highlighted portfolios"
+                                                    : "Add highlighted portfolios"
+                                            }
+                                        >
+                                            <Highlighter className="h-4 w-4" />
+                                        </Button>
+                                    )}
                                     {typeToAdd === "asset" && assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a)) && (
                                         <Button
                                             variant="outline"
@@ -1186,7 +1236,14 @@ export function AnalysisSection() {
                                             {savedPortfolios.map(p => {
                                                 const range = getItemRange(p);
                                                 return (
-                                                    <div key={p.id} className="flex items-start space-x-2">
+                                                    <div
+                                                        key={p.id}
+                                                        className={
+                                                            p.highlighted
+                                                                ? "flex items-start space-x-2 rounded-md px-2 py-1 bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
+                                                                : "flex items-start space-x-2 rounded-md px-2 py-1"
+                                                        }
+                                                    >
                                                         <Checkbox
                                                             id={p.id}
                                                             checked={selectedForAdd.includes(p.id) || selectedItems.some(item => item.type === "portfolio" && item.id === p.id)}
@@ -1197,7 +1254,10 @@ export function AnalysisSection() {
                                                             htmlFor={p.id}
                                                             className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                                                         >
-                                                            <span className="text-sm font-medium">{p.name}</span>
+                                                            <span className="text-sm font-medium inline-flex items-center gap-2">
+                                                                {p.highlighted && <Highlighter className="h-3.5 w-3.5" />}
+                                                                {p.name}
+                                                            </span>
                                                             {range && (
                                                                 <span className="text-[10px] text-muted-foreground">
                                                                     {formatDate(range.start)} - {formatDate(range.end)}

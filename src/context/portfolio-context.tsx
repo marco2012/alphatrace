@@ -64,6 +64,7 @@ interface PortfolioContextType {
     deletePortfolio: (id: string) => void;
     loadPortfolio: (id: string) => void;
     duplicatePortfolio: (id: string) => SavedPortfolio | null;
+    togglePortfolioHighlight: (id: string) => void;
 
     // Analysis
     computeAssetPortfolio: (asset: string) => PortfolioResult | null;
@@ -78,6 +79,7 @@ export interface SavedPortfolio {
     name: string;
     weights: Record<string, number>;
     date: string;
+    highlighted?: boolean;
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
@@ -89,7 +91,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const [startDate, setStartDate] = useState("1994-11-01");
     const [endDate, setEndDate] = useState(() => {
         const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     });
     const [investmentMode, setInvestmentMode] = useState<InvestmentMode>("lump_sum");
     const [initialInvestment, setInitialInvestment] = useState(10000);
@@ -237,6 +239,15 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
+        const migrated = (loaded || []).map((p: any) => ({
+            ...p,
+            highlighted: Boolean(p?.highlighted),
+        })) as SavedPortfolio[];
+
+        if (JSON.stringify(loaded) !== JSON.stringify(migrated)) {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(migrated));
+        }
+
         // Check for share_all param
         if (typeof window !== "undefined") {
             const params = new URLSearchParams(window.location.search);
@@ -309,7 +320,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        setSavedPortfolios(loaded);
+        setSavedPortfolios(migrated);
     }, []);
 
     // Columns & Sorting
@@ -363,22 +374,25 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     // Calculate start date based on year selection
     const calculateStartDate = (years: YearSelection): string => {
         const now = new Date();
-        if (years === "MAX") {
-            // Return the earliest possible date (when data starts)
-            return "1994-11-01";
+        if (years === "MAX") return "1994-11-01";
+        if (years === "dotcom_crash") return "2000-02-01";
+        if (years === "financial_crisis") return "2008-08-01";
+        if (years === "covid_crash") return "2020-01-01";
+        if (years === "2000s") return "2000-02-01";
+
+        if (typeof years === "number") {
+            const yearsBack = now.getFullYear() - years;
+            const resultDate = new Date(yearsBack, now.getMonth(), 1);
+            
+            // Ensure start date is not earlier than available data (1994-11-01)
+            const minDate = new Date("1994-11-01");
+            if (resultDate < minDate) {
+                return "1994-11-01";
+            }
+            return toMonthStr(resultDate);
         }
 
-        const yearsBack = now.getFullYear() - years;
-        const resultDate = new Date(yearsBack, now.getMonth(), 1);
-        const startDateStr = toMonthStr(resultDate);
-
-        // Ensure start date is not earlier than available data (1994-11-01)
-        const minDate = new Date("1994-11-01");
-        if (resultDate < minDate) {
-            return "1994-11-01";
-        }
-
-        return startDateStr;
+        return "1994-11-01";
     };
 
 
@@ -388,16 +402,18 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const newStartDate = calculateStartDate(years);
         setStartDate(newStartDate);
 
-        // Also update end date to ensure it's within available data
-        // We validate against newStartDate immediately to avoid invalid state
+        // Determine end date
         const now = new Date();
-        const maxEndDate = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
+        const currentMaxDate = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
+        
+        let newEndDate = currentMaxDate;
 
-        if (endDate > maxEndDate) {
-            setEndDate(maxEndDate);
-        } else if (endDate < newStartDate) {
-            setEndDate(maxEndDate);
-        }
+        if (years === "dotcom_crash") newEndDate = "2003-03-01";
+        else if (years === "financial_crisis") newEndDate = "2009-03-01";
+        else if (years === "covid_crash") newEndDate = "2020-03-01";
+        else if (years === "2000s") newEndDate = "2009-03-01";
+        
+        setEndDate(newEndDate);
     };
 
     // Validate and update end date to ensure it's within available data range
@@ -433,7 +449,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         if (activePortfolioId && savedPortfolios.some(p => p.id === activePortfolioId)) {
             const updated = savedPortfolios.map(p =>
                 p.id === activePortfolioId
-                    ? { ...p, name: trimmed, weights: { ...weights }, date: now }
+                    ? { ...p, name: trimmed, weights: { ...weights }, date: now, highlighted: Boolean(p.highlighted) }
                     : p
             );
             setSavedPortfolios(updated);
@@ -446,13 +462,22 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name: trimmed,
             weights: { ...weights },
-            date: now
+            date: now,
+            highlighted: false,
         };
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
         localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         setActivePortfolioId(newPortfolio.id);
         setActivePortfolioName(newPortfolio.name);
+    };
+
+    const togglePortfolioHighlight = (id: string) => {
+        const updated = savedPortfolios.map(p =>
+            p.id === id ? { ...p, highlighted: !Boolean(p.highlighted) } : p
+        );
+        setSavedPortfolios(updated);
+        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
     };
 
     const deletePortfolio = (id: string) => {
@@ -493,6 +518,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             name: candidate,
             weights: { ...p.weights },
             date: now,
+            highlighted: false,
         };
 
         const updated = [...savedPortfolios, clone];
@@ -607,6 +633,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             deletePortfolio,
             loadPortfolio,
             duplicatePortfolio,
+            togglePortfolioHighlight,
             computeAssetPortfolio,
             computeCustomPortfolio,
             createNewPortfolio: () => {
@@ -619,7 +646,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
                     name: "Untitled",
                     weights: zeroWeights,
-                    date: now
+                    date: now,
+                    highlighted: false,
                 };
 
                 const updated = [...savedPortfolios, newPortfolio];
