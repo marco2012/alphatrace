@@ -81,7 +81,6 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                         <CardTitle>Asset Allocation</CardTitle>
                         <CardDescription className="flex flex-col gap-1">
                             <span>{portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights using manual inputs"}</span>
-                            <span className="text-xs">Data source: <a href="https://curvo.eu/backtest/en/funds" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">curvo.eu/backtest</a></span>
                         </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">

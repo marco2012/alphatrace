@@ -16,7 +16,7 @@ import { getAssetCategory } from "@/lib/finance";
 import { toast } from "sonner";
 
 export default function Home() {
-  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, resetPortfolioSelection } = usePortfolio();
+  const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, createNewPortfolio } = usePortfolio();
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [portfolioToDelete, setPortfolioToDelete] = useState<{ id: string; name: string } | null>(null);
@@ -146,14 +146,12 @@ export default function Home() {
                       />
                     </div>
                     <div className="flex gap-2">
-                      {activePortfolioId && (
-                        <Button variant="outline" onClick={() => {
-                          resetPortfolioSelection();
-                          setNewPortfolioName("");
-                        }} className="sm:w-auto">
-                          <FilePlus className="mr-2 h-4 w-4" /> New
-                        </Button>
-                      )}
+                      <Button variant="outline" onClick={() => {
+                        createNewPortfolio();
+                        setNewPortfolioName("Untitled");
+                      }} className="sm:w-auto">
+                        <FilePlus className="mr-2 h-4 w-4" /> New
+                      </Button>
                       <Button onClick={handleSave} className="sm:w-auto">
                         <Plus className="mr-2 h-4 w-4" /> {activePortfolioId ? "Update" : "Save"}
                       </Button>

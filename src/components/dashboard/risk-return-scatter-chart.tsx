@@ -22,7 +22,7 @@ type CalculationPeriod = "full" | "10y" | "15y" | "20y";
 
 export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
     const [period, setPeriod] = useState<CalculationPeriod>("full");
-    const [includeOrigin, setIncludeOrigin] = useState(false);
+    const [includeOrigin, setIncludeOrigin] = useState(true);
 
     // Zoom state
     const [refAreaLeft, setRefAreaLeft] = useState<number | null>(null);

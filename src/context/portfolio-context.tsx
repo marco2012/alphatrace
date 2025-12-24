@@ -68,6 +68,7 @@ interface PortfolioContextType {
     // Analysis
     computeAssetPortfolio: (asset: string) => PortfolioResult | null;
     computeCustomPortfolio: (customWeights: Record<string, number>) => PortfolioResult | null;
+    createNewPortfolio: () => void;
     norm: any;
     resetPortfolioSelection: () => void;
 }
@@ -608,6 +609,27 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             duplicatePortfolio,
             computeAssetPortfolio,
             computeCustomPortfolio,
+            createNewPortfolio: () => {
+                const now = new Date().toISOString();
+                const zeroWeights: Record<string, number> = {};
+                // Use current weights keys to ensure we have all assets
+                Object.keys(weights).forEach(k => zeroWeights[k] = 0);
+
+                const newPortfolio: SavedPortfolio = {
+                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    name: "Untitled",
+                    weights: zeroWeights,
+                    date: now
+                };
+
+                const updated = [...savedPortfolios, newPortfolio];
+                setSavedPortfolios(updated);
+                localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+
+                setWeights(zeroWeights);
+                setActivePortfolioId(newPortfolio.id);
+                setActivePortfolioName(newPortfolio.name);
+            },
             norm,
             resetPortfolioSelection: () => {
                 setActivePortfolioId(null);
