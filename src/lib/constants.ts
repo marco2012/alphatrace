@@ -27,6 +27,7 @@ export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "Solactive STR 8.5 Daily": "cash",
     "Gold spot price": "gold",
     "iMGP DBi Managed Futures Fund": "alternatives",
+    "MSCI World Minimum Volatility (EUR)": "stocks",
 };
 
 export const IT_ANNUAL_CPI: Record<number, number> = {

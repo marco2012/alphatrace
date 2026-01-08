@@ -125,7 +125,12 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {assets.map((asset) => {
+                        {[...assets].sort((a, b) => {
+                            const catA = getAssetCategory(a).toLowerCase();
+                            const catB = getAssetCategory(b).toLowerCase();
+                            if (catA !== catB) return catB.localeCompare(catA); // category desc
+                            return a.localeCompare(b); // asset asc
+                        }).map((asset) => {
                             const weight = weights[asset] ?? 0;
                             const percent = formatPercent(weight);
                             const category = getAssetCategory(asset);

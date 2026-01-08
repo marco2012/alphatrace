@@ -12,7 +12,7 @@ import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus, Highl
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
 import { AnalysisSection } from "@/components/dashboard/analysis-section";
-import { getAssetCategory } from "@/lib/finance";
+import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { toast } from "sonner";
 
 export default function Home() {
@@ -46,6 +46,11 @@ export default function Home() {
     }
     const percentage = byCat[category] || 0;
     return Math.round((percentage / total) * 100);
+  };
+  const getPortfolioTER = (weights: Record<string, number>) => {
+    return Object.entries(weights).reduce((total, [asset, weight]) => {
+      return total + (getAssetTER(asset) * (weight || 0));
+    }, 0);
   };
 
   const getShareUrl = (weights: Record<string, number>) => {
@@ -172,7 +177,8 @@ export default function Home() {
                             <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
-                            <TableHead className="hidden md:table-cell">Date</TableHead>
+                            <TableHead className="text-right pr-10">TER (%)</TableHead>
+                            <TableHead className="hidden md:table-cell pl-10">Date</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -201,7 +207,10 @@ export default function Home() {
                               <TableCell className="hidden text-center text-sm sm:table-cell">
                                 {getCategoryPercentage(p.weights, 'gold')}%
                               </TableCell>
-                              <TableCell className="hidden md:table-cell text-muted-foreground text-xs">
+                              <TableCell className="text-right font-mono text-sm pr-10">
+                                {(getPortfolioTER(p.weights) * 100).toFixed(2)}%
+                              </TableCell>
+                              <TableCell className="hidden md:table-cell text-muted-foreground text-xs pl-10">
                                 {new Date(p.date).toLocaleDateString()}
                               </TableCell>
                               <TableCell className="text-right">

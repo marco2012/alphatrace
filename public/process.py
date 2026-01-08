@@ -321,17 +321,26 @@ def get_monthly_yf_data(ticker, start_date="1970-01-01"):
 
 
 def get_ntsg_portfolio(start_date="1999-01-01"):
-    """NTSG (WisdomTree Global Efficient Core) Proxy: 90/60 Strategy."""
+    """NTSG (WisdomTree Global Efficient Core) Proxy: 90/60 Strategy using local World data."""
     print("Calculating NTSG (Global Efficient Core) portfolio...")
-    # 1. Equity: 60% US / 40% Intl (MSCI World Proxy)
-    vtsmx = get_monthly_yf_data("VTSMX", start_date)
-    vgtsx = get_monthly_yf_data("VGTSX", start_date)
     
-    if vtsmx.empty or vgtsx.empty:
+    # 1. Load MSCI World from local source file
+    source_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "source")
+    excel_path = os.path.join(source_dir, "world.xlsx")
+    
+    try:
+        # Use column 0 (Date) and column 1 (Index Value)
+        msci_world = pd.read_excel(excel_path, skiprows=5).iloc[:, [0, 1]]
+        msci_world.columns = ['Date', 'Index']
+        msci_world['Date'] = pd.to_datetime(msci_world['Date'])
+        msci_world.set_index('Date', inplace=True)
+        # Resample to monthly end
+        world_m = msci_world['Index'].resample('ME').last().ffill()
+        equity_ret = world_m.pct_change().fillna(0)
+    except Exception as e:
+        print(f"Error loading World data for NTSG: {e}")
         return pd.Series(dtype='float64')
-        
-    equity_ret = (0.60 * vtsmx.pct_change() + 0.40 * vgtsx.pct_change()).fillna(0)
-    
+
     # 2. Bonds & Rates
     treasury = get_fred_series_raw("DGS10", "Yield") / 100
     tbill = get_fred_series_raw("DFF", "Rate") / 100
@@ -342,7 +351,6 @@ def get_ntsg_portfolio(start_date="1999-01-01"):
     combined = pd.DataFrame({'equity_ret': equity_ret, 'yield': treasury['Yield'], 'rate': tbill['Rate']}).dropna()
     
     # Bond Return (Duration ~7.0)
-    # Return = -Dur * dY + Y(t-1)/12
     yield_chg = combined['yield'].diff().fillna(0)
     bond_ret = -7.0 * yield_chg + (combined['yield'].shift(1).fillna(combined['yield']) / 12)
     
