@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { MonthPickerInput } from "@/components/ui/month-picker-input";
 import { usePortfolio } from "@/context/portfolio-context";
 import { InvestmentMode, RebalancePeriod, YearSelection } from "@/lib/finance";
-import { SlidersHorizontal, TrendingUp, RefreshCw, Calendar, DollarSign, History, ChevronDown, ChevronUp } from "lucide-react";
+import { SlidersHorizontal, TrendingUp, RefreshCw, Calendar, DollarSign, History, ChevronDown, ChevronUp, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -19,7 +19,8 @@ export function PortfolioControls() {
         monthlyInvestment, setMonthlyInvestment,
         investmentMode, setInvestmentMode,
         rebalance, setRebalance,
-        yearSelection, handleYearSelectionChange
+        yearSelection, handleYearSelectionChange,
+        currency, setCurrency
     } = usePortfolio();
 
     const [isExpanded, setIsExpanded] = useState(false);
@@ -52,7 +53,7 @@ export function PortfolioControls() {
                     "p-3 transition-all duration-300",
                     isExpanded ? "h-auto opacity-100" : "h-0 p-0 opacity-0 overflow-hidden"
                 )}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-8 gap-3">
                         <div className="space-y-1">
                             <Label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1"><TrendingUp className="h-3 w-3" /> Mode</Label>
                             <Select value={investmentMode} onValueChange={(v) => setInvestmentMode(v as InvestmentMode)}>
@@ -63,6 +64,19 @@ export function PortfolioControls() {
                                     <SelectItem value="lump_sum">Lump Sum</SelectItem>
                                     <SelectItem value="recurring">Recurring</SelectItem>
                                     <SelectItem value="hybrid">Hybrid</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <div className="space-y-1">
+                            <Label className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground flex items-center gap-1"><Globe className="h-3 w-3" /> Currency</Label>
+                            <Select value={currency} onValueChange={(v) => setCurrency(v as "EUR" | "USD")}>
+                                <SelectTrigger className="h-8 text-xs w-full bg-muted/50 border-none hover:bg-muted transition-colors">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="EUR">EUR</SelectItem>
+                                    <SelectItem value="USD">USD</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

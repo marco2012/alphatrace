@@ -1,9 +1,14 @@
-import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI } from "./constants";
+import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, ASSET_TER_MAPPING } from "./constants";
 export * from "./constants";
 
 export type RebalancePeriod = "Monthly" | "Quarterly" | "Annual";
 export type InvestmentMode = "lump_sum" | "recurring" | "hybrid";
 export type YearSelection = 1 | 3 | 5 | 10 | 15 | 20 | 25 | 30 | "MAX" | "dotcom_crash" | "financial_crisis" | "covid_crash" | "2000s";
+
+export function getAssetTER(name: string): number {
+    const n = (name || "").replace(/\s*\((USD|EUR|Local)\)$/i, "");
+    return ASSET_TER_MAPPING[n] || 0;
+}
 
 export function getAssetCategory(name: string): string {
     const n = (name || "").toLowerCase();
@@ -11,6 +16,7 @@ export function getAssetCategory(name: string): string {
     if (n.includes("gold")) return "gold";
     if (n.includes("bond") || n.includes("gov") || n.includes("treasury") || n.includes("agg") || n.includes("fixed income")) return "bonds";
     if (n.includes("cash") || n.includes("money market") || n.match(/\bstr\b|overnight|tbill|t-bill|mmf/)) return "cash";
+    if (n.includes("managed futures") || n.includes("alternative") || n.includes("short-term treasury") || n.includes("volatility")) return "alternatives";
     return "stocks";
 }
 

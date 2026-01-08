@@ -8,8 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertCircle, Download, Upload, Settings2 } from "lucide-react";
 import { toast } from "sonner";
+import { usePortfolio } from "@/context/portfolio-context";
+import { Switch } from "@/components/ui/switch";
+import { Globe } from "lucide-react";
+
+import { cn } from "@/lib/utils";
 
 export function SettingsPanel() {
+    const { currency, setCurrency } = usePortfolio();
     const [riskFreeRate, setRiskFreeRate] = useState("0.02");
     const [customFileName, setCustomFileName] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,13 +41,13 @@ export function SettingsPanel() {
     const downloadDefaultFile = async () => {
         try {
             const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-            const response = await fetch(`${basePath}/curvo_data_202511.xlsx`);
+            const response = await fetch(`${basePath}/alphatrace_data.xlsx`);
             if (!response.ok) throw new Error("Failed to fetch default file");
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = "curvo_data_202511.xlsx";
+            a.download = "alphatrace_data.xlsx";
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -122,6 +128,26 @@ export function SettingsPanel() {
                             Annual risk-free rate (e.g., 0.02 for 2%)
                         </div>
                     </div>
+
+                    <div className="flex items-center justify-between pt-4 border-t">
+                        <div className="space-y-0.5">
+                            <Label className="flex items-center gap-2">
+                                <Globe className="h-4 w-4 text-muted-foreground" />
+                                Base Currency
+                            </Label>
+                            <div className="text-xs text-muted-foreground">
+                                Select between EUR and USD for asset data.
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className={cn("text-xs font-medium", currency === "EUR" ? "text-primary" : "text-muted-foreground")}>EUR</span>
+                            <Switch
+                                checked={currency === "USD"}
+                                onCheckedChange={(checked) => setCurrency(checked ? "USD" : "EUR")}
+                            />
+                            <span className={cn("text-xs font-medium", currency === "USD" ? "text-primary" : "text-muted-foreground")}>USD</span>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -138,7 +164,7 @@ export function SettingsPanel() {
                                 {customFileName ? (
                                     <span className="font-medium">{customFileName}</span>
                                 ) : (
-                                    <span className="text-muted-foreground">Default: curvo_data_202511.xlsx</span>
+                                    <span className="text-muted-foreground">Default: alphatrace_data.xlsx</span>
                                 )}
                             </div>
                         </div>

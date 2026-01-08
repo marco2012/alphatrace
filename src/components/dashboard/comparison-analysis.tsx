@@ -187,22 +187,19 @@ export function ComparisonAnalysis() {
         if (!itemsWithResults.length || !itemsWithResults[0].result) return [];
 
         const base = itemsWithResults[0].result;
-        const dates = (base.portValues && base.dates && base.portValues.length === base.dates.length)
-            ? base.dates
-            : Object.keys(base.idxMap).sort();
+        const dates = base.dates;
 
         const seriesByName: Record<string, Record<string, number>> = {};
         for (const item of itemsWithResults) {
             const r = item.result;
             if (!r) continue;
-            if (r.portValues && r.dates && r.portValues.length === r.dates.length) {
-                seriesByName[item.name] = r.dates.reduce((acc, d, i) => {
-                    acc[d] = r.portValues![i];
-                    return acc;
-                }, {} as Record<string, number>);
-            } else {
-                seriesByName[item.name] = r.idxMap;
-            }
+
+            // Scaled all assets to start from 100 on the common start date
+            const values = r.normalizedIndex || [];
+            seriesByName[item.name] = r.dates.reduce((acc, d, i) => {
+                if (values[i] !== undefined) acc[d] = values[i];
+                return acc;
+            }, {} as Record<string, number>);
         }
 
         return dates.map((date) => {
@@ -320,7 +317,7 @@ export function ComparisonAnalysis() {
                                     <RechartsTooltip
                                         contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                         labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
-                                        formatter={(value: number) => [`€${value.toFixed(0)}`, 'Value']}
+                                        formatter={(value: number) => [value.toFixed(2), 'Index']}
                                     />
                                     <Legend />
                                     {itemsWithResults.map((item) => (
@@ -349,6 +346,19 @@ export function ComparisonAnalysis() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Strategies</TableHead>
+                                    <TableHead className="text-right">
+                                        <UITooltip delayDuration={0}>
+                                            <UITooltipTrigger asChild>
+                                                <div className="flex items-center justify-end gap-1 cursor-pointer">
+                                                    Final Value
+                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                </div>
+                                            </UITooltipTrigger>
+                                            <UITooltipContent side="top" align="center">
+                                                <p className="w-48">{METRIC_EXPLANATIONS.finalValue}</p>
+                                            </UITooltipContent>
+                                        </UITooltip>
+                                    </TableHead>
                                     <TableHead className="text-right">
                                         <UITooltip delayDuration={0}>
                                             <UITooltipTrigger asChild>
@@ -468,15 +478,10 @@ export function ComparisonAnalysis() {
                                     const calmarVal = calmar(cagrVal, maxDD);
                                     const ulcerIndexVal = ulcerIndex(item.result.drawdowns);
                                     const avgRolling10Y = averageRolling10YearCAGR(item.result);
-                                    
-                                    let finalValue = 0;
-                                    if (item.result.portValues && item.result.portValues.length > 0) {
-                                        finalValue = item.result.portValues[item.result.portValues.length - 1];
-                                    } else {
-                                        const dates = Object.keys(item.result.idxMap).sort();
-                                        if (dates.length > 0) {
-                                            finalValue = item.result.idxMap[dates[dates.length - 1]];
-                                        }
+
+                                    let finalIndexValue = 0;
+                                    if (item.result.normalizedIndex && item.result.normalizedIndex.length > 0) {
+                                        finalIndexValue = item.result.normalizedIndex[item.result.normalizedIndex.length - 1];
                                     }
 
                                     return (
@@ -486,12 +491,7 @@ export function ComparisonAnalysis() {
                                                 {item.name}
                                             </TableCell>
                                             <TableCell className="text-right font-medium">
-                                                {new Intl.NumberFormat('de-DE', {
-                                                    style: 'currency',
-                                                    currency: 'EUR',
-                                                    minimumFractionDigits: 0,
-                                                    maximumFractionDigits: 0
-                                                }).format(finalValue)}
+                                                {finalIndexValue.toFixed(2)}
                                             </TableCell>
                                             <TableCell className={(cagrVal >= 0 ? "text-green-600" : "text-red-600") + " text-right"}>{(cagrVal * 100).toFixed(2)}%</TableCell>
                                             <TableCell className="text-right">{(volVal * 100).toFixed(2)}%</TableCell>

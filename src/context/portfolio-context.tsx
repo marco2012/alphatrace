@@ -72,6 +72,8 @@ interface PortfolioContextType {
     createNewPortfolio: () => void;
     norm: any;
     resetPortfolioSelection: () => void;
+    currency: "EUR" | "USD";
+    setCurrency: (c: "EUR" | "USD") => void;
 }
 
 export interface SavedPortfolio {
@@ -100,6 +102,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const [yearSelection, setYearSelection] = useState<YearSelection>("MAX");
     const [riskFreeRate, setRiskFreeRateState] = useState(0.02);
     const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>([]);
+    const [currency, setCurrencyState] = useState<"EUR" | "USD">("EUR");
 
     const [activePortfolioId, setActivePortfolioId] = useState<string | null>(null);
     const [activePortfolioName, setActivePortfolioName] = useState<string | null>(null);
@@ -152,7 +155,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                 } else {
                     // Use default file
                     const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-                    const response = await fetch(`${basePath}/curvo_data_202511.xlsx`);
+                    const response = await fetch(`${basePath}/alphatrace_data.xlsx`);
                     if (!response.ok) throw new Error('Failed to fetch data');
                     buffer = await response.arrayBuffer();
                 }
@@ -327,14 +330,15 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const columns = useMemo(() => {
         if (!rows.length) return [];
         const rawCols = Object.keys(rows[0]).filter(k => k.toLowerCase() !== "date");
+        const filtered = rawCols.filter(c => c.endsWith(`(${currency})`));
         const CATEGORY_ORDER = ["stocks", "bonds", "cash", "gold"];
-        return rawCols.sort((a, b) => {
+        return filtered.sort((a, b) => {
             const ca = getAssetCategory(a), cb = getAssetCategory(b);
             const ia = CATEGORY_ORDER.indexOf(ca), ib = CATEGORY_ORDER.indexOf(cb);
             if (ia !== ib) return ia - ib;
             return a.localeCompare(b);
         });
-    }, [rows]);
+    }, [rows, currency]);
 
     // Normalize Data
     const norm = useMemo(() => !rows.length ? null : normalizeAndInterpolate(rows, startDate), [rows, startDate]);
@@ -371,6 +375,37 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const setCurrency = (newCurrency: "EUR" | "USD") => {
+        if (newCurrency === currency) return;
+
+        // Migrate weights
+        const newWeights: Record<string, number> = {};
+        const oldSuffix = `(${currency})`;
+        const newSuffix = `(${newCurrency})`;
+
+        Object.entries(weights).forEach(([asset, weight]) => {
+            if (weight === 0) return;
+            const baseName = asset.replace(oldSuffix, "").trim();
+            // Find the corresponding asset in the new currency
+            const matchingAsset = Object.keys(rows[0] || {}).find(k =>
+                k.startsWith(baseName) && k.endsWith(newSuffix)
+            );
+            if (matchingAsset) {
+                newWeights[matchingAsset] = weight;
+            }
+        });
+
+        // Fill remaining assets with 0
+        Object.keys(rows[0] || {}).forEach(k => {
+            if (k.toLowerCase() !== "date" && k.endsWith(newSuffix) && !newWeights[k]) {
+                newWeights[k] = 0;
+            }
+        });
+
+        setWeights(newWeights);
+        setCurrencyState(newCurrency);
+    };
+
     // Calculate start date based on year selection
     const calculateStartDate = (years: YearSelection): string => {
         const now = new Date();
@@ -383,7 +418,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         if (typeof years === "number") {
             const yearsBack = now.getFullYear() - years;
             const resultDate = new Date(yearsBack, now.getMonth(), 1);
-            
+
             // Ensure start date is not earlier than available data (1994-11-01)
             const minDate = new Date("1994-11-01");
             if (resultDate < minDate) {
@@ -405,14 +440,14 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         // Determine end date
         const now = new Date();
         const currentMaxDate = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
-        
+
         let newEndDate = currentMaxDate;
 
         if (years === "dotcom_crash") newEndDate = "2003-03-01";
         else if (years === "financial_crisis") newEndDate = "2009-03-01";
         else if (years === "covid_crash") newEndDate = "2020-03-01";
         else if (years === "2000s") newEndDate = "2009-03-01";
-        
+
         setEndDate(newEndDate);
     };
 
@@ -494,6 +529,16 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const loadPortfolio = (id: string) => {
         const p = savedPortfolios.find(p => p.id === id);
         if (p) {
+            // Detect currency from weights
+            const assets = Object.keys(p.weights).filter(k => p.weights[k] > 0);
+            if (assets.length > 0) {
+                const firstAsset = assets[0];
+                if (firstAsset.endsWith("(USD)")) {
+                    setCurrencyState("USD");
+                } else if (firstAsset.endsWith("(EUR)")) {
+                    setCurrencyState("EUR");
+                }
+            }
             setWeights(p.weights);
             setActivePortfolioId(p.id);
             setActivePortfolioName(p.name);
@@ -662,7 +707,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             resetPortfolioSelection: () => {
                 setActivePortfolioId(null);
                 setActivePortfolioName(null);
-            }
+            },
+            currency,
+            setCurrency
         }}>
             {children}
         </PortfolioContext.Provider>

@@ -162,7 +162,8 @@ export function AnalysisSection() {
         setInitialInvestment,
         setMonthlyInvestment,
         setInvestmentMode,
-        setRebalance
+        setRebalance,
+        currency
     } = usePortfolio();
 
     const searchParams = useSearchParams();
@@ -548,22 +549,18 @@ export function AnalysisSection() {
         if (!slicedItems.length || !slicedItems[0].result) return [];
 
         const base = slicedItems[0].result;
-        const dates = (base.portValues && base.dates && base.portValues.length === base.dates.length)
-            ? base.dates
-            : Object.keys(base.idxMap).sort();
+        const dates = base.dates;
 
         const seriesByName: Record<string, Record<string, number>> = {};
         for (const item of slicedItems) {
             const r = item.result;
             if (!r) continue;
-            if (r.portValues && r.dates && r.portValues.length === r.dates.length) {
-                seriesByName[item.name] = r.dates.reduce((acc, d, i) => {
-                    acc[d] = r.portValues![i];
-                    return acc;
-                }, {} as Record<string, number>);
-            } else {
-                seriesByName[item.name] = r.idxMap;
-            }
+
+            const values = r.portValues || r.normalizedIndex || [];
+            seriesByName[item.name] = r.dates.reduce((acc, d, i) => {
+                if (values[i] !== undefined) acc[d] = values[i];
+                return acc;
+            }, {} as Record<string, number>);
         }
 
         return dates.map((date) => {
@@ -625,11 +622,8 @@ export function AnalysisSection() {
                 let finalValue = 0;
                 if (r.portValues && r.portValues.length > 0) {
                     finalValue = r.portValues[r.portValues.length - 1];
-                } else {
-                    const dates = Object.keys(r.idxMap).sort();
-                    if (dates.length > 0) {
-                        finalValue = r.idxMap[dates[dates.length - 1]];
-                    }
+                } else if (r.normalizedIndex && r.normalizedIndex.length > 0) {
+                    finalValue = r.normalizedIndex[r.normalizedIndex.length - 1];
                 }
 
                 return {
@@ -1375,7 +1369,7 @@ export function AnalysisSection() {
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
-                                                            Final Value
+                                                            Final Value {currency === "USD" ? "($)" : "(€)"}
                                                             <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                             {sortConfig?.key === "finalValue" && (
                                                                 sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
@@ -1551,12 +1545,7 @@ export function AnalysisSection() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell className="text-right font-medium">
-                                                    {new Intl.NumberFormat('de-DE', {
-                                                        style: 'currency',
-                                                        currency: 'EUR',
-                                                        minimumFractionDigits: 0,
-                                                        maximumFractionDigits: 0
-                                                    }).format(row.finalValue)}
+                                                    {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
                                                 <TableCell className="hidden md:table-cell text-right">{row.vol}</TableCell>
@@ -1643,18 +1632,19 @@ export function AnalysisSection() {
                                                         tickLine={false}
                                                         axisLine={false}
                                                         domain={["auto", "auto"]}
+                                                        tickFormatter={(value) => {
+                                                            const symbol = currency === "USD" ? "$" : "€";
+                                                            if (value >= 1000000) return `${symbol}${(value / 1000000).toFixed(1)}M`;
+                                                            if (value >= 1000) return `${symbol}${(value / 1000).toFixed(0)}k`;
+                                                            return `${symbol}${value.toFixed(0)}`;
+                                                        }}
                                                     />
                                                     <RechartsTooltip
                                                         contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
                                                         labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
                                                         formatter={(value: number, name: string) => {
-                                                            const formattedValue = new Intl.NumberFormat('de-DE', {
-                                                                style: 'currency',
-                                                                currency: 'EUR',
-                                                                minimumFractionDigits: 0,
-                                                                maximumFractionDigits: 0
-                                                            }).format(Math.round(value));
-                                                            return [formattedValue, name];
+                                                            const symbol = currency === "USD" ? "$" : "€";
+                                                            return [`${symbol}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, name];
                                                         }}
                                                     />
                                                     <Legend

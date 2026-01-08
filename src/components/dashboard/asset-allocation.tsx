@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Scale, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getAssetCategory } from "@/lib/finance";
+import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -119,7 +119,8 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                     <TableHeader className="bg-card shadow-sm">
                         <TableRow>
                             <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
-                            <TableHead className="w-[70%] sm:w-[45%]">Asset</TableHead>
+                            <TableHead className="w-[70%] sm:w-[35%]">Asset</TableHead>
+                            <TableHead className="text-right w-[10%]">TER (%)</TableHead>
                             <TableHead className="text-right w-[30%] pr-6">Allocation (%)</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -162,6 +163,9 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                 ) : null;
                                             })()}
                                         </div>
+                                    </TableCell>
+                                    <TableCell className="text-right py-2 text-muted-foreground font-mono text-xs">
+                                        {(getAssetTER(asset) * 100).toFixed(2)}%
                                     </TableCell>
                                     <TableCell className="text-right py-2 pr-6">
                                         <div className="flex items-center justify-end gap-2">

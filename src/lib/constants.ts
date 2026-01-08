@@ -36,3 +36,28 @@ export const IT_ANNUAL_CPI: Record<number, number> = {
     2015: 0.03, 2016: -0.09, 2017: 1.22, 2018: 1.13, 2019: 0.61, 2020: -0.13, 2021: 1.87,
     2022: 8.20, 2023: 5.62, 2024: 0.98, 2025: 1.8,
 };
+
+export const ASSET_TER_MAPPING: Record<string, number> = {
+    "US Small Cap Value": 0.0030,
+    "MSCI World": 0.0020,
+    "MSCI World ACWI": 0.0020,
+    "MSCI World IMI": 0.0017,
+    "MSCI World Minimum Volatility": 0.0030,
+    "MSCI World Momentum": 0.0025,
+    "MSCI World Quality": 0.0025,
+    "MSCI World Small Cap Value": 0.0039,
+    "MSCI World Value": 0.0025,
+    "Gold": 0.0012,
+    "S&P 500 Total Return": 0.0007,
+    "Nasdaq Total Return": 0.0030,
+    "DGEIX (DFA Global Equity)": 0.0026,
+    "DBMF (Managed Futures)": 0.0075,
+    "NTSG (WisdomTree Global Efficient Core)": 0.0025,
+    "EUR Government Bonds 10y": 0.0015,
+    "CASH": 0.0010,
+    "Japan": 0.0058,
+    "Pacific": 0.0020,
+    "Switzerland": 0.0020,
+    "UK": 0.0033,
+    "MSCI Emerging Market": 0.0018,
+};
