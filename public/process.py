@@ -10,7 +10,6 @@ from datetime import datetime
 
 # Configuration for additional YFinance assets
 YF_ASSETS = {
-    "gold_usd": "GC=F",           # Gold Futures
     "sp500_tr_usd": "^SP500TR",   # S&P 500 Total Return
     "brk_b_usd": "BRK-B",         # Berkshire Hathaway
     "nasdaq_tr_usd": "QQQ",         # Nasdaq TR Proxy
@@ -587,6 +586,33 @@ def process_files():
         print(f"  Applied TER of {ter*100:.2f}% to eur_government_bonds_10y")
         combined = combined.join(df_bonds.to_frame(), how='outer')
 
+    # 5. Add Gold Portfolio from CSV
+    # https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart
+    print("Reading gold.csv...")
+    gold_csv_path = os.path.join(source_dir, "gold.csv")
+    if os.path.exists(gold_csv_path):
+        try:
+            df_gold = pd.read_csv(gold_csv_path)
+            # Ensure columns are Date, Value regardless of CSV header if possible, 
+            # but here we saw it is "Date","Value"
+            df_gold.columns = ['Date', 'Value']
+            df_gold['Date'] = pd.to_datetime(df_gold['Date'])
+            df_gold.set_index('Date', inplace=True)
+            # Resample to month end
+            df_gold = df_gold['Value'].resample('ME').last().ffill()
+            
+            ter = TER_MAPPING['gold']
+            monthly_ter = ter / 12
+            rets = df_gold.pct_change().fillna(0)
+            adj_rets = rets - monthly_ter
+            adj_rets.iloc[0] = 0
+            df_gold = df_gold.iloc[0] * (1 + adj_rets).cumprod()
+            print(f"  Applied TER of {ter*100:.2f}% to gold_usd")
+            combined = combined.join(df_gold.rename('gold_usd'), how='outer')
+            combined['gold_usd'] = combined['gold_usd'].ffill()
+        except Exception as e:
+            print(f"Error processing gold.csv: {e}")
+
     # 7. Add CASH Portfolio
     df_cash = get_cash_portfolio()
     if not df_cash.empty:
@@ -687,7 +713,7 @@ def process_files():
     
     writer = pd.ExcelWriter(output_file, engine='xlsxwriter')
     combined.to_excel(writer, index=False, sheet_name='Data')
-    writer.sheets['Data'].freeze_panes(1, 0)
+    writer.sheets['Data'].freeze_panes(1, 1)
     writer.close()
     print(f"Success! Final Shape: {combined.shape}")
 
