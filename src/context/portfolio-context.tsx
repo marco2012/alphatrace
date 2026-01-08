@@ -142,23 +142,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             try {
                 let buffer: ArrayBuffer;
 
-                // Check for custom file first
-                const customFileData = localStorage.getItem("alphatrace_custom_file_data");
-                if (customFileData) {
-                    // Convert base64 back to binary
-                    const binaryString = atob(customFileData);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    buffer = bytes.buffer;
-                } else {
-                    // Use default file
-                    const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-                    const response = await fetch(`${basePath}/alphatrace_data.xlsx`);
-                    if (!response.ok) throw new Error('Failed to fetch data');
-                    buffer = await response.arrayBuffer();
-                }
+                // Use default file
+                const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+                const response = await fetch(`${basePath}/alphatrace_data.xlsx`);
+                if (!response.ok) throw new Error('Failed to fetch data');
+                buffer = await response.arrayBuffer();
 
                 const wb = XLSX.read(buffer, { type: "array" });
                 const ws = wb.Sheets[wb.SheetNames[0]];
