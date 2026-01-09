@@ -1,4 +1,4 @@
-import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, ASSET_TER_MAPPING } from "./constants";
+import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, ASSET_TER_MAPPING, ASSET_CAPE_MAPPING } from "./constants";
 export * from "./constants";
 
 export type RebalancePeriod = "Monthly" | "Quarterly" | "Annual";
@@ -8,6 +8,23 @@ export type YearSelection = 1 | 3 | 5 | 10 | 15 | 20 | 25 | 30 | "MAX" | "dotcom
 export function getAssetTER(name: string): number {
     const n = (name || "").replace(/\s*\((USD|EUR|Local)\)$/i, "");
     return ASSET_TER_MAPPING[n] || 0;
+}
+
+export function calculatePortfolioCAPE(weights: Record<string, number>): number | null {
+    let totalEquityWeight = 0;
+    let weightedCAPE = 0;
+
+    Object.entries(weights).forEach(([asset, weight]) => {
+        const n = asset.replace(/\s*\((USD|EUR|Local)\)$/i, "");
+        const cape = ASSET_CAPE_MAPPING[n];
+        if (cape !== undefined && weight > 0) {
+            weightedCAPE += weight * cape;
+            totalEquityWeight += weight;
+        }
+    });
+
+    if (totalEquityWeight === 0) return null;
+    return weightedCAPE / totalEquityWeight;
 }
 
 export function getAssetCategory(name: string): string {

@@ -6,13 +6,14 @@ import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, avera
 interface MetricsCardsProps {
     portfolio: PortfolioResult | null;
     rf?: number;
+    cape?: number | null;
 }
 
-export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
+export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) {
     if (!portfolio) {
         return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {["CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR"].map((label) => (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+                {["CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR", "Portfolio CAPE"].map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">{label}</CardTitle>
@@ -45,14 +46,13 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
     // Ulcer Index
     const ulcerIndexValue = ulcerIndex(drawdowns);
 
-    // Average Rolling 10-Year CAGR
     const avgRolling10YearCAGR = averageRolling10YearCAGR(portfolio);
 
     const formatPercent = (v: number) => `${(v * 100).toFixed(2)}%`;
     const formatNumber = (v: number) => v.toFixed(2);
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">CAGR</CardTitle>
@@ -139,6 +139,17 @@ export function MetricsCards({ portfolio, rf = 0.02 }: MetricsCardsProps) {
                         {formatPercent(avgRolling10YearCAGR)}
                     </div>
                     <p className="text-xs text-muted-foreground">Average of rolling 10Y periods</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Portfolio CAPE</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+                        {cape ? formatNumber(cape) : "--"}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Weighted average CAPE (Equity)</p>
                 </CardContent>
             </Card>
         </div>

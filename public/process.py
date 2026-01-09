@@ -14,6 +14,7 @@ YF_ASSETS = {
     "brk_b_usd": "BRK-B",         # Berkshire Hathaway
     "nasdaq_tr_usd": "QQQ",         # Nasdaq TR Proxy
     "dgeix_usd": "DGEIX",         # Dimensional US Core Equity I
+    "dfemx_usd": "DFEMX",         # DFA Emerging Markets
 }
 
 # Annual TER for MSCI Indexes (deducted from monthly returns)
@@ -31,10 +32,11 @@ TER_MAPPING = {
     "world_small_cap_value": 0.0039,
     "world_value": 0.0025,
     "world": 0.0020,
-    "emerging_market": 0.0018,
+    "emerging_market_imi": 0.0018,
     # New ones
     "dbmf": 0.0075,
     "dgeix": 0.0026,
+    "dfemx": 0.0036,
     "cash": 0.0010,
     "eur_government_bonds_10y": 0.0015,
     "ntsg": 0.0025,
@@ -656,7 +658,8 @@ def process_files():
                     'cash_usd', 'cash_eur',
                     'dbmf_usd', 'dbmf_eur',
                     'ntsg_usd', 'ntsg_eur',
-                    'dgeix_usd', 'dgeix_eur']
+                    'dgeix_usd', 'dgeix_eur',
+                    'dfemx_usd', 'dfemx_eur']
     for col in norm_targets:
         if col in combined.columns:
             f_idx = combined[col].first_valid_index()
@@ -679,7 +682,7 @@ def process_files():
         "world_quality": "MSCI World Quality",
         "world_small_cap_value": "MSCI World Small Cap Value",
         "world_value": "MSCI World Value",
-        "emerging_market": "MSCI Emerging Market",
+        "emerging_market_imi": "MSCI Emerging Markets IMI",
         "coletti_eq": "Coletti Equity",
         "gold": "Gold",
         "sp500_tr": "S&P 500 Total Return",
@@ -687,6 +690,7 @@ def process_files():
         "nasdaq_tr": "Nasdaq Total Return",
         "dbmf": "DBMF (Managed Futures)",
         "dgeix": "DGEIX (DFA Global Equity)",
+        "dfemx": "DFA Emerging Markets",
         "ntsg": "NTSG (WisdomTree Global Efficient Core)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
         "cash": "CASH"

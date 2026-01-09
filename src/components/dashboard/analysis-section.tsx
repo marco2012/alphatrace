@@ -43,7 +43,8 @@ import {
     ulcerIndex,
     calmar,
     computeBeta,
-    computeRollingBeta
+    computeRollingBeta,
+    calculatePortfolioCAPE
 } from "@/lib/finance";
 
 import {
@@ -74,7 +75,8 @@ const METRIC_EXPLANATIONS = {
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
     avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
-    finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period."
+    finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
+    capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
 };
 
 function downloadCSV(data: any[], filename: string) {
@@ -647,7 +649,12 @@ export function AnalysisSection() {
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
                     recoveryMonthsValue,
                     recoveryMonths,
-                    finalValue
+                    finalValue,
+                    cape: calculatePortfolioCAPE(
+                        item.type === "asset"
+                            ? { [item.id]: 100 }
+                            : (item.weights || (item.id === "current" ? weights : savedPortfolios.find(p => p.id === item.id)?.weights || {}))
+                    )
                 };
             })
             .filter(Boolean) as Array<{
@@ -672,6 +679,7 @@ export function AnalysisSection() {
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
                 finalValue: number;
+                cape: number | null;
             }>;
 
         const sortedRows = [...rows].sort((a, b) => {
@@ -1124,7 +1132,8 @@ export function AnalysisSection() {
         );
     }
 
-    const primaryResult = validItems[0]?.result || portfolio;
+    const primaryItem = validItems[0];
+    const primaryResult = primaryItem?.result || portfolio;
     const calcKey = `${investmentMode}|${rebalance}|${startDate}|${endDate}|${initialInvestment}|${monthlyInvestment}`;
 
     return (
@@ -1525,6 +1534,22 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            <TableHead onClick={() => handleSort("cape")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            CAPE
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "cape" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.capeValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -1556,6 +1581,7 @@ export function AnalysisSection() {
                                                 <TableCell className="hidden lg:table-cell text-right">{row.ulcerIndex}</TableCell>
                                                 <TableCell className="hidden xl:table-cell text-right">{row.recoveryMonths}</TableCell>
                                                 <TableCell className="hidden xl:table-cell text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
+                                                <TableCell className="hidden xl:table-cell text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -1564,7 +1590,18 @@ export function AnalysisSection() {
                         </CardContent>
                     </Card>
                 ) : (
-                    primaryResult && <MetricsCards key={`metrics-cards-${calcKey}`} portfolio={primaryResult} rf={riskFreeRate} />
+                    primaryItem && primaryResult && (
+                        <MetricsCards
+                            key={`metrics-cards-${calcKey}`}
+                            portfolio={primaryResult}
+                            rf={riskFreeRate}
+                            cape={calculatePortfolioCAPE(
+                                primaryItem.type === "asset"
+                                    ? { [primaryItem.id]: 100 }
+                                    : (primaryItem.weights || (primaryItem.id === "current" ? weights : savedPortfolios.find(p => p.id === primaryItem.id)?.weights || {}))
+                            )}
+                        />
+                    )
                 )}
 
                 {validItems.length > 1 && (

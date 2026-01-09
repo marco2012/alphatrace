@@ -67,8 +67,8 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
                             <Card key={item.id} className="border-2" style={{ borderColor: item.color }}>
                                 <CardHeader className="pb-3">
                                     <div className="flex items-center gap-2">
-                                        <span 
-                                            className="w-3 h-3 rounded-full flex-shrink-0" 
+                                        <span
+                                            className="w-3 h-3 rounded-full flex-shrink-0"
                                             style={{ backgroundColor: item.color }}
                                         />
                                         <CardTitle className="text-base">{item.name}</CardTitle>
@@ -82,12 +82,12 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
                                             {sortedCategories.map((category) => {
                                                 const categoryAssets = assetsByCategory[category];
                                                 const categoryTotal = categoryAssets.reduce((sum, { weight }) => sum + weight, 0);
-                                                
+
                                                 return (
                                                     <div key={category} className="space-y-1.5">
                                                         <div className="flex items-center justify-between">
-                                                            <Badge 
-                                                                variant="secondary" 
+                                                            <Badge
+                                                                variant="secondary"
                                                                 className={`text-xs font-medium ${getCategoryColor(category)}`}
                                                             >
                                                                 {category.charAt(0).toUpperCase() + category.slice(1)}
@@ -98,8 +98,8 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
                                                         </div>
                                                         <div className="space-y-1 pl-2">
                                                             {categoryAssets.map(({ asset, weight }) => (
-                                                                <div 
-                                                                    key={asset} 
+                                                                <div
+                                                                    key={asset}
                                                                     className="flex items-center justify-between text-xs"
                                                                 >
                                                                     <span className="text-muted-foreground truncate flex-1 pr-2">
