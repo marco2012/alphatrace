@@ -83,7 +83,6 @@ export const ASSET_CAPE_MAPPING: Record<string, number> = {
     "Switzerland": 20.5,
     "UK": 16.2,
     "DFA Emerging Markets": 18.5,
-    "DGEIX (DFA Global Equity)": 24.8,
     "NTSG (WisdomTree Global Efficient Core)": 25.8,
     "MSCI World Sector Neutral Quality": 32.5,
     "MSCI World Minimum Volatility (USD)": 22.1,
