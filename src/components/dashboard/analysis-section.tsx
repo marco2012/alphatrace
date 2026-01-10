@@ -61,7 +61,7 @@ import {
     ReferenceLine
 } from "recharts";
 
-import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy, Highlighter } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy, Highlighter, Search } from "lucide-react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 const METRIC_EXPLANATIONS = {
@@ -379,6 +379,15 @@ export function AnalysisSection() {
     const [rollingBetaYears, setRollingBetaYears] = useState(3);
     const [betaBenchmark, setBetaBenchmark] = useState<string | null>(null);
     const [simSelectedKey, setSimSelectedKey] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState("");
+
+    const filteredPortfolios = useMemo(() => {
+        return savedPortfolios.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [savedPortfolios, searchTerm]);
+
+    const filteredAssets = useMemo(() => {
+        return assets.filter(a => a.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [assets, searchTerm]);
 
     // Default benchmark to MSCI World if nothing is selected
     useEffect(() => {
@@ -994,7 +1003,7 @@ export function AnalysisSection() {
 
         const idsToAdd = selectedForAdd.length > 0
             ? selectedForAdd
-            : (typeToAdd === "portfolio" ? savedPortfolios.map(p => p.id) : assets);
+            : (typeToAdd === "portfolio" ? filteredPortfolios.map(p => p.id) : filteredAssets);
 
         const currentItems = [...selectedItems];
         const itemsToAdd = idsToAdd
@@ -1166,7 +1175,7 @@ export function AnalysisSection() {
                 <CardContent>
                     <div className="flex flex-col gap-4">
                         <div className="space-y-4">
-                            <Tabs value={typeToAdd} onValueChange={(v: any) => { setTypeToAdd(v); setSelectedForAdd([]); }}>
+                            <Tabs value={typeToAdd} onValueChange={(v: any) => { setTypeToAdd(v); setSelectedForAdd([]); setSearchTerm(""); }}>
                                 <div className="flex items-center gap-2">
                                     <TabsList className="grid w-full grid-cols-2 max-w-[300px]">
                                         <TabsTrigger value="portfolio">Portfolios</TabsTrigger>
@@ -1206,18 +1215,18 @@ export function AnalysisSection() {
                                         title={
                                             typeToAdd === "portfolio"
                                                 ? (
-                                                    savedPortfolios.length > 0
-                                                        && savedPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
-                                                        ? "Remove all portfolios"
+                                                    filteredPortfolios.length > 0
+                                                        && filteredPortfolios.every(p => selectedItems.some(item => item.type === "portfolio" && item.id === p.id))
+                                                        ? "Remove all visible portfolios"
                                                         : (selectedForAdd.length === 0
-                                                            ? `Add all ${savedPortfolios.length} portfolio${savedPortfolios.length !== 1 ? "s" : ""}`
+                                                            ? `Add all ${filteredPortfolios.length} visible portfolio${filteredPortfolios.length !== 1 ? "s" : ""}`
                                                             : `Add ${selectedForAdd.length} item${selectedForAdd.length !== 1 ? "s" : ""}`)
                                                 )
                                                 : (
-                                                    assets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a))
+                                                    filteredAssets.every(a => selectedItems.some(item => item.type === "asset" && item.id === a))
                                                         ? "All items already selected"
                                                         : (selectedForAdd.length === 0
-                                                            ? `Add all ${assets.length} asset${assets.length !== 1 ? "s" : ""}`
+                                                            ? `Add all ${filteredAssets.length} visible asset${filteredAssets.length !== 1 ? "s" : ""}`
                                                             : `Add ${selectedForAdd.length} item${selectedForAdd.length !== 1 ? "s" : ""}`)
                                                 )
                                         }
@@ -1232,75 +1241,102 @@ export function AnalysisSection() {
                                         }
                                     </Button>
                                 </div>
+                                <div className="mt-4 relative">
+                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder={`Search ${typeToAdd === "portfolio" ? "portfolios" : "assets"}...`}
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                    {searchTerm && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="absolute right-1 top-1 h-7 w-7"
+                                            onClick={() => setSearchTerm("")}
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                </div>
 
                                 <TabsContent value="portfolio">
-                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto">
+                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto mt-2">
                                         <div className="space-y-2">
-                                            {savedPortfolios.map(p => {
-                                                const range = getItemRange(p);
-                                                return (
-                                                    <div
-                                                        key={p.id}
-                                                        className={
-                                                            p.highlighted
-                                                                ? "flex items-start space-x-2 rounded-md px-2 py-1 bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
-                                                                : "flex items-start space-x-2 rounded-md px-2 py-1"
-                                                        }
-                                                    >
-                                                        <Checkbox
-                                                            id={p.id}
-                                                            checked={selectedForAdd.includes(p.id) || selectedItems.some(item => item.type === "portfolio" && item.id === p.id)}
-                                                            onCheckedChange={() => handleToggleSelection(p.id)}
-                                                            className="mt-1"
-                                                        />
-                                                        <label
-                                                            htmlFor={p.id}
-                                                            className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                            {filteredPortfolios.length === 0 ? (
+                                                <p className="text-sm text-muted-foreground text-center py-4">No portfolios found matching "{searchTerm}"</p>
+                                            ) : (
+                                                filteredPortfolios.map(p => {
+                                                    const range = getItemRange(p);
+                                                    return (
+                                                        <div
+                                                            key={p.id}
+                                                            className={
+                                                                p.highlighted
+                                                                    ? "flex items-start space-x-2 rounded-md px-2 py-1 bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
+                                                                    : "flex items-start space-x-2 rounded-md px-2 py-1"
+                                                            }
                                                         >
-                                                            <span className="text-sm font-medium inline-flex items-center gap-2">
-                                                                {p.highlighted && <Highlighter className="h-3.5 w-3.5" />}
-                                                                {p.name}
-                                                            </span>
-                                                            {range && (
-                                                                <span className="text-[10px] text-muted-foreground">
-                                                                    {formatDate(range.start)} - {formatDate(range.end)}
+                                                            <Checkbox
+                                                                id={p.id}
+                                                                checked={selectedForAdd.includes(p.id) || selectedItems.some(item => item.type === "portfolio" && item.id === p.id)}
+                                                                onCheckedChange={() => handleToggleSelection(p.id)}
+                                                                className="mt-1"
+                                                            />
+                                                            <label
+                                                                htmlFor={p.id}
+                                                                className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                            >
+                                                                <span className="text-sm font-medium inline-flex items-center gap-2">
+                                                                    {p.highlighted && <Highlighter className="h-3.5 w-3.5" />}
+                                                                    {p.name}
                                                                 </span>
-                                                            )}
-                                                        </label>
-                                                    </div>
-                                                );
-                                            })}
+                                                                {range && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        {formatDate(range.start)} - {formatDate(range.end)}
+                                                                    </span>
+                                                                )}
+                                                            </label>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
                                         </div>
                                     </div>
                                 </TabsContent>
 
                                 <TabsContent value="asset">
-                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto">
+                                    <div className="border rounded-md p-3 max-h-[500px] overflow-y-auto mt-2">
                                         <div className="space-y-2">
-                                            {assets.map(a => {
-                                                const range = getItemRange({ type: "asset", id: a });
-                                                return (
-                                                    <div key={a} className="flex items-start space-x-2">
-                                                        <Checkbox
-                                                            id={a}
-                                                            checked={selectedForAdd.includes(a) || selectedItems.some(item => item.type === "asset" && item.id === a)}
-                                                            onCheckedChange={() => handleToggleSelection(a)}
-                                                            className="mt-1"
-                                                        />
-                                                        <label
-                                                            htmlFor={a}
-                                                            className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                                        >
-                                                            <span className="text-sm font-medium">{a}</span>
-                                                            {range && (
-                                                                <span className="text-[10px] text-muted-foreground">
-                                                                    {formatDate(range.start)} - {formatDate(range.end)}
-                                                                </span>
-                                                            )}
-                                                        </label>
-                                                    </div>
-                                                );
-                                            })}
+                                            {filteredAssets.length === 0 ? (
+                                                <p className="text-sm text-muted-foreground text-center py-4">No assets found matching "{searchTerm}"</p>
+                                            ) : (
+                                                filteredAssets.map(a => {
+                                                    const range = getItemRange({ type: "asset", id: a });
+                                                    return (
+                                                        <div key={a} className="flex items-start space-x-2">
+                                                            <Checkbox
+                                                                id={a}
+                                                                checked={selectedForAdd.includes(a) || selectedItems.some(item => item.type === "asset" && item.id === a)}
+                                                                onCheckedChange={() => handleToggleSelection(a)}
+                                                                className="mt-1"
+                                                            />
+                                                            <label
+                                                                htmlFor={a}
+                                                                className="grid gap-1.5 leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                                            >
+                                                                <span className="text-sm font-medium">{a}</span>
+                                                                {range && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        {formatDate(range.start)} - {formatDate(range.end)}
+                                                                    </span>
+                                                                )}
+                                                            </label>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
                                         </div>
                                     </div>
                                 </TabsContent>
