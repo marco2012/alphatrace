@@ -692,7 +692,7 @@ def process_files():
         "dbmf": "DBMF (Managed Futures)",
         "dgeix": "DFA Global Equity (DGEIX)",
         "dfemx": "DFA Emerging Markets",
-        "ntsg": "NTSG (WisdomTree Global Efficient Core)",
+        "ntsg": "WisdomTree Global Efficient Core (NTSG)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
         "cash": "CASH"
     }

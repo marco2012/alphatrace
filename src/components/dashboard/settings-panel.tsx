@@ -9,9 +9,160 @@ import { Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Switch } from "@/components/ui/switch";
-import { Globe } from "lucide-react";
+import { Globe, Database } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { CodeBlock } from "@/components/shared/code-block";
 
 import { cn } from "@/lib/utils";
+
+const DATA_SOURCES = {
+    msci: {
+        title: "MSCI Indexes",
+        description: "Data for various MSCI regional and factor indexes.",
+        url: "https://www.msci.com/indexes#featured-indexes",
+        details: "Total Return (TR) indexes are used where available, with annual TER deducted at processing time."
+    },
+    managedFutures: {
+        title: "Managed Futures",
+        description: "Data for iMGP DBi Managed Futures Fund (DBMF) proxy. Calculated using public/code/imgp_dbi_backtest_generator.py.",
+        url: "https://www.rcmalternatives.com/fund/sg-cta-index-societe-generale-newedge-uk-limited/",
+        code: `#!/usr/bin/env python3
+import pandas as pd
+import numpy as np
+import requests
+from io import StringIO
+import json
+
+# SG_CTA_INDEX_DATA = [...] (Data truncated for brevity)
+
+def fetch_yahoo_finance_data(ticker='DBMF', start_date='2019-05-08'):
+    try:
+        start_ts = int(pd.to_datetime(start_date).timestamp())
+        end_ts = int(pd.to_datetime('today').timestamp())
+        url = f"https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
+        params = {'period1': start_ts, 'period2': end_ts, 'interval': '1d', 'events': 'history', 'includeAdjustedClose': 'true'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            chart = data['chart']['result'][0]
+            df = pd.DataFrame({'Date': pd.to_datetime(chart['timestamp'], unit='s'), 'Adj Close': chart['indicators']['adjclose'][0]['adjclose']})
+            return df.dropna()
+        return None
+    except Exception as e:
+        print(f"✗ Yahoo Finance error: {e}")
+        return None
+
+def generate_backtest_data(output_file='imgp_dbi_base100.csv'):
+    df_proxy = pd.DataFrame(SG_CTA_INDEX_DATA)
+    df_proxy['Date'] = pd.to_datetime(df_proxy['date'])
+    df_proxy['Index_Value_USD'] = df_proxy['value']
+    dbmf_launch = pd.to_datetime('2019-05-08')
+    df_proxy = df_proxy[df_proxy['Date'] < dbmf_launch].copy()
+
+    df_dbmf_raw = fetch_yahoo_finance_data('DBMF', '2019-05-08')
+    if df_dbmf_raw is not None:
+        df_dbmf_raw['YearMonth'] = df_dbmf_raw['Date'].dt.to_period('M')
+        df_dbmf_monthly = df_dbmf_raw.groupby('YearMonth').agg({'Date': 'last', 'Adj Close': 'last'}).reset_index(drop=True)
+        scaling = df_proxy.iloc[-1]['Index_Value_USD'] / df_dbmf_monthly.iloc[0]['Adj Close']
+        df_dbmf_monthly['Index_Value_USD'] = df_dbmf_monthly['Adj Close'] * scaling
+        df_dbmf = df_dbmf_monthly[['Date', 'Index_Value_USD']]
+        df_combined = pd.concat([df_proxy[['Date', 'Index_Value_USD']], df_dbmf], ignore_index=True)
+    else:
+        df_combined = df_proxy[['Date', 'Index_Value_USD']].copy()
+
+    df_combined = df_combined.sort_values('Date').reset_index(drop=True)
+    # FX Conversion and Rebasing logic...
+    return df_combined`
+    },
+    dfaGlobal: {
+        title: "DFA Funds",
+        description: "Data for DGEIX (US Core Equity I) and DFEMX (Emerging Markets). Calculated using public/code/dgex.py.",
+        url: "https://finance.yahoo.com/quote/DGEIX/",
+        url2: "https://finance.yahoo.com/quote/DFEMX/",
+        code: `import yfinance as yf
+import pandas as pd
+from datetime import datetime
+
+def download_scaled_proxy():
+    fund_ticker = "DGEIX"      
+    currency_ticker = "EURUSD=X"
+    start_date = "1990-01-01"
+    current_date = datetime.now().strftime("%Y-%m-%d")
+
+    # auto_adjust=True gets the Total Return (dividends reinvested)
+    fund_data = yf.download(fund_ticker, start=start_date, end=current_date, interval="1mo", auto_adjust=True)
+    curr_data = yf.download(currency_ticker, start=start_date, end=current_date, interval="1mo", auto_adjust=False)
+
+    df_fund = fund_data[['Close']].dropna()
+    df_fund.columns = ['Price_USD']
+    df_curr = curr_data[['Close']].resample('M').last().dropna()
+    df_curr.columns = ['USD_per_EUR']
+
+    df_fund.index = df_fund.index.to_period('M').to_timestamp('M')
+    df_curr.index = df_curr.index.to_period('M').to_timestamp('M')
+
+    merged = pd.merge(df_fund, df_curr, left_index=True, right_index=True, how='inner')
+    merged['Price_EUR'] = merged['Price_USD'] / merged['USD_per_EUR']
+
+    merged['Scaled_USD'] = (merged['Price_USD'] / merged['Price_USD'].iloc[0]) * 100
+    merged['Scaled_EUR'] = (merged['Price_EUR'] / merged['Price_EUR'].iloc[0]) * 100
+    
+    return merged[['Scaled_USD', 'Scaled_EUR']]`
+    },
+    ntsg: {
+        title: "WisdomTree Global Efficient Core (NTSG)",
+        description: "Proxy calculation for 90/60 Global Efficient Core strategy. Calculated using public/code/backtest_ntsg_proxy_msci.py.",
+        code: `#!/usr/bin/env python3
+# Equity: 90% MSCI World
+# Bonds: 60% global treasury proxy (US 10Y)
+
+import pandas as pd
+import numpy as np
+
+# Load MSCI World from local Excel...
+world_m = msci_world.resample('ME').last()
+global_equity_ret = world_m['MSCI World Index'].pct_change()
+
+# Align all data to monthly
+data = pd.concat([global_equity_ret, treasury, tbill, usdeur], axis=1).dropna()
+data.columns = ['equity', 'yield', 'rate', 'fx']
+
+# Bond Returns ≈ price return from yield change + income
+yield_chg = data['yield'].diff() / 100
+bond_ret = -7.0 * yield_chg + (data['yield'].shift(1) / 100 / 12)
+
+# Borrowing cost
+cash_cost = data['rate'] / 100 / 12
+
+# NTSG: 90% equity + 60% bonds - 50% borrowing cost
+ntsg_ret = (0.90 * data['equity'] + 0.60 * bond_ret - 0.50 * cash_cost)
+
+results['90_60_USD'] = 100 * (1 + ntsg_ret).cumprod()
+results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
+    },
+    gold: {
+        title: "Gold",
+        description: "Historical gold prices.",
+        url: "https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart"
+    },
+    usAssets: {
+        title: "US Benchmarks & Stocks",
+        description: "Market data for major US indexes and specific companies.",
+        details: "Daily historical data sourced directly from Yahoo Finance.",
+        items: [
+            { name: "S&P 500 Total Return", ticker: "^SP500TR", url: "https://finance.yahoo.com/quote/%5ESP500TR/" },
+            { name: "Berkshire Hathaway (Class B)", ticker: "BRK-B", url: "https://finance.yahoo.com/quote/BRK-B/" },
+            { name: "Nasdaq TR (QQQ Proxy)", ticker: "QQQ", url: "https://finance.yahoo.com/quote/QQQ/" }
+        ]
+    },
+    cash: {
+        title: "Cash",
+        description: "Calculated using market benchmark rates.",
+        url: "https://fred.stlouisfed.org/series/IR3TIB01EZM156N",
+        url2: "https://fred.stlouisfed.org/series/DTB3"
+    }
+};
 
 export function SettingsPanel() {
     const { currency, setCurrency } = usePortfolio();
@@ -34,7 +185,7 @@ export function SettingsPanel() {
     };
 
     return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 pb-8">
             <Card>
                 <CardHeader>
                     <div className="flex items-center gap-2">
@@ -92,6 +243,120 @@ export function SettingsPanel() {
                             <span className={cn("text-xs font-medium", currency === "USD" ? "text-primary" : "text-muted-foreground")}>USD</span>
                         </div>
                     </div>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle>Data Sources</CardTitle>
+                    </div>
+                    <CardDescription>Documentation and origins of the financial data.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="msci">
+                            <AccordionTrigger>{DATA_SOURCES.msci.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.msci.description}</p>
+                                <a href={DATA_SOURCES.msci.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                    {DATA_SOURCES.msci.url}
+                                </a>
+                                <p className="mt-2 text-xs text-muted-foreground italic">{DATA_SOURCES.msci.details}</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="futures">
+                            <AccordionTrigger>{DATA_SOURCES.managedFutures.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.managedFutures.description}</p>
+                                <div className="space-y-1 mb-2">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Original Index Data:</p>
+                                    <a href={DATA_SOURCES.managedFutures.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.managedFutures.url}
+                                    </a>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Backtest Generator Logic:</p>
+                                    <CodeBlock code={DATA_SOURCES.managedFutures.code!} />
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="dfa">
+                            <AccordionTrigger>{DATA_SOURCES.dfaGlobal.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.dfaGlobal.description}</p>
+                                <div className="flex flex-col gap-1 mb-2">
+                                    <a href={DATA_SOURCES.dfaGlobal.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.dfaGlobal.url}
+                                    </a>
+                                    <a href={DATA_SOURCES.dfaGlobal.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.dfaGlobal.url2}
+                                    </a>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Proxy Calculation Logic:</p>
+                                    <CodeBlock code={DATA_SOURCES.dfaGlobal.code!} />
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="ntsg">
+                            <AccordionTrigger>{DATA_SOURCES.ntsg.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.ntsg.description}</p>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">90/60 Replication Logic:</p>
+                                    <CodeBlock code={DATA_SOURCES.ntsg.code!} />
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="gold">
+                            <AccordionTrigger>{DATA_SOURCES.gold.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.gold.description}</p>
+                                <a href={DATA_SOURCES.gold.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                    {DATA_SOURCES.gold.url}
+                                </a>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="us-assets">
+                            <AccordionTrigger>{DATA_SOURCES.usAssets.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.usAssets.description}</p>
+                                <div className="space-y-2 mt-2">
+                                    {DATA_SOURCES.usAssets.items.map((item) => (
+                                        <div key={item.ticker} className="flex flex-col">
+                                            <span className="text-xs font-semibold">{item.name} ({item.ticker})</span>
+                                            <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline break-all">
+                                                {item.url}
+                                            </a>
+                                        </div>
+                                    ))}
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground italic">{DATA_SOURCES.usAssets.details}</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="cash">
+                            <AccordionTrigger>{DATA_SOURCES.cash.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.cash.description}</p>
+                                <div className="flex flex-col gap-1">
+                                    <a href={DATA_SOURCES.cash.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.cash.url}
+                                    </a>
+                                    <a href={DATA_SOURCES.cash.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.cash.url2}
+                                    </a>
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </CardContent>
             </Card>
         </div>
