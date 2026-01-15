@@ -23,6 +23,7 @@ interface PortfolioContextType {
     isLoading: boolean;
     columns: string[];
     cpiMap: Record<string, number>;
+    firstValidDates: Record<string, string>;
 
     // Configuration
     weights: Record<string, number>;
@@ -645,6 +646,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             isLoading,
             columns,
             cpiMap,
+            firstValidDates: norm?.firstValidDates || {},
             weights,
             setWeights,
             handleWeightChange,

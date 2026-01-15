@@ -103,15 +103,39 @@ export function buildMonthlyCPI(dates: string[], currency: "EUR" | "USD" = "EUR"
 }
 
 export function stdev(arr: number[]): number {
-    if (!arr.length) return 0; const m = arr.reduce((a, b) => a + b, 0) / arr.length;
-    const v = arr.reduce((s, x) => s + Math.pow(x - m, 2), 0) / (arr.length - 1 || 1); return Math.sqrt(Math.max(v, 0));
+    if (arr.length <= 1) return 0; // Standard deviation is undefined for single data point
+    const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const v = arr.reduce((s, x) => s + Math.pow(x - m, 2), 0) / (arr.length - 1);
+    return Math.sqrt(Math.max(v, 0));
 }
 
+/**
+ * Calculates CAGR (Compound Annual Growth Rate) for lump sum investments.
+ * Formula: (EndValue / StartValue)^(1/years) - 1
+ *
+ * @param indexSeries - Array of portfolio values over time
+ * @returns Annual growth rate as a decimal (e.g., 0.08 for 8%)
+ */
 export function cagr(indexSeries: { value: number }[]): number {
     if (!indexSeries.length) return 0; const s = indexSeries[0].value, e = indexSeries[indexSeries.length - 1].value;
     const yrs = (indexSeries.length - 1) / 12; if (yrs <= 0 || s <= 0) return 0; return Math.pow(e / s, 1 / yrs) - 1;
 }
 
+/**
+ * Calculates CAGR for recurring/hybrid investments (DCA).
+ * This measures the return on invested capital, NOT time-weighted return.
+ *
+ * Formula: (FinalValue / TotalInvested)^(1/years) - 1
+ *
+ * Important: This formula compares final value to total contributions,
+ * which gives you the annualized rate of return on your invested capital.
+ * It's NOT the same as IRR (Internal Rate of Return) which would account
+ * for the timing of each contribution.
+ *
+ * @param portValues - Array of portfolio values over time
+ * @param totalInvested - Array of cumulative invested amounts
+ * @returns Annual return on invested capital as a decimal (e.g., 0.08 for 8%)
+ */
 export function cagrRecurring(portValues: number[], totalInvested: number[]): number {
     if (!portValues.length || !totalInvested.length) return 0;
     const finalValue = portValues[portValues.length - 1];
@@ -250,6 +274,29 @@ export interface NormalizedData {
     lastValidDates: Record<string, string>;
 }
 
+/**
+ * Checks if any assets in the portfolio have backfilled data for the given date range.
+ * Returns assets that have synthetic data before their actual data availability.
+ */
+export function getBackfilledAssets(
+    weights: Record<string, number>,
+    startDate: string,
+    firstValidDates: Record<string, string>
+): { asset: string; actualStartDate: string }[] {
+    const backfilled: { asset: string; actualStartDate: string }[] = [];
+
+    for (const [asset, weight] of Object.entries(weights)) {
+        if (weight > 0 && firstValidDates[asset]) {
+            const actualStart = firstValidDates[asset];
+            if (startDate < actualStart) {
+                backfilled.push({ asset, actualStartDate: actualStart });
+            }
+        }
+    }
+
+    return backfilled;
+}
+
 export function normalizeAndInterpolate(priceTable: any[], startDateStr: string): NormalizedData {
     const dates = priceTable.map(r => toMonthStr(r.Date || r.date || r["Date"])).filter(Boolean).sort();
     const unique = Array.from(new Set(dates)); const first = unique[0]; const last = unique[unique.length - 1];
@@ -376,6 +423,24 @@ export function computePortfolio(
     };
 }
 
+/**
+ * Computes portfolio for recurring monthly investments (Dollar Cost Averaging).
+ *
+ * Process:
+ * 1. At the start of each month, add new investment according to target weights
+ * 2. Apply market returns to all holdings
+ * 3. Rebalance holdings to target weights at specified intervals
+ *
+ * Key Metrics:
+ * - portRets[t]: Period return = (valueAfterReturns - totalValueBefore) / totalValueBefore
+ * - portValues[t]: Total portfolio value in monetary terms
+ * - totalInvested[t]: Cumulative amount invested
+ * - normalizedIndex[t]: Performance index based on returns (starts at 100)
+ *
+ * Note: To measure return on invested capital, use portValues / totalInvested
+ *
+ * @returns PortfolioResult with monetary values and normalized index
+ */
 export function computeRecurringPortfolio(dates: string[], series: Record<string, (number | null)[]>, weights: Record<string, number>, rebalance: RebalancePeriod = "Annual", monthlyInvestment: number = 1000): PortfolioResult {
     const cols = Object.keys(series);
     const wVec = cols.map(c => weights[c] ?? 0);

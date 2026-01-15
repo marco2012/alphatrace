@@ -7,6 +7,9 @@ import { PortfolioChart } from "./portfolio-chart";
 import { MetricsCards } from "./metrics-cards";
 import { DrawdownChart } from "./drawdown-chart";
 import { AnnualReturnsChart } from "./annual-returns-chart";
+import { DataAvailabilityWarning } from "./data-availability-warning";
+import { getBackfilledAssets } from "@/lib/finance";
+import { useMemo } from "react";
 
 export function Dashboard() {
     const {
@@ -15,8 +18,14 @@ export function Dashboard() {
         columns,
         portfolio,
         isLoading,
-        savedPortfolios
+        savedPortfolios,
+        startDate,
+        firstValidDates
     } = usePortfolio();
+
+    const backfilledAssets = useMemo(() => {
+        return getBackfilledAssets(weights, startDate, firstValidDates);
+    }, [weights, startDate, firstValidDates]);
 
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -40,6 +49,8 @@ export function Dashboard() {
                         <h2 className="text-2xl font-bold tracking-tight">Overview</h2>
                     </div>
                 </div>
+
+                <DataAvailabilityWarning backfilledAssets={backfilledAssets} />
 
                 <MetricsCards portfolio={portfolio} />
 

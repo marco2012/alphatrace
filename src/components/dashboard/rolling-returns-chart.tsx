@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
 import { useMemo, useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 
 interface RollingReturnsChartProps {
@@ -28,24 +27,14 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
     const data = useMemo(() => {
         if (!portfolio) return [];
 
-        const hasInvested = portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.dates.length;
-
-        let seriesValues: number[];
-        let investedValues: number[] | undefined;
-        let dates: string[];
-
-        if (hasInvested) {
-            dates = portfolio.dates;
-            seriesValues = portfolio.portValues!;
-            investedValues = portfolio.totalInvested!;
-        } else {
-            const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
-                date: d,
-                value: portfolio.idxMap[d]
-            }));
-            dates = idxArray.map(x => x.date);
-            seriesValues = idxArray.map(x => x.value);
-        }
+        // Always use idxMap (Time-Weighted Return) for rolling strategy comparison
+        // This ensures the metric reflects the strategy performance, independent of cashflow timing (MWR)
+        const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
+            date: d,
+            value: portfolio.idxMap[d]
+        }));
+        const dates = idxArray.map(x => x.date);
+        const seriesValues = idxArray.map(x => x.value);
 
         // Calculate Rolling CAGR
         // years * 12 months
@@ -58,20 +47,10 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
             const startVal = seriesValues[i - period];
             const endVal = seriesValues[i];
 
+            // CAGR = (EndValue / StartValue)^(1/n) - 1
             let cagr = 0;
-            if (investedValues) {
-                const startInv = investedValues[i - period];
-                const endInv = investedValues[i];
-                const netContrib = endInv - startInv;
-                const denominator = startVal + netContrib;
-                if (denominator > 0) {
-                    cagr = Math.pow(endVal / denominator, 1 / years) - 1;
-                }
-            } else {
-                // CAGR = (EndValue / StartValue)^(1/n) - 1
-                if (startVal > 0) {
-                    cagr = Math.pow(endVal / startVal, 1 / years) - 1;
-                }
+            if (startVal > 0) {
+                cagr = Math.pow(endVal / startVal, 1 / years) - 1;
             }
 
             result.push({
