@@ -17,13 +17,12 @@ import { PortfolioResult } from "@/lib/finance";
 
 type InflationImpactChartProps = {
     portfolio: PortfolioResult | null;
-    annualInflation?: number;
+    cpiMap?: Record<string, number>;
+    currency?: "EUR" | "USD";
 };
 
-export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: InflationImpactChartProps) {
+export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" }: InflationImpactChartProps) {
     if (!portfolio) return null;
-
-    const monthlyInflation = Math.pow(1 + annualInflation, 1 / 12) - 1;
 
     const isMonetary = !!(portfolio.portValues && portfolio.dates && portfolio.portValues.length === portfolio.dates.length);
 
@@ -36,9 +35,19 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
         : dates.map((d) => portfolio.idxMap[d]);
 
     const data = dates.map((date, i) => {
-        const inflationIndex = Math.pow(1 + monthlyInflation, i);
         const nominal = nominalSeries[i] ?? 0;
-        const real = inflationIndex > 0 ? nominal / inflationIndex : nominal;
+        let real = nominal;
+        
+        // If we have CPI map, use it. Otherwise no adjustment (or fallback).
+        // cpiMap[date] is the CPI index relative to start date=100?
+        // Actually buildMonthlyCPI sets start date = 100.
+        // So real = nominal / (cpi / 100) = nominal * 100 / cpi
+        
+        const cpi = cpiMap[date];
+        if (cpi && cpi > 0) {
+            real = (nominal * 100) / cpi;
+        }
+        
         return { date, nominal, real };
     });
 
@@ -61,13 +70,15 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
         window.URL.revokeObjectURL(url);
     };
 
+    const currencySymbol = currency === "USD" ? "$" : "€";
+
     return (
         <Card className="col-span-4">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
                     <CardTitle>Inflation Impact</CardTitle>
                     <CardDescription>
-                        Nominal vs inflation-adjusted growth (assumes {(annualInflation * 100).toFixed(1)}% annual inflation).
+                        Nominal vs inflation-adjusted growth ({currency} CPI).
                     </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
@@ -95,7 +106,7 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
                                 axisLine={false}
                                 tickFormatter={(v) => {
                                     const value = Number(v);
-                                    if (isMonetary) return `€${(value / 1000).toFixed(0)}k`;
+                                    if (isMonetary) return `${currencySymbol}${(value / 1000).toFixed(0)}k`;
                                     return value.toFixed(0);
                                 }}
                                 domain={["auto", "auto"]}
@@ -106,7 +117,7 @@ export function InflationImpactChart({ portfolio, annualInflation = 0.02 }: Infl
                                 formatter={(value: number, name: string) => {
                                     const label = name === "nominal" ? "Nominal" : "Real";
                                     if (isMonetary) {
-                                        return [`€${value.toLocaleString("en-IE", { maximumFractionDigits: 0 })}`, label];
+                                        return [`${currencySymbol}${value.toLocaleString("en-IE", { maximumFractionDigits: 0 })}`, label];
                                     }
                                     return [value.toFixed(2), label];
                                 }}

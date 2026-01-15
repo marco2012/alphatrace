@@ -15,7 +15,6 @@ import { MonteCarloChart } from "@/components/dashboard/monte-carlo-chart";
 import { CorrelationMatrix } from "@/components/dashboard/correlation-matrix";
 import { RiskReturnScatterChart } from "@/components/dashboard/risk-return-scatter-chart";
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
-import { AssetContributionChart } from "@/components/dashboard/asset-contribution-chart";
 import { PortfolioCompositionCards } from "@/components/dashboard/portfolio-composition-cards";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +30,7 @@ import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigge
 import {
     annualVol,
     averageRolling10YearCAGR,
+    averageRolling5YearCAGR,
     cagr,
     cagrRecurring,
     computeAnnualReturns,
@@ -61,8 +61,10 @@ import {
     ReferenceLine
 } from "recharts";
 
-import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy, Highlighter, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Plus, X, Download, Minus, Info, Share2, Check, Copy, Highlighter, Search, Split } from "lucide-react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 const METRIC_EXPLANATIONS = {
     cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
@@ -75,6 +77,7 @@ const METRIC_EXPLANATIONS = {
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
     avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
+    avgRolling5YearCAGRValue: "Average 5Y Rolling CAGR. The average of all possible 5-year rolling Compound Annual Growth Rates.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
     capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
 };
@@ -165,13 +168,31 @@ export function AnalysisSection() {
         setMonthlyInvestment,
         setInvestmentMode,
         setRebalance,
-        currency
+        currency,
+        cpiMap
     } = usePortfolio();
 
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
     const [justCopied, setJustCopied] = useState(false);
+
+    const [selectedItems, setSelectedItems] = useState<AnalysisItem[]>([{
+        id: "current",
+        type: "portfolio",
+        name: "Current Portfolio",
+        color: COLORS[0],
+        result: null
+    }]);
+
+    const [typeToAdd, setTypeToAdd] = useState<"portfolio" | "asset">("portfolio");
+    const [selectedForAdd, setSelectedForAdd] = useState<string[]>([]);
+    const [rollingYears, setRollingYears] = useState(10);
+    const [rollingBetaYears, setRollingBetaYears] = useState(3);
+    const [betaBenchmark, setBetaBenchmark] = useState<string | null>(null);
+    const [simSelectedKey, setSimSelectedKey] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [decomposePortfolios, setDecomposePortfolios] = useState(false);
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
 
@@ -270,14 +291,6 @@ export function AnalysisSection() {
         return { start: itemStart, end: itemEnd };
     }, [norm, weights, savedPortfolios]);
 
-    const [selectedItems, setSelectedItems] = useState<AnalysisItem[]>([{
-        id: "current",
-        type: "portfolio",
-        name: "Current Portfolio",
-        color: COLORS[0],
-        result: null
-    }]);
-
     // Handle Share URL on mount
     useEffect(() => {
         const shareParam = searchParams.get("share");
@@ -310,6 +323,7 @@ export function AnalysisSection() {
                     if (config.rollingYears) setRollingYears(config.rollingYears);
                     if (config.rollingBetaYears) setRollingBetaYears(config.rollingBetaYears);
                     if (config.betaBenchmark) setBetaBenchmark(config.betaBenchmark);
+                    if (config.decomposePortfolios) setDecomposePortfolios(config.decomposePortfolios);
                 }
 
                 // Clear the param
@@ -358,7 +372,8 @@ export function AnalysisSection() {
             config: {
                 rollingYears,
                 rollingBetaYears,
-                betaBenchmark
+                betaBenchmark,
+                decomposePortfolios
             }
         };
 
@@ -372,14 +387,6 @@ export function AnalysisSection() {
             console.error("Failed to generate share URL", e);
         }
     };
-
-    const [typeToAdd, setTypeToAdd] = useState<"portfolio" | "asset">("portfolio");
-    const [selectedForAdd, setSelectedForAdd] = useState<string[]>([]);
-    const [rollingYears, setRollingYears] = useState(10);
-    const [rollingBetaYears, setRollingBetaYears] = useState(3);
-    const [betaBenchmark, setBetaBenchmark] = useState<string | null>(null);
-    const [simSelectedKey, setSimSelectedKey] = useState<string | null>(null);
-    const [searchTerm, setSearchTerm] = useState("");
 
     const filteredPortfolios = useMemo(() => {
         return savedPortfolios.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -404,21 +411,69 @@ export function AnalysisSection() {
     });
 
     const itemsWithResults = useMemo(() => {
+        const convertWeights = (w: Record<string, number>) => {
+            const newW: Record<string, number> = {};
+            const targetSuffix = `(${currency})`;
+            const otherSuffix = currency === "EUR" ? "(USD)" : "(EUR)";
+            
+            Object.entries(w).forEach(([asset, weight]) => {
+                if (weight === 0) return;
+                
+                if (asset.endsWith(targetSuffix)) {
+                    newW[asset] = weight;
+                    return;
+                }
+                
+                if (asset.endsWith(otherSuffix)) {
+                    const base = asset.substring(0, asset.length - otherSuffix.length).trim();
+                    const match = assets.find(a => a.startsWith(base) && a.endsWith(targetSuffix));
+                    if (match) {
+                        newW[match] = weight;
+                        return;
+                    }
+                }
+                
+                newW[asset] = weight;
+            });
+            return newW;
+        };
+
+        const convertAssetId = (id: string) => {
+            const targetSuffix = `(${currency})`;
+            const otherSuffix = currency === "EUR" ? "(USD)" : "(EUR)";
+            if (id.endsWith(targetSuffix)) return id;
+            if (id.endsWith(otherSuffix)) {
+                const base = id.substring(0, id.length - otherSuffix.length).trim();
+                const match = assets.find(a => a.startsWith(base) && a.endsWith(targetSuffix));
+                if (match) return match;
+            }
+            return id;
+        };
+
         return selectedItems.map(item => {
             let result: PortfolioResult | null = null;
+            let effectiveWeights: Record<string, number> | undefined;
+            let effectiveId = item.id;
+
             if (item.type === "portfolio") {
                 if (item.weights) {
-                    result = computeCustomPortfolio(item.weights);
+                    effectiveWeights = convertWeights(item.weights);
+                    result = computeCustomPortfolio(effectiveWeights);
                 } else if (item.id === "current") {
                     result = portfolio;
+                    effectiveWeights = weights; // current weights are already converted in context
                 } else {
                     const p = savedPortfolios.find(sp => sp.id === item.id);
-                    if (p) result = computeCustomPortfolio(p.weights);
+                    if (p) {
+                        effectiveWeights = convertWeights(p.weights);
+                        result = computeCustomPortfolio(effectiveWeights);
+                    }
                 }
             } else if (item.type === "asset") {
-                result = computeAssetPortfolio(item.id);
+                effectiveId = convertAssetId(item.id);
+                result = computeAssetPortfolio(effectiveId);
             }
-            return { ...item, result };
+            return { ...item, result, effectiveWeights, effectiveId }; 
         });
     }, [
         selectedItems,
@@ -432,13 +487,81 @@ export function AnalysisSection() {
         monthlyInvestment,
         rebalance,
         endDate,
-        startDate
+        startDate,
+        currency,
+        assets,
+        weights
     ]);
+
+    const decomposedItems = useMemo(() => {
+        if (!decomposePortfolios) return itemsWithResults;
+
+        const flattenedItems: AnalysisItem[] = [];
+        const seenAssets = new Set<string>();
+
+        // Helper to get consistent color for an asset
+        const getAssetColor = (assetName: string) => {
+            // Simple hash for consistent color
+            let hash = 0;
+            for (let i = 0; i < assetName.length; i++) {
+                hash = assetName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+            return "#" + "00000".substring(0, 6 - c.length) + c;
+        };
+
+        // itemsWithResults now contains effectiveWeights and effectiveId which are currency-converted
+        itemsWithResults.forEach(item => {
+            if (item.type === "portfolio") {
+                const itemWeights = (item as any).effectiveWeights as Record<string, number> | undefined;
+
+                if (itemWeights) {
+                    Object.entries(itemWeights).forEach(([asset, weight]) => {
+                        if (weight > 0 && !seenAssets.has(asset)) {
+                            seenAssets.add(asset);
+                            // Compute asset portfolio result
+                            const result = computeAssetPortfolio(asset);
+                            
+                            const existingAssetItem = itemsWithResults.find(i => i.type === "asset" && (i as any).effectiveId === asset);
+                            const color = existingAssetItem ? existingAssetItem.color : getNextColor(flattenedItems, flattenedItems.length);
+
+                            flattenedItems.push({
+                                id: asset,
+                                type: "asset",
+                                name: asset,
+                                color: color,
+                                result
+                            });
+                        }
+                    });
+                }
+            } else {
+                // It's already an asset
+                const assetId = (item as any).effectiveId || item.id;
+                if (!seenAssets.has(assetId)) {
+                    seenAssets.add(assetId);
+                    // Use the result already computed in itemsWithResults which used effectiveId
+                    flattenedItems.push({
+                        ...item,
+                        id: assetId,
+                        name: assetId
+                    });
+                }
+            }
+        });
+
+        // Re-assign colors from our main palette to ensure they look nice if count is low
+        return flattenedItems.map((item, index) => ({
+            ...item,
+            color: COLORS[index % COLORS.length]
+        }));
+
+    }, [itemsWithResults, decomposePortfolios, computeAssetPortfolio]);
 
     // Listen for changes in weights to update Current Portfolio definition, or saving new portfolios
     // But specific dependencies are handled in the hooks below.
 
-    const validItems = useMemo(() => itemsWithResults.filter(item => item.result), [itemsWithResults]);
+    const validItems = useMemo(() => decomposedItems.filter(item => item.result), [decomposedItems]);
 
     // Calculate the strictly required date range based on data availability of the selected items.
     const availableDateRange = useMemo(() => {
@@ -457,13 +580,18 @@ export function AnalysisSection() {
             let itemEnd = "9999-12-31";
             let isValidItem = false;
 
+            const assetId = (item as any).effectiveId || item.id;
+
             if (item.type === "asset") {
-                itemStart = firstValidDates[item.id] || "1994-11-01";
-                itemEnd = lastValidDates[item.id] || "9999-12-31";
+                itemStart = firstValidDates[assetId] || "1994-11-01";
+                itemEnd = lastValidDates[assetId] || "9999-12-31";
                 isValidItem = true;
             } else if (item.type === "portfolio") {
                 let itemWeights: Record<string, number> = {};
-                if (item.id === "current") {
+                // Use effectiveWeights if available (converted), otherwise fall back to source
+                if ((item as any).effectiveWeights) {
+                    itemWeights = (item as any).effectiveWeights;
+                } else if (item.id === "current") {
                     itemWeights = weights;
                 } else {
                     const p = savedPortfolios.find(sp => sp.id === item.id);
@@ -619,6 +747,7 @@ export function AnalysisSection() {
                 const sortinoValue = sortino(r.portRets, riskFreeRate);
                 const maxDD = r.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
                 const avgRolling10YearCAGRValue = averageRolling10YearCAGR(r);
+                const avgRolling5YearCAGRValue = averageRolling5YearCAGR(r);
                 const calmarValue = calmar(cagrValue, maxDD);
                 const ulcerIndexValue = ulcerIndex(r.drawdowns);
 
@@ -656,13 +785,15 @@ export function AnalysisSection() {
                     ulcerIndex: fmtNum(ulcerIndexValue),
                     avgRolling10YearCAGRValue,
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
+                    avgRolling5YearCAGRValue,
+                    avgRolling5YearCAGR: fmtPct(avgRolling5YearCAGRValue),
                     recoveryMonthsValue,
                     recoveryMonths,
                     finalValue,
                     cape: calculatePortfolioCAPE(
                         item.type === "asset"
-                            ? { [item.id]: 100 }
-                            : (item.weights || (item.id === "current" ? weights : savedPortfolios.find(p => p.id === item.id)?.weights || {}))
+                            ? { [(item as any).effectiveId || item.id]: 100 }
+                            : ((item as any).effectiveWeights || (item.weights || (item.id === "current" ? weights : savedPortfolios.find(p => p.id === item.id)?.weights || {})))
                     )
                 };
             })
@@ -685,6 +816,8 @@ export function AnalysisSection() {
                 ulcerIndex: string;
                 avgRolling10YearCAGRValue: number;
                 avgRolling10YearCAGR: string;
+                avgRolling5YearCAGRValue: number;
+                avgRolling5YearCAGR: string;
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
                 finalValue: number;
@@ -1176,7 +1309,8 @@ export function AnalysisSection() {
                     <div className="flex flex-col gap-4">
                         <div className="space-y-4">
                             <Tabs value={typeToAdd} onValueChange={(v: any) => { setTypeToAdd(v); setSelectedForAdd([]); setSearchTerm(""); }}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-2">
                                     <TabsList className="grid w-full grid-cols-2 max-w-[300px]">
                                         <TabsTrigger value="portfolio">Portfolios</TabsTrigger>
                                         <TabsTrigger value="asset">Assets</TabsTrigger>
@@ -1241,7 +1375,21 @@ export function AnalysisSection() {
                                         }
                                     </Button>
                                 </div>
-                                <div className="mt-4 relative">
+
+                                <div className="flex items-center space-x-2">
+                                    <Switch
+                                        id="decompose-portfolios"
+                                        checked={decomposePortfolios}
+                                        onCheckedChange={setDecomposePortfolios}
+                                    />
+                                    <Label htmlFor="decompose-portfolios" className="flex items-center gap-2 cursor-pointer">
+                                        <Split className="h-4 w-4" />
+                                        Decompose Portfolios
+                                    </Label>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 relative">
                                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
                                         placeholder={`Search ${typeToAdd === "portfolio" ? "portfolios" : "assets"}...`}
@@ -1442,7 +1590,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("volValue")} className="hidden md:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1474,7 +1622,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("sortinoValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1506,7 +1654,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("calmarValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("calmarValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1522,7 +1670,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="hidden lg:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1538,7 +1686,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
+                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1554,7 +1702,23 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
+                                            <TableHead onClick={() => handleSort("avgRolling5YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Avg 5Y Rolling CAGR
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "avgRolling5YearCAGRValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling5YearCAGRValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1570,7 +1734,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("cape")} className="hidden xl:table-cell cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                            <TableHead onClick={() => handleSort("cape")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
                                                         <div className="flex items-center justify-end gap-1 w-full">
@@ -1593,12 +1757,12 @@ export function AnalysisSection() {
                                             <TableRow key={row.key}>
                                                 <TableCell className="font-medium py-2">
                                                     <div className="flex flex-col">
-                                                        <span>{row.name}</span>
+                                                        <span className="whitespace-nowrap">{row.name}</span>
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
                                                             const range = item ? getItemRange(item) : null;
                                                             return range ? (
-                                                                <span className="text-[10px] text-muted-foreground font-normal">
+                                                                <span className="text-[10px] text-muted-foreground font-normal whitespace-nowrap">
                                                                     {formatDate(range.start)} - {formatDate(range.end)}
                                                                 </span>
                                                             ) : null;
@@ -1609,15 +1773,16 @@ export function AnalysisSection() {
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
-                                                <TableCell className="hidden md:table-cell text-right">{row.vol}</TableCell>
+                                                <TableCell className="text-right">{row.vol}</TableCell>
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
-                                                <TableCell className="hidden lg:table-cell text-right">{row.sortino}</TableCell>
+                                                <TableCell className="text-right">{row.sortino}</TableCell>
                                                 <TableCell className="text-right">{row.maxDD}</TableCell>
-                                                <TableCell className="hidden lg:table-cell text-right">{row.calmar}</TableCell>
-                                                <TableCell className="hidden lg:table-cell text-right">{row.ulcerIndex}</TableCell>
-                                                <TableCell className="hidden xl:table-cell text-right">{row.recoveryMonths}</TableCell>
-                                                <TableCell className="hidden xl:table-cell text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
-                                                <TableCell className="hidden xl:table-cell text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
+                                                <TableCell className="text-right">{row.calmar}</TableCell>
+                                                <TableCell className="text-right">{row.ulcerIndex}</TableCell>
+                                                <TableCell className="text-right">{row.recoveryMonths}</TableCell>
+                                                <TableCell className="text-right text-blue-600">{row.avgRolling5YearCAGR}</TableCell>
+                                                <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
+                                                <TableCell className="text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
@@ -1946,33 +2111,7 @@ export function AnalysisSection() {
                                     items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
                                 />
 
-                                {(() => {
-                                    const portfolioItems = validItems
-                                        .filter(item => item.type === "portfolio" && item.result)
-                                        .map(item => {
-                                            let itemWeights: Record<string, number> = {};
-                                            if (item.id === "current") {
-                                                itemWeights = weights;
-                                            } else {
-                                                const p = savedPortfolios.find(sp => sp.id === item.id);
-                                                if (p) itemWeights = p.weights;
-                                            }
-                                            return {
-                                                name: item.name,
-                                                portfolio: item.result!,
-                                                weights: itemWeights,
-                                                color: item.color
-                                            };
-                                        })
-                                        .filter(p => Object.values(p.weights).some(w => w > 0));
 
-                                    return portfolioItems.length > 0 ? (
-                                        <AssetContributionChart
-                                            key={`comparison-contribution-${calcKey}`}
-                                            items={portfolioItems}
-                                        />
-                                    ) : null;
-                                })()}
 
                                 {(() => {
                                     const portfoliosList = validItems
@@ -2022,8 +2161,8 @@ export function AnalysisSection() {
                         ) : (
                             primaryResult && (
                                 <div className="space-y-6">
-                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} />
-                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} />
+                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} currency={currency} />
+                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} cpiMap={cpiMap} currency={currency} />
                                     <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
                                     <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
                                     <DrawdownChart
@@ -2049,27 +2188,16 @@ export function AnalysisSection() {
                                             .map(([a]) => a);
 
                                         return assetList.length >= 2 ? (
-                                            <>
-                                                <AssetContributionChart
-                                                    key={`single-contribution-${calcKey}`}
-                                                    items={[{
-                                                        name: slicedItems[0]?.name || "Current Portfolio",
-                                                        portfolio: primaryResult,
-                                                        weights: weights,
-                                                        color: COLORS[0]
-                                                    }]}
-                                                />
-                                                <CorrelationMatrix
-                                                    norm={norm}
-                                                    portfolios={[{
-                                                        id: "current",
-                                                        name: slicedItems[0]?.name || "Current Portfolio",
-                                                        assets: assetList
-                                                    }]}
-                                                    startDate={startDate}
-                                                    endDate={endDate}
-                                                />
-                                            </>
+                                            <CorrelationMatrix
+                                                norm={norm}
+                                                portfolios={[{
+                                                    id: "current",
+                                                    name: slicedItems[0]?.name || "Current Portfolio",
+                                                    assets: assetList
+                                                }]}
+                                                startDate={startDate}
+                                                endDate={endDate}
+                                            />
                                         ) : null;
                                     })()}
                                 </div>
@@ -2264,6 +2392,7 @@ export function AnalysisSection() {
                                         endDate={endDate}
                                         rf={riskFreeRate}
                                         initialInvestment={initialInvestment}
+                                        currency={currency}
                                     />
                                 </div>
                             );

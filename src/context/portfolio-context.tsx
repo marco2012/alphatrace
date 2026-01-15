@@ -10,6 +10,7 @@ import {
     computePortfolio,
     computeRecurringPortfolio,
     computeHybridPortfolio,
+    buildMonthlyCPI,
     InvestmentMode,
     RebalancePeriod,
     YearSelection,
@@ -21,6 +22,7 @@ interface PortfolioContextType {
     rows: any[];
     isLoading: boolean;
     columns: string[];
+    cpiMap: Record<string, number>;
 
     // Configuration
     weights: Record<string, number>;
@@ -331,6 +333,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     // Normalize Data
     const norm = useMemo(() => !rows.length ? null : normalizeAndInterpolate(rows, startDate), [rows, startDate]);
 
+    const cpiMap = useMemo(() => {
+        if (!norm) return {};
+        return buildMonthlyCPI(norm.dates, currency);
+    }, [norm, currency]);
+
     // Compute Portfolio
     const portfolio = useMemo<PortfolioResult | null>(() => {
         if (!norm) return null;
@@ -637,6 +644,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             rows,
             isLoading,
             columns,
+            cpiMap,
             weights,
             setWeights,
             handleWeightChange,

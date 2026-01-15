@@ -26,9 +26,10 @@ type MonteCarloChartProps = {
     endDate: string;
     rf?: number;
     initialInvestment: number;
+    currency?: "EUR" | "USD";
 };
 
-export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, initialInvestment }: MonteCarloChartProps) {
+export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, initialInvestment, currency = "EUR" }: MonteCarloChartProps) {
     const [years, setYears] = useState(10);
     const [isLoading, setIsLoading] = useState(false);
     const [simulationData, setSimulationData] = useState<any[]>([]);
@@ -36,6 +37,8 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
     const [optimalWeights, setOptimalWeights] = useState<Record<string, number> | null>(null);
     const [showOptimal, setShowOptimal] = useState(false);
     const [strategy, setStrategy] = useState<OptimizationType>("max_sharpe");
+
+    const currencySymbol = currency === "USD" ? "$" : "€";
 
     const { availableAssets, canCompute } = useMemo(() => {
         if (!norm) return { availableAssets: [] as string[], canCompute: false };
@@ -137,7 +140,7 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
     }, [simulationData, optimalData, showOptimal]);
 
     const formatCurrency = (v: number) =>
-        new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
+        new Intl.NumberFormat(currency === "USD" ? "en-US" : "it-IT", { style: "currency", currency: currency, maximumFractionDigits: 0 }).format(v);
 
     const calcCAGR = (finalVal: number) => {
         if (initialInvestment <= 0 || years <= 0) return 0;
@@ -233,7 +236,7 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
                                         tickLine={false}
                                         axisLine={false}
                                         stroke="#888888"
-                                        tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`}
+                                        tickFormatter={(v) => `${currencySymbol}${(v / 1000).toFixed(0)}k`}
                                     />
                                     <Tooltip
                                         formatter={(value: number) => formatCurrency(value)}

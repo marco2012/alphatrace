@@ -16,9 +16,10 @@ import { PortfolioResult } from "@/lib/finance";
 
 interface PortfolioChartProps {
     portfolio: PortfolioResult | null;
+    currency?: "EUR" | "USD";
 }
 
-export function PortfolioChart({ portfolio }: PortfolioChartProps) {
+export function PortfolioChart({ portfolio, currency = "EUR" }: PortfolioChartProps) {
     if (!portfolio) return null;
 
     const data = (portfolio.portValues && portfolio.dates && portfolio.portValues.length === portfolio.dates.length)
@@ -48,6 +49,8 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
         document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
     };
+
+    const currencySymbol = currency === "USD" ? "$" : "€";
 
     return (
         <Card className="col-span-4">
@@ -91,7 +94,7 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
                                 tickMargin={8}
                                 tickLine={false}
                                 axisLine={false}
-                                tickFormatter={(value) => isMonetary ? `€${(value / 1000).toFixed(0)}k` : value.toFixed(0)}
+                                tickFormatter={(value) => isMonetary ? `${currencySymbol}${(value / 1000).toFixed(0)}k` : value.toFixed(0)}
                                 domain={['auto', 'auto']}
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -99,7 +102,7 @@ export function PortfolioChart({ portfolio }: PortfolioChartProps) {
                                 contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [
-                                    isMonetary ? `€${value.toLocaleString('en-IE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : value.toFixed(2),
+                                    isMonetary ? `${currencySymbol}${value.toLocaleString('en-IE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : value.toFixed(2),
                                     "Value"
                                 ]}
                                 labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}

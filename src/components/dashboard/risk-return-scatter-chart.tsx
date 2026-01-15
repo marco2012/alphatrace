@@ -21,7 +21,7 @@ interface RiskReturnScatterChartProps {
 type CalculationPeriod = "full" | "10y" | "15y" | "20y";
 
 export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
-    const [period, setPeriod] = useState<CalculationPeriod>("full");
+    const [period, setPeriod] = useState<CalculationPeriod>("10y");
     const [includeOrigin, setIncludeOrigin] = useState(true);
 
     // Zoom state
@@ -158,8 +158,8 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                                 <SelectValue placeholder="Period" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="full">Entire Period</SelectItem>
                                 <SelectItem value="10y">Rolling 10 Years</SelectItem>
+                                <SelectItem value="full">Entire Period</SelectItem>
                                 <SelectItem value="15y">Rolling 15 Years</SelectItem>
                                 <SelectItem value="20y">Rolling 20 Years</SelectItem>
                             </SelectContent>

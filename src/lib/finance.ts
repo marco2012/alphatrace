@@ -1,4 +1,4 @@
-import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, ASSET_TER_MAPPING, ASSET_CAPE_MAPPING } from "./constants";
+import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, US_ANNUAL_CPI, ASSET_TER_MAPPING, ASSET_CAPE_MAPPING } from "./constants";
 export * from "./constants";
 
 export type RebalancePeriod = "Monthly" | "Quarterly" | "Annual";
@@ -85,6 +85,18 @@ export function buildItalyMonthlyCPI(dates: string[]): Record<string, number> {
     for (let i = 1; i < dates.length; i++) {
         const y = new Date(dates[i]).getFullYear();
         const r = IT_ANNUAL_CPI[y] ?? 0;
+        const monthlyFactor = Math.pow(1 + r / 100, 1 / 12);
+        out[dates[i]] = out[dates[i - 1]] * monthlyFactor;
+    } return out;
+}
+
+export function buildMonthlyCPI(dates: string[], currency: "EUR" | "USD" = "EUR"): Record<string, number> {
+    const out: Record<string, number> = {}; if (!dates.length) return out; out[dates[0]] = 100;
+    const CPI_TABLE = currency === "USD" ? US_ANNUAL_CPI : IT_ANNUAL_CPI;
+    
+    for (let i = 1; i < dates.length; i++) {
+        const y = new Date(dates[i]).getFullYear();
+        const r = CPI_TABLE[y] ?? 0;
         const monthlyFactor = Math.pow(1 + r / 100, 1 / 12);
         out[dates[i]] = out[dates[i - 1]] * monthlyFactor;
     } return out;
@@ -537,6 +549,20 @@ export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
     }
 
     return averageRollingNCAGR(idxMap, 10);
+}
+
+export function averageRolling5YearCAGR(portfolio: PortfolioResult): number {
+    // Use monetary series if available, otherwise use normalized index
+    const series = portfolio.portValues && portfolio.totalInvested
+        ? portfolio.portValues.map((val, i) => val / portfolio.totalInvested![i] * 100)
+        : portfolio.normalizedIndex || Object.values(portfolio.idxMap);
+
+    const idxMap: Record<string, number> = {};
+    for (let i = 0; i < portfolio.dates.length; i++) {
+        idxMap[portfolio.dates[i]] = series[i];
+    }
+
+    return averageRollingNCAGR(idxMap, 5);
 }
 
 export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string, baseValue: number = 10000): PortfolioResult {
