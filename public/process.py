@@ -48,6 +48,7 @@ TER_MAPPING = {
     "commodity_enhanced": 0.0070,
     "lg_commodity": 0.0030,
     "roll_select_commodity": 0.0028,
+    "ubs_commodity": 0.0034,
 }
 
 # Embedded SG CTA Index Data (Proxy for DBMF)
@@ -686,6 +687,71 @@ def get_bloomberg_roll_select_portfolio(start_date='1991-01-01'):
         print(f"  > Error calculating Bloomberg Roll Select: {e}")
         return pd.Series(dtype='float64')
 
+def get_ubs_cmci_portfolio(start_date='1991-01-01'):
+    """
+    Constructs the UBS CMCI Composite Commodity portfolio.
+    Splicing Logic (Daily):
+      1. Primary ETF: UC14.L (UBS CMCI Composite SF UCITS ETF)
+      2. Strategic Index: ^CMCIER (UBS Bloomberg CMCI Composite Excess Return)
+      3. Long-term Proxy: ^SPGSCI (S&P GSCI Index)
+    Returns overwrite in that priority order.
+    """
+    print("Calculating UBS CMCI Composite Commodity portfolio...")
+    
+    ticker_etf = "UC14.L"
+    ticker_index = "^CMCIER"
+    ticker_proxy = "^SPGSCI"
+    
+    try:
+        # Download all at once
+        tickers = [ticker_etf, ticker_index, ticker_proxy]
+        data = yf.download(tickers, start=start_date, interval="1d", auto_adjust=True, progress=False)
+        
+        # Handle columns
+        if isinstance(data.columns, pd.MultiIndex):
+            if 'Close' in data.columns.get_level_values(0):
+                df = data['Close']
+            else:
+                df = data.iloc[:, 0]
+        else:
+            df = data['Close'] if 'Close' in data.columns else data
+
+        # Calculate daily returns
+        returns = df.pct_change()
+        
+        # Ensure we have the columns
+        c_etf = returns[ticker_etf] if ticker_etf in returns.columns else pd.Series(dtype='float64')
+        c_index = returns[ticker_index] if ticker_index in returns.columns else pd.Series(dtype='float64')
+        c_proxy = returns[ticker_proxy] if ticker_proxy in returns.columns else pd.Series(dtype='float64')
+
+        if c_proxy.empty:
+            print("  > Missing proxy ^SPGSCI for UBS CMCI.")
+            return pd.Series(dtype='float64')
+
+        # Splicing: Start with Proxy, overwrite with Index, then ETF
+        combined_returns = c_proxy.copy()
+        
+        if not c_index.empty:
+            common = combined_returns.index.intersection(c_index.dropna().index)
+            combined_returns.loc[common] = c_index.loc[common]
+            
+        if not c_etf.empty:
+            common = combined_returns.index.intersection(c_etf.dropna().index)
+            combined_returns.loc[common] = c_etf.loc[common]
+            
+        combined_returns = combined_returns.fillna(0) # Handle remaining NaNs
+        
+        # Build Index
+        usd_index = 100 * (1 + combined_returns).cumprod()
+        
+        # Resample to Monthly
+        usd_index_m = usd_index.resample('ME').last()
+        return usd_index_m.rename('ubs_commodity_usd')
+
+    except Exception as e:
+        print(f"  > Error calculating UBS CMCI: {e}")
+        return pd.Series(dtype='float64')
+
 def process_files():
     base_path = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_path)
@@ -879,7 +945,19 @@ def process_files():
         print(f"  Applied TER of {ter*100:.2f}% to roll_select_commodity_usd")
         combined = combined.join(df_roll, how='outer')
 
-    # 11. Fetch Exchange Rates and convert columns
+    # 12. Add UBS CMCI Composite Commodity
+    df_ubs = get_ubs_cmci_portfolio()
+    if not df_ubs.empty:
+        ter = TER_MAPPING['ubs_commodity']
+        monthly_ter = ter / 12
+        rets = df_ubs.pct_change()
+        adj_rets = rets - monthly_ter
+        adj_rets.iloc[0] = 0
+        df_ubs = df_ubs.iloc[0] * (1 + adj_rets).cumprod()
+        print(f"  Applied TER of {ter*100:.2f}% to ubs_commodity_usd")
+        combined = combined.join(df_ubs, how='outer')
+
+    # 13. Fetch Exchange Rates and convert columns
     print("Fetching exchange rates (FRED + YFinance fallback)...")
     try:
         fx_fred = pdr.get_data_fred('DEXUSEU', start="1999-01-01")['DEXUSEU']
@@ -949,7 +1027,8 @@ def process_files():
         "commodity": "Commodities (BCOM)",
         "commodity_enhanced": "WisdomTree Enhanced Commodity",
         "lg_commodity": "L&G Multi-Strategy Enhanced Commodities",
-        "roll_select_commodity": "Bloomberg Roll Select Commodity"
+        "roll_select_commodity": "Bloomberg Roll Select Commodity",
+        "ubs_commodity": "UBS CMCI Composite Commodity"
     }
     
     rena = {}

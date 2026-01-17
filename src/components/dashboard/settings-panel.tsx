@@ -169,7 +169,8 @@ results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
             { name: "Bloomberg Commodity Index", ticker: "^BCOM", url: "https://finance.yahoo.com/quote/%5EBCOM/" },
             { name: "L&G Multi-Strategy Enhanced Commodities", details: "Spliced ^SPGSCI (pre-2006) and DBC (post-2006) to simulate long-term performance." },
             { name: "WisdomTree Enhanced Commodity", details: "Bloomberg Commodity Index (enhanced with 1.5% annual alpha proxy) spliced with WCOA.L ETF (2016+)." },
-            { name: "Bloomberg Roll Select Commodity", details: "3-Phase Splice: ^SPGSCI (pre-2012), ^BCOM (2012-2018), and CMDY (post-2018)." }
+            { name: "Bloomberg Roll Select Commodity", details: "3-Phase Splice: ^SPGSCI (pre-2012), ^BCOM (2012-2018), and CMDY (post-2018)." },
+            { name: "UBS CMCI Composite Commodity", details: "Hierarchical Splicing: ^SPGSCI (Proxy) -> ^CMCIER (Index) -> UC14.L (ETF)." }
         ],
         code: `# 1. Bloomberg Commodity Index (^BCOM)
 # Retrieved directly from Yahoo Finance (1mo interval)
@@ -197,7 +198,16 @@ conditions = [
     returns.index >= '2018-04-03'
 ]
 choices = [returns['^SPGSCI'], returns['^BCOM'], returns['CMDY']]
-synthetic_returns = np.select(conditions, choices, default=0)`,
+synthetic_returns = np.select(conditions, choices, default=0)
+
+# 5. UBS CMCI Composite Commodity
+# Prioritized Splicing (Daily resolution):
+# Base: ^SPGSCI (Proxy)
+# Overwrite with ^CMCIER (Index) where available
+# Overwrite with UC14.L (ETF) where available
+combined_rets = proxy_returns.copy()
+combined_rets.loc[index_common] = index_returns.loc[index_common]
+combined_rets.loc[etf_common] = etf_returns.loc[etf_common]`,
         fullCodeLG: `import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -268,6 +278,33 @@ def backtest_bloomberg_roll_select():
     
     strat_series = pd.Series(synthetic_returns, index=returns.index).fillna(0)
     usd_index = 100 * (1 + strat_series).cumprod()
+    
+    monthly = usd_index.resample('ME').last()
+    return monthly`,
+        fullCodeUBS: `import yfinance as yf
+import pandas as pd
+import numpy as np
+
+def get_ubs_cmci():
+    tickers = ["UC14.L", "^CMCIER", "^SPGSCI"]
+    data = yf.download(tickers, start="1991-01-01", interval="1d")['Close']
+    returns = data.pct_change()
+    
+    # Priority Overwrite Splicing
+    combined = returns['^SPGSCI'].copy()
+    
+    # Overwrite with Index if available
+    idx_rets = returns['^CMCIER'].dropna()
+    common_idx = combined.index.intersection(idx_rets.index)
+    combined.loc[common_idx] = idx_rets.loc[common_idx]
+    
+    # Overwrite with ETF if available
+    etf_rets = returns['UC14.L'].dropna()
+    common_etf = combined.index.intersection(etf_rets.index)
+    combined.loc[common_etf] = etf_rets.loc[common_etf]
+    
+    combined = combined.fillna(0)
+    usd_index = 100 * (1 + combined).cumprod()
     
     monthly = usd_index.resample('ME').last()
     return monthly`
@@ -508,6 +545,10 @@ export function SettingsPanel() {
                                                 <div className="space-y-1">
                                                     <p className="text-[10px] font-bold">Bloomberg Roll Select Full Script:</p>
                                                     <CodeBlock code={DATA_SOURCES.commodities.fullCodeRollSelect!} />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] font-bold">UBS CMCI Composite Full Script:</p>
+                                                    <CodeBlock code={DATA_SOURCES.commodities.fullCodeUBS!} />
                                                 </div>
                                             </AccordionContent>
                                         </AccordionItem>
