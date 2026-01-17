@@ -1,0 +1,7 @@
+pandas
+yfinance
+pandas-datareader
+numpy
+requests
+xlsxwriter
+openpyxl
