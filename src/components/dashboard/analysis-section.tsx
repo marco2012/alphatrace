@@ -406,7 +406,7 @@ export function AnalysisSection() {
         }
     }, [assets, betaBenchmark]);
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: "asc" | "desc" } | null>({
-        key: "cagrValue",
+        key: "avgRolling10YearCAGRValue",
         direction: "desc"
     });
 
@@ -1546,11 +1546,10 @@ export function AnalysisSection() {
                             <CardTitle>Key Metrics</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
+                            <Table>
+                                <TableHeader>
                                         <TableRow>
-                                            <TableHead onClick={() => handleSort("name")} className="cursor-pointer hover:bg-muted/50">
+                                            <TableHead onClick={() => handleSort("name")} className="cursor-pointer hover:bg-muted/50 sticky left-0 bg-background z-20 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                                 <div className="flex items-center justify-between">
                                                     Strategy
                                                     {sortConfig?.key === "name" && (
@@ -1587,6 +1586,38 @@ export function AnalysisSection() {
                                                     </UITooltipTrigger>
                                                     <UITooltipContent side="top" align="center">
                                                         <p className="w-48">{METRIC_EXPLANATIONS.cagrValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("avgRolling5YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            5Y CAGR
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "avgRolling5YearCAGRValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling5YearCAGRValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            10Y CAGR
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "avgRolling10YearCAGRValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
@@ -1654,22 +1685,6 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("calmarValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Calmar
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "calmarValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.calmarValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
                                             <TableHead onClick={() => handleSort("ulcerIndexValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1702,38 +1717,6 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
-                                            <TableHead onClick={() => handleSort("avgRolling5YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Avg 5Y Rolling CAGR
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "avgRolling5YearCAGRValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling5YearCAGRValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[160px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Avg 10Y Rolling CAGR
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "avgRolling10YearCAGRValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
                                             <TableHead onClick={() => handleSort("cape")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1755,7 +1738,7 @@ export function AnalysisSection() {
                                     <TableBody>
                                         {metricsTableRows.map((row) => (
                                             <TableRow key={row.key}>
-                                                <TableCell className="font-medium py-2">
+                                                <TableCell className="font-medium py-2 sticky left-0 bg-background z-10 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                                     <div className="flex flex-col">
                                                         <span className="whitespace-nowrap">{row.name}</span>
                                                         {(() => {
@@ -1773,24 +1756,29 @@ export function AnalysisSection() {
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </TableCell>
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
+                                                <TableCell className="text-right text-blue-600">{row.avgRolling5YearCAGR}</TableCell>
+                                                <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
                                                 <TableCell className="text-right">{row.vol}</TableCell>
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
                                                 <TableCell className="text-right">{row.sortino}</TableCell>
-                                                <TableCell className="text-right">{row.maxDD}</TableCell>
-                                                <TableCell className="text-right">{row.calmar}</TableCell>
+                                                <TableCell className={`text-right ${(() => {
+                                                    const val = Math.abs(row.maxDDValue);
+                                                    if (val < 0.15) return "text-red-400";
+                                                    if (val < 0.25) return "text-red-500";
+                                                    if (val < 0.35) return "text-red-600";
+                                                    if (val < 0.50) return "text-red-700";
+                                                    return "text-red-800";
+                                                })()}`}>{row.maxDD}</TableCell>
                                                 <TableCell className="text-right">{row.ulcerIndex}</TableCell>
                                                 <TableCell className="text-right">{row.recoveryMonths}</TableCell>
-                                                <TableCell className="text-right text-blue-600">{row.avgRolling5YearCAGR}</TableCell>
-                                                <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
                                                 <TableCell className="text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>
                                 </Table>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
+                            </CardContent>
+                        </Card>
+                    )}
 
                 {validItems.length > 0 && (
                     <PortfolioCompositionCards
