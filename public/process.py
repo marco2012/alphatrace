@@ -15,6 +15,7 @@ YF_ASSETS = {
     "nasdaq_tr_usd": "QQQ",         # Nasdaq TR Proxy
     "dgeix_usd": "DGEIX",         # Dimensional US Core Equity I
     "dfemx_usd": "DFEMX",         # DFA Emerging Markets
+    "commodity_usd": "^BCOM",     # Bloomberg Commodity Index
 }
 
 # Annual TER for MSCI Indexes (deducted from monthly returns)
@@ -43,6 +44,7 @@ TER_MAPPING = {
     "gold": 0.0012,
     "nasdaq_tr": 0.0030,
     "sp500_tr": 0.0007,
+    "commodity": 0.0030,
 }
 
 # Embedded SG CTA Index Data (Proxy for DBMF)
@@ -694,7 +696,8 @@ def process_files():
         "dfemx": "DFA Emerging Markets",
         "ntsg": "WisdomTree Global Efficient Core (NTSG)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
-        "cash": "CASH"
+        "cash": "CASH",
+        "commodity": "Commodities (BCOM)"
     }
     
     rena = {}
