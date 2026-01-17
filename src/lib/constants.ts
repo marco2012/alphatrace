@@ -30,6 +30,8 @@ export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "MSCI World Minimum Volatility (EUR)": "stocks",
     "Commodities (BCOM) (USD)": "alternatives",
     "Commodities (BCOM) (EUR)": "alternatives",
+    "WisdomTree Enhanced Commodity (USD)": "alternatives",
+    "WisdomTree Enhanced Commodity (EUR)": "alternatives",
 };
 
 export const IT_ANNUAL_CPI: Record<number, number> = {
@@ -72,6 +74,7 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "UK": 0.0033,
     "MSCI Emerging Market": 0.0018,
     "Commodities (BCOM)": 0.0030,
+    "WisdomTree Enhanced Commodity": 0.0070,
 };
 
 export const ASSET_CAPE_MAPPING: Record<string, number> = {

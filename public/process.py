@@ -44,7 +44,8 @@ TER_MAPPING = {
     "gold": 0.0012,
     "nasdaq_tr": 0.0030,
     "sp500_tr": 0.0007,
-    "commodity": 0.0030,
+    "commodity": 0.0019,
+    "commodity_enhanced": 0.0070,
 }
 
 # Embedded SG CTA Index Data (Proxy for DBMF)
@@ -473,6 +474,101 @@ def get_dbmf_portfolio():
     
     return dbmf_combined.rename('dbmf_usd')
 
+def generate_synthetic_monthly_history(start_year):
+    """
+    Creates monthly returns based on BCOM annual historical performance.
+    Used as fallback when direct download is unavailable for 90s.
+    """
+    # Annual BCOM Returns (1991-2015)
+    annual_map = {
+        1991: -0.057, 1992: 0.032, 1993: -0.019, 1994: 0.116, 1995: 0.058,
+        1996: 0.233, 1997: -0.076, 1998: -0.270, 1999: 0.120, 2000: 0.318,
+        2001: -0.195, 2002: 0.250, 2003: 0.239, 2004: 0.091, 2005: 0.214,
+        2006: -0.151, 2007: 0.162, 2008: -0.356, 2009: 0.189, 2010: 0.168,
+        2011: -0.133, 2012: -0.011, 2013: -0.095, 2014: -0.170, 2015: -0.247
+    }
+    
+    dates = pd.date_range(start=f"{start_year}-01-01", end="2016-04-01", freq='MS')
+    synthetic_rets = []
+    
+    for date in dates:
+        year_ret = annual_map.get(date.year, 0.0)
+        # Convert annual return to monthly geometric mean: (1+r)^(1/12) - 1
+        monthly_ret = (1 + year_ret)**(1/12) - 1
+        synthetic_rets.append(monthly_ret)
+        
+    return pd.Series(data=synthetic_rets, index=dates)
+
+def get_enhanced_commodity_portfolio(start_year=1991):
+    """
+    Constructs the WisdomTree Enhanced Commodity portfolio.
+    Uses BCOM proxy (enhanced by 1.5% alpha) spliced with WCOA.L ETF.
+    """
+    print("Calculating WisdomTree Enhanced Commodity portfolio...")
+    
+    # 1. Get Proxy Data (BCOM)
+    proxy_rets = pd.Series(dtype='float64')
+    try:
+        # Try downloading first
+        df = yf.download("^BCOM", start=f"{start_year}-01-01", interval="1mo", progress=False)
+        if not df.empty:
+            if isinstance(df.columns, pd.MultiIndex):
+                prices = df['Close'].iloc[:, 0]
+            else:
+                prices = df['Close']
+            
+            # Resample to month end to match other data
+            prices = prices.resample('ME').last()
+            monthly_rets = prices.pct_change().dropna()
+            
+            # Use synthetic if download is too short (e.g. starts after 1992)
+            if monthly_rets.empty or monthly_rets.index[0].year > start_year + 1:
+                print(f"  > BCOM download short. Using synthetic history.")
+                proxy_rets = generate_synthetic_monthly_history(start_year)
+            else:
+                proxy_rets = monthly_rets
+        else:
+            proxy_rets = generate_synthetic_monthly_history(start_year)
+    except Exception as e:
+        print(f"  > BCOM download failed ({e}). Using synthetic history.")
+        proxy_rets = generate_synthetic_monthly_history(start_year)
+
+    if proxy_rets.empty:
+        return pd.Series(dtype='float64')
+
+    # 2. Get ETF Data (WCOA.L)
+    etf_rets = pd.Series(dtype='float64')
+    try:
+        df_etf = yf.download("WCOA.L", start="2016-05-01", interval="1mo", progress=False)
+        if not df_etf.empty:
+            if isinstance(df_etf.columns, pd.MultiIndex):
+                prices_etf = df_etf['Close'].iloc[:, 0]
+            else:
+                prices_etf = df_etf['Close']
+            
+            prices_etf = prices_etf.resample('ME').last()
+            etf_rets = prices_etf.pct_change().dropna()
+    except Exception as e:
+        print(f"  > WCOA.L download failed: {e}")
+
+    # 3. Apply Enhancement to Proxy (1991-2016)
+    # 1.5% Annual Alpha -> ~0.124% Monthly
+    monthly_alpha = (1.015)**(1/12) - 1
+    proxy_rets_enhanced = proxy_rets + monthly_alpha
+    
+    # 4. Stitch Returns
+    if not etf_rets.empty:
+        etf_start_date = etf_rets.index[0]
+        proxy_rets_enhanced = proxy_rets_enhanced[proxy_rets_enhanced.index < etf_start_date]
+        combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])
+    else:
+        combined_rets = proxy_rets_enhanced
+
+    # 5. Construct Index
+    # Start at 100
+    commodity_index = 100 * (1 + combined_rets).cumprod()
+    return commodity_index.rename('commodity_enhanced_usd')
+
 def process_files():
     base_path = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_path)
@@ -630,7 +726,19 @@ def process_files():
             print(f"  Applied TER of {ter*100:.2f}% to {col}")
         combined = combined.join(df_cash, how='outer')
 
-    # 8. Fetch Exchange Rates and convert columns
+    # 8. Add Enhanced Commodity Portfolio
+    df_comm_enh = get_enhanced_commodity_portfolio()
+    if not df_comm_enh.empty:
+        ter = TER_MAPPING['commodity_enhanced']
+        monthly_ter = ter / 12
+        rets = df_comm_enh.pct_change()
+        adj_rets = rets - monthly_ter
+        adj_rets.iloc[0] = 0
+        df_comm_enh = df_comm_enh.iloc[0] * (1 + adj_rets).cumprod()
+        print(f"  Applied TER of {ter*100:.2f}% to commodity_enhanced_usd")
+        combined = combined.join(df_comm_enh, how='outer')
+
+    # 9. Fetch Exchange Rates and convert columns
     print("Fetching exchange rates (FRED + YFinance fallback)...")
     try:
         fx_fred = pdr.get_data_fred('DEXUSEU', start="1999-01-01")['DEXUSEU']
@@ -697,7 +805,8 @@ def process_files():
         "ntsg": "WisdomTree Global Efficient Core (NTSG)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
         "cash": "CASH",
-        "commodity": "Commodities (BCOM)"
+        "commodity": "Commodities (BCOM)",
+        "commodity_enhanced": "WisdomTree Enhanced Commodity"
     }
     
     rena = {}
