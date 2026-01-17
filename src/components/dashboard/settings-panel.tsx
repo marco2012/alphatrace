@@ -161,6 +161,29 @@ results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
         description: "Calculated using market benchmark rates.",
         url: "https://fred.stlouisfed.org/series/IR3TIB01EZM156N",
         url2: "https://fred.stlouisfed.org/series/DTB3"
+    },
+    commodities: {
+        title: "Commodities",
+        description: "Broad commodity market data and enhanced strategy proxies.",
+        items: [
+            { name: "Bloomberg Commodity Index", ticker: "^BCOM", url: "https://finance.yahoo.com/quote/%5EBCOM/" },
+            { name: "L&G Multi-Strategy Enhanced Commodities", details: "Spliced ^SPGSCI (pre-2006) and DBC (post-2006) to simulate long-term performance." },
+            { name: "WisdomTree Enhanced Commodity", details: "Bloomberg Commodity Index (enhanced with 1.5% annual alpha proxy) spliced with WCOA.L ETF (2016+)." }
+        ],
+        code: `# 1. Bloomberg Commodity Index (^BCOM)
+# Retrieved directly from Yahoo Finance (1mo interval)
+
+# 2. L&G Multi-Strategy Enhanced Commodities
+# Splicing Logic: ^SPGSCI (pre-2006) + DBC (post-2006)
+cond_early = returns.index < '2006-02-06'
+strat_ret = np.where(cond_early, returns['^SPGSCI'], returns['DBC'])
+
+# 3. WisdomTree Enhanced Commodity
+# Alpha Enhancement: 1.5% annual alpha added to BCOM proxy
+monthly_alpha = (1.015)**(1/12) - 1
+proxy_rets_enhanced = bcom_rets + monthly_alpha
+# Stitching: Proxy (pre-2016) + WCOA.L ETF (post-2016)
+combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])`
     }
 };
 
@@ -353,6 +376,32 @@ export function SettingsPanel() {
                                     <a href={DATA_SOURCES.cash.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
                                         {DATA_SOURCES.cash.url2}
                                     </a>
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="commodities">
+                            <AccordionTrigger>{DATA_SOURCES.commodities.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.commodities.description}</p>
+                                <div className="space-y-3 mb-4 mt-2">
+                                    {DATA_SOURCES.commodities.items.map((item, idx) => (
+                                        <div key={idx} className="flex flex-col">
+                                            <span className="text-xs font-semibold">{item.name} {item.ticker ? `(${item.ticker})` : ""}</span>
+                                            {item.url && (
+                                                <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline break-all">
+                                                    {item.url}
+                                                </a>
+                                            )}
+                                            {item.details && (
+                                                <p className="text-[10px] text-muted-foreground italic">{item.details}</p>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Replication & Enhancement Logic:</p>
+                                    <CodeBlock code={DATA_SOURCES.commodities.code!} />
                                 </div>
                             </AccordionContent>
                         </AccordionItem>
