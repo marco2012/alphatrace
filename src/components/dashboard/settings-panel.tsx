@@ -183,7 +183,55 @@ strat_ret = np.where(cond_early, returns['^SPGSCI'], returns['DBC'])
 monthly_alpha = (1.015)**(1/12) - 1
 proxy_rets_enhanced = bcom_rets + monthly_alpha
 # Stitching: Proxy (pre-2016) + WCOA.L ETF (post-2016)
-combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])`
+combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])`,
+        fullCodeLG: `import yfinance as yf
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+def run_long_term_backtest():
+    # ^SPGSCI: S&P GSCI Index (Standard proxy for 90s commodities)
+    # DBC: Invesco DB Commodity Index (Smart-beta proxy for modern era)
+    tickers = ['^SPGSCI', 'DBC']
+    start_date = '1991-01-01'
+    switch_date = '2006-02-06' # Switch from raw Index to ETF
+    
+    data = yf.download(tickers, start=start_date, interval="1d")
+    df = data['Close']
+    returns = df.pct_change()
+    
+    cond_early = returns.index < switch_date
+    strat_ret = np.where(cond_early, returns['^SPGSCI'], returns['DBC'])
+    
+    strat_series = pd.Series(strat_ret, index=returns.index).fillna(0)
+    usd_index = 100 * (1 + strat_series).cumprod()
+    
+    # Resample to Monthly
+    monthly_data = usd_index.resample('ME').last()
+    return monthly_data`,
+        fullCodeWT: `import yfinance as yf
+import pandas as pd
+import numpy as np
+
+def get_enhanced_commodity():
+    # 1. BCOM Proxy (1991-2016)
+    bcom = yf.download("^BCOM", start="1991-01-01", interval="1mo")['Close']
+    bcom_rets = bcom.pct_change()
+    
+    # 2. Apply 1.5% Annual Alpha Enhancement
+    monthly_alpha = (1.015)**(1/12) - 1
+    proxy_enhanced = bcom_rets + monthly_alpha
+    
+    # 3. Actual ETF (WCOA.L) 2016-Present
+    etf = yf.download("WCOA.L", start="2016-05-01", interval="1mo")['Close']
+    etf_rets = etf.pct_change()
+    
+    # 4. Stitching
+    etf_start = etf_rets.index[0]
+    combined = pd.concat([proxy_enhanced[proxy_enhanced.index < etf_start], etf_rets])
+    
+    usd_index = 100 * (1 + combined).cumprod()
+    return usd_index`
     }
 };
 
@@ -402,6 +450,25 @@ export function SettingsPanel() {
                                 <div className="space-y-1">
                                     <p className="text-[10px] uppercase font-bold text-muted-foreground">Replication & Enhancement Logic:</p>
                                     <CodeBlock code={DATA_SOURCES.commodities.code!} />
+                                </div>
+                                <div className="mt-4">
+                                    <Accordion type="single" collapsible className="w-full border rounded-md px-3 bg-muted/30">
+                                        <AccordionItem value="full-scripts" className="border-b-0">
+                                            <AccordionTrigger className="py-2 text-[10px] uppercase font-bold text-muted-foreground hover:no-underline">
+                                                Show Full Scripts
+                                            </AccordionTrigger>
+                                            <AccordionContent className="pt-2 pb-4 space-y-4">
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] font-bold">L&G Multi-Strategy Full Script:</p>
+                                                    <CodeBlock code={DATA_SOURCES.commodities.fullCodeLG!} />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] font-bold">WisdomTree Enhanced Full Script:</p>
+                                                    <CodeBlock code={DATA_SOURCES.commodities.fullCodeWT!} />
+                                                </div>
+                                            </AccordionContent>
+                                        </AccordionItem>
+                                    </Accordion>
                                 </div>
                             </AccordionContent>
                         </AccordionItem>
