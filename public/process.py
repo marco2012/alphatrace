@@ -44,8 +44,9 @@ TER_MAPPING = {
     "gold": 0.0012,
     "nasdaq_tr": 0.0030,
     "sp500_tr": 0.0007,
-    "commodity": 0.0019,
+    "commodity": 0.0030,
     "commodity_enhanced": 0.0070,
+    "lg_commodity": 0.0030,
 }
 
 # Embedded SG CTA Index Data (Proxy for DBMF)
@@ -569,6 +570,59 @@ def get_enhanced_commodity_portfolio(start_year=1991):
     commodity_index = 100 * (1 + combined_rets).cumprod()
     return commodity_index.rename('commodity_enhanced_usd')
 
+def get_lg_multistrategy_portfolio(start_date='1991-01-01'):
+    """
+    Constructs the L&G Multi-Strategy Enhanced Commodities portfolio.
+    Uses ^SPGSCI (S&P GSCI) before 2006-02-06, and DBC (Invesco DB Commodity Index) afterwards.
+    Calculates on daily data then resamples to monthly.
+    """
+    print("Calculating L&G Multi-Strategy Enhanced Commodities portfolio...")
+    tickers = ['^SPGSCI', 'DBC']
+    switch_date = '2006-02-06'
+    
+    try:
+        # Download daily data
+        data = yf.download(tickers, start=start_date, interval="1d", auto_adjust=True, progress=False)
+        
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            if 'Close' in data.columns.get_level_values(0):
+                df = data['Close']
+            else:
+                df = data.iloc[:, 0] # Fallback
+        else:
+            df = data['Close'] if 'Close' in data.columns else data
+
+        # Check if we have both columns
+        if '^SPGSCI' not in df.columns or 'DBC' not in df.columns:
+            print("  > Missing ticker data for LG Strategy.")
+            return pd.Series(dtype='float64')
+
+        # Calculate daily returns
+        returns = df.pct_change()
+        
+        # Splicing Logic
+        cond_early = returns.index < switch_date
+        strat_ret = np.where(
+            cond_early,
+            returns['^SPGSCI'],
+            returns['DBC']
+        )
+        
+        strat_series = pd.Series(strat_ret, index=returns.index).fillna(0)
+        
+        # Build Index (Base 100)
+        usd_index = 100 * (1 + strat_series).cumprod()
+        
+        # Resample to Monthly End
+        usd_index_m = usd_index.resample('ME').last()
+        
+        return usd_index_m.rename('lg_commodity_usd')
+
+    except Exception as e:
+        print(f"  > Error calculating LG Strategy: {e}")
+        return pd.Series(dtype='float64')
+
 def process_files():
     base_path = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_path)
@@ -738,7 +792,19 @@ def process_files():
         print(f"  Applied TER of {ter*100:.2f}% to commodity_enhanced_usd")
         combined = combined.join(df_comm_enh, how='outer')
 
-    # 9. Fetch Exchange Rates and convert columns
+    # 9. Add L&G Multi-Strategy Enhanced Commodities
+    df_lg = get_lg_multistrategy_portfolio()
+    if not df_lg.empty:
+        ter = TER_MAPPING['lg_commodity']
+        monthly_ter = ter / 12
+        rets = df_lg.pct_change()
+        adj_rets = rets - monthly_ter
+        adj_rets.iloc[0] = 0
+        df_lg = df_lg.iloc[0] * (1 + adj_rets).cumprod()
+        print(f"  Applied TER of {ter*100:.2f}% to lg_commodity_usd")
+        combined = combined.join(df_lg, how='outer')
+
+    # 10. Fetch Exchange Rates and convert columns
     print("Fetching exchange rates (FRED + YFinance fallback)...")
     try:
         fx_fred = pdr.get_data_fred('DEXUSEU', start="1999-01-01")['DEXUSEU']
@@ -806,7 +872,8 @@ def process_files():
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
         "cash": "CASH",
         "commodity": "Commodities (BCOM)",
-        "commodity_enhanced": "WisdomTree Enhanced Commodity"
+        "commodity_enhanced": "WisdomTree Enhanced Commodity",
+        "lg_commodity": "L&G Multi-Strategy Enhanced Commodities"
     }
     
     rena = {}
