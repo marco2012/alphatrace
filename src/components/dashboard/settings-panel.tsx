@@ -168,7 +168,8 @@ results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
         items: [
             { name: "Bloomberg Commodity Index", ticker: "^BCOM", url: "https://finance.yahoo.com/quote/%5EBCOM/" },
             { name: "L&G Multi-Strategy Enhanced Commodities", details: "Spliced ^SPGSCI (pre-2006) and DBC (post-2006) to simulate long-term performance." },
-            { name: "WisdomTree Enhanced Commodity", details: "Bloomberg Commodity Index (enhanced with 1.5% annual alpha proxy) spliced with WCOA.L ETF (2016+)." }
+            { name: "WisdomTree Enhanced Commodity", details: "Bloomberg Commodity Index (enhanced with 1.5% annual alpha proxy) spliced with WCOA.L ETF (2016+)." },
+            { name: "Bloomberg Roll Select Commodity", details: "3-Phase Splice: ^SPGSCI (pre-2012), ^BCOM (2012-2018), and CMDY (post-2018)." }
         ],
         code: `# 1. Bloomberg Commodity Index (^BCOM)
 # Retrieved directly from Yahoo Finance (1mo interval)
@@ -183,7 +184,20 @@ strat_ret = np.where(cond_early, returns['^SPGSCI'], returns['DBC'])
 monthly_alpha = (1.015)**(1/12) - 1
 proxy_rets_enhanced = bcom_rets + monthly_alpha
 # Stitching: Proxy (pre-2016) + WCOA.L ETF (post-2016)
-combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])`,
+combined_rets = pd.concat([proxy_rets_enhanced, etf_rets])
+
+# 4. Bloomberg Roll Select Commodity
+# 3-Phase Splice:
+# 1991-2012: S&P GSCI (^SPGSCI)
+# 2012-2018: Bloomberg Commodity Index (^BCOM)
+# 2018-Pres: iShares Bloomberg Roll Select (CMDY)
+conditions = [
+    returns.index < '2012-06-01',
+    (returns.index >= '2012-06-01') & (returns.index < '2018-04-03'),
+    returns.index >= '2018-04-03'
+]
+choices = [returns['^SPGSCI'], returns['^BCOM'], returns['CMDY']]
+synthetic_returns = np.select(conditions, choices, default=0)`,
         fullCodeLG: `import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -231,7 +245,32 @@ def get_enhanced_commodity():
     combined = pd.concat([proxy_enhanced[proxy_enhanced.index < etf_start], etf_rets])
     
     usd_index = 100 * (1 + combined).cumprod()
-    return usd_index`
+    return usd_index`,
+        fullCodeRollSelect: `import yfinance as yf
+import pandas as pd
+import numpy as np
+
+def backtest_bloomberg_roll_select():
+    ticker_early = '^SPGSCI'    # 1991-2012
+    ticker_mid = '^BCOM'        # 2012-2018
+    ticker_modern = 'CMDY'      # 2018-Present
+    
+    data = yf.download([ticker_early, ticker_mid, ticker_modern], start='1991-01-01', interval="1d")
+    returns = data['Close'].pct_change()
+    
+    conditions = [
+        returns.index < '2012-06-01',
+        (returns.index >= '2012-06-01') & (returns.index < '2018-04-03'),
+        returns.index >= '2018-04-03'
+    ]
+    choices = [returns[ticker_early], returns[ticker_mid], returns[ticker_modern]]
+    synthetic_returns = np.select(conditions, choices, default=0)
+    
+    strat_series = pd.Series(synthetic_returns, index=returns.index).fillna(0)
+    usd_index = 100 * (1 + strat_series).cumprod()
+    
+    monthly = usd_index.resample('ME').last()
+    return monthly`
     }
 };
 
@@ -465,6 +504,10 @@ export function SettingsPanel() {
                                                 <div className="space-y-1">
                                                     <p className="text-[10px] font-bold">WisdomTree Enhanced Full Script:</p>
                                                     <CodeBlock code={DATA_SOURCES.commodities.fullCodeWT!} />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] font-bold">Bloomberg Roll Select Full Script:</p>
+                                                    <CodeBlock code={DATA_SOURCES.commodities.fullCodeRollSelect!} />
                                                 </div>
                                             </AccordionContent>
                                         </AccordionItem>

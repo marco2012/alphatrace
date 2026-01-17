@@ -47,6 +47,7 @@ TER_MAPPING = {
     "commodity": 0.0030,
     "commodity_enhanced": 0.0070,
     "lg_commodity": 0.0030,
+    "roll_select_commodity": 0.0028,
 }
 
 # Embedded SG CTA Index Data (Proxy for DBMF)
@@ -623,6 +624,68 @@ def get_lg_multistrategy_portfolio(start_date='1991-01-01'):
         print(f"  > Error calculating LG Strategy: {e}")
         return pd.Series(dtype='float64')
 
+def get_bloomberg_roll_select_portfolio(start_date='1991-01-01'):
+    """
+    Constructs the Bloomberg Roll Select Commodity portfolio.
+    3-Phase Splicing:
+      - 1991-2012: S&P GSCI (^SPGSCI)
+      - 2012-2018: Bloomberg Commodity Index (^BCOM)
+      - 2018-Pres: iShares Bloomberg Roll Select Commodity Strategy ETF (CMDY)
+    """
+    print("Calculating Bloomberg Roll Select Commodity portfolio...")
+    
+    ticker_early = '^SPGSCI'
+    ticker_mid = '^BCOM'
+    ticker_modern = 'CMDY'
+    
+    switch_date_1 = '2012-06-01'
+    switch_date_2 = '2018-04-03'
+    
+    tickers = [ticker_early, ticker_mid, ticker_modern]
+    
+    try:
+        data = yf.download(tickers, start=start_date, interval="1d", auto_adjust=True, progress=False)
+        
+        # Handle columns
+        if isinstance(data.columns, pd.MultiIndex):
+            if 'Close' in data.columns.get_level_values(0):
+                df = data['Close']
+            else:
+                df = data.iloc[:, 0]
+        else:
+            df = data['Close'] if 'Close' in data.columns else data
+
+        # Calculate returns
+        returns = df.pct_change()
+        
+        # Splicing Logic
+        conditions = [
+            returns.index < switch_date_1,
+            (returns.index >= switch_date_1) & (returns.index < switch_date_2),
+            returns.index >= switch_date_2
+        ]
+        
+        # Ensure we have the columns
+        c1 = returns[ticker_early] if ticker_early in returns.columns else pd.Series(0, index=returns.index)
+        c2 = returns[ticker_mid] if ticker_mid in returns.columns else pd.Series(0, index=returns.index)
+        c3 = returns[ticker_modern] if ticker_modern in returns.columns else pd.Series(0, index=returns.index)
+        
+        choices = [c1, c2, c3]
+        
+        synthetic_returns = np.select(conditions, choices, default=0)
+        strat_series = pd.Series(synthetic_returns, index=returns.index).fillna(0)
+        
+        # Build Index
+        usd_index = 100 * (1 + strat_series).cumprod()
+        
+        # Resample
+        usd_index_m = usd_index.resample('ME').last()
+        return usd_index_m.rename('roll_select_commodity_usd')
+
+    except Exception as e:
+        print(f"  > Error calculating Bloomberg Roll Select: {e}")
+        return pd.Series(dtype='float64')
+
 def process_files():
     base_path = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_path)
@@ -804,7 +867,19 @@ def process_files():
         print(f"  Applied TER of {ter*100:.2f}% to lg_commodity_usd")
         combined = combined.join(df_lg, how='outer')
 
-    # 10. Fetch Exchange Rates and convert columns
+    # 10. Add Bloomberg Roll Select Commodity
+    df_roll = get_bloomberg_roll_select_portfolio()
+    if not df_roll.empty:
+        ter = TER_MAPPING['roll_select_commodity']
+        monthly_ter = ter / 12
+        rets = df_roll.pct_change()
+        adj_rets = rets - monthly_ter
+        adj_rets.iloc[0] = 0
+        df_roll = df_roll.iloc[0] * (1 + adj_rets).cumprod()
+        print(f"  Applied TER of {ter*100:.2f}% to roll_select_commodity_usd")
+        combined = combined.join(df_roll, how='outer')
+
+    # 11. Fetch Exchange Rates and convert columns
     print("Fetching exchange rates (FRED + YFinance fallback)...")
     try:
         fx_fred = pdr.get_data_fred('DEXUSEU', start="1999-01-01")['DEXUSEU']
@@ -873,7 +948,8 @@ def process_files():
         "cash": "CASH",
         "commodity": "Commodities (BCOM)",
         "commodity_enhanced": "WisdomTree Enhanced Commodity",
-        "lg_commodity": "L&G Multi-Strategy Enhanced Commodities"
+        "lg_commodity": "L&G Multi-Strategy Enhanced Commodities",
+        "roll_select_commodity": "Bloomberg Roll Select Commodity"
     }
     
     rena = {}

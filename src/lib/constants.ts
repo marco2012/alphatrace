@@ -34,6 +34,8 @@ export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "WisdomTree Enhanced Commodity (EUR)": "alternatives",
     "L&G Multi-Strategy Enhanced Commodities (USD)": "alternatives",
     "L&G Multi-Strategy Enhanced Commodities (EUR)": "alternatives",
+    "Bloomberg Roll Select Commodity (USD)": "alternatives",
+    "Bloomberg Roll Select Commodity (EUR)": "alternatives",
 };
 
 export const IT_ANNUAL_CPI: Record<number, number> = {
@@ -78,6 +80,7 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "Commodities (BCOM)": 0.0030,
     "WisdomTree Enhanced Commodity": 0.0070,
     "L&G Multi-Strategy Enhanced Commodities": 0.0030,
+    "Bloomberg Roll Select Commodity": 0.0028,
 };
 
 export const ASSET_CAPE_MAPPING: Record<string, number> = {
