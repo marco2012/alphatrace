@@ -13,7 +13,7 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
     if (!portfolio) {
         return (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
-                {["CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR", "Portfolio CAPE"].map((label) => (
+                {["Cumulative Return", "CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR", "Portfolio CAPE"].map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">{label}</CardTitle>
@@ -27,11 +27,19 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
         );
     }
 
-    const { portRets, drawdowns } = portfolio;
+    const { portRets, drawdowns, portValues, totalInvested } = portfolio;
 
-    const cagrValue = (portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.totalInvested.length)
-        ? cagrRecurring(portfolio.portValues, portfolio.totalInvested)
+    const cagrValue = (portValues && totalInvested && portValues.length === totalInvested.length)
+        ? cagrRecurring(portValues, totalInvested)
         : cagr(Object.keys(portfolio.idxMap).sort().map(d => ({ value: portfolio.idxMap[d] })));
+
+    // Cumulative Return
+    let cumulativeReturn = 0;
+    if (portValues && totalInvested && portValues.length > 0) {
+        const finalValue = portValues[portValues.length - 1];
+        const invested = totalInvested[totalInvested.length - 1];
+        cumulativeReturn = invested !== 0 ? (finalValue / invested) - 1 : 0;
+    }
 
     const volValue = annualVol(portRets);
     const sharpeValue = sharpe(portRets, rf);
@@ -53,6 +61,17 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
 
     return (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Cumulative Return</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                        {formatPercent(cumulativeReturn)}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Total percentage gain/loss</p>
+                </CardContent>
+            </Card>
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">CAGR</CardTitle>
