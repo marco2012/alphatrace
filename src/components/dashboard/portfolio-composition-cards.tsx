@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getAssetCategory } from "@/lib/finance";
+import { Copy, Check } from "lucide-react";
 
 type PortfolioCompositionItem = {
     id: string;
@@ -17,6 +19,8 @@ interface PortfolioCompositionCardsProps {
 }
 
 export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsProps) {
+    const [copiedId, setCopiedId] = useState<string | null>(null);
+
     const portfolioItems = useMemo(() => {
         return items.filter(item => item.weights && Object.keys(item.weights).length > 0);
     }, [items]);
@@ -33,6 +37,20 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
             case "cash": return "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300";
             default: return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300";
         }
+    };
+
+    const handleCopy = (item: PortfolioCompositionItem) => {
+        const activeWeights = Object.entries(item.weights)
+            .filter(([_, weight]) => weight > 0)
+            .sort(([_, a], [__, b]) => b - a);
+
+        const csvContent = "Asset,Weight\n" + activeWeights
+            .map(([asset, weight]) => `"${asset}",${(weight * 100).toFixed(2)}%`)
+            .join("\n");
+
+        navigator.clipboard.writeText(csvContent);
+        setCopiedId(item.id);
+        setTimeout(() => setCopiedId(null), 2000);
     };
 
     return (
@@ -65,7 +83,7 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
 
                         return (
                             <Card key={item.id} className="border-2" style={{ borderColor: item.color }}>
-                                <CardHeader className="pb-3">
+                                <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
                                     <div className="flex items-center gap-2">
                                         <span
                                             className="w-3 h-3 rounded-full flex-shrink-0"
@@ -73,6 +91,19 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
                                         />
                                         <CardTitle className="text-base">{item.name}</CardTitle>
                                     </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={() => handleCopy(item)}
+                                        title="Copy to clipboard"
+                                    >
+                                        {copiedId === item.id ? (
+                                            <Check className="h-3.5 w-3.5" />
+                                        ) : (
+                                            <Copy className="h-3.5 w-3.5" />
+                                        )}
+                                    </Button>
                                 </CardHeader>
                                 <CardContent className="space-y-3">
                                     {activeWeights.length === 0 ? (

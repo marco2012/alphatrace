@@ -1540,7 +1540,7 @@ export function AnalysisSection() {
                     })()}
                 </div>
 
-                {validItems.length > 1 ? (
+                {validItems.length > 0 && (
                     <Card key={`metrics-${calcKey}`}>
                         <CardHeader>
                             <CardTitle>Key Metrics</CardTitle>
@@ -1790,22 +1790,9 @@ export function AnalysisSection() {
                             </div>
                         </CardContent>
                     </Card>
-                ) : (
-                    primaryItem && primaryResult && (
-                        <MetricsCards
-                            key={`metrics-cards-${calcKey}`}
-                            portfolio={primaryResult}
-                            rf={riskFreeRate}
-                            cape={calculatePortfolioCAPE(
-                                primaryItem.type === "asset"
-                                    ? { [primaryItem.id]: 100 }
-                                    : (primaryItem.weights || (primaryItem.id === "current" ? weights : savedPortfolios.find(p => p.id === primaryItem.id)?.weights || {}))
-                            )}
-                        />
-                    )
                 )}
 
-                {validItems.length > 1 && (
+                {validItems.length > 0 && (
                     <PortfolioCompositionCards
                         items={validItems
                             .filter(item => item.type === "portfolio")
