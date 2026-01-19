@@ -7,6 +7,7 @@ import {
     Settings,
     PieChart,
     Menu,
+    X,
     Briefcase
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -96,7 +97,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             <span>AlphaTrace</span>
                         </Link>
                         <Button variant="ghost" size="icon" className="ml-auto lg:hidden" onClick={() => setIsSidebarOpen(false)}>
-                            <Menu className="h-5 w-5" />
+                            <X className="h-5 w-5" />
                         </Button>
                     </div>
                     <ScrollArea className="flex-1 py-4">

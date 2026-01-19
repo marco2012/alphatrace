@@ -76,7 +76,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
     return (
         <Card className="flex flex-col">
             <CardHeader className="pb-3 border-b shrink-0 px-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
                     <div>
                         <CardTitle>Asset Allocation</CardTitle>
                         <CardDescription className="flex flex-col gap-1">
@@ -119,9 +119,9 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                     <TableHeader className="bg-card shadow-sm">
                         <TableRow>
                             <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
-                            <TableHead className="w-[70%] sm:w-[35%]">Asset</TableHead>
-                            <TableHead className="text-right w-[10%]">TER (%)</TableHead>
-                            <TableHead className="text-right w-[30%] pr-6">Allocation (%)</TableHead>
+                            <TableHead className="w-[55%] sm:w-[35%]">Asset</TableHead>
+                            <TableHead className="text-right w-[15%] sm:w-[10%] px-1 sm:px-4">TER</TableHead>
+                            <TableHead className="text-right w-[30%] pr-2 sm:pr-6">Allocation</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -169,10 +169,10 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                             })()}
                                         </div>
                                     </TableCell>
-                                    <TableCell className="text-right py-2 text-muted-foreground font-mono text-xs">
+                                    <TableCell className="text-right py-2 px-1 sm:px-4 text-muted-foreground font-mono text-xs">
                                         {(getAssetTER(asset) * 100).toFixed(2)}%
                                     </TableCell>
-                                    <TableCell className="text-right py-2 pr-6">
+                                    <TableCell className="text-right py-2 pr-2 sm:pr-6">
                                         <div className="flex items-center justify-end gap-2">
                                             <Input
                                                 type="number"

@@ -146,6 +146,29 @@ results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
         description: "Historical gold prices.",
         url: "https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart"
     },
+    eurBonds: {
+        title: "EUR Government Bonds 10y",
+        description: "Synthetic and ETF-based backtest for Eurozone government bonds.",
+        url: "https://fred.stlouisfed.org/series/IRLTLT01DEM156N",
+        url2: "https://www.ishares.com/it/investitore-privato/it/prodotti/251739/",
+        details: "Prior to the launch of the iShares Italy Govt Bond ETF (SXRQ.DE), performance is estimated using 10-Year German Government Bond yields with a constant duration of 8.2 years.",
+        code: `def get_eur_bonds_10y_portfolio(start_date="1980-01-01"):
+    etf_ticker = "SXRQ.DE"
+    duration = 8.2
+    
+    # 1. Synthetic Bond (Yield-Derived from German 10Y)
+    yields = get_fred_series_raw("IRLTLT01DEM156N", "Yield")
+    yields_m = yields.resample('ME').last()
+    
+    # Total Return ≈ (Yield / 12) + (-Duration * ΔYield)
+    total_return = (yields_m.shift(1) / 12) + (-duration * yields_m.diff())
+    syn_index = 100 * (1 + total_return).cumprod()
+    
+    # 2. Actual ETF Data (iShares Italy Govt Bond)
+    etf_data = yf.download(etf_ticker, period="max", auto_adjust=True)
+    # Splicing logic...
+    return history_eur`
+    },
     usAssets: {
         title: "US Benchmarks & Stocks",
         description: "Market data for major US indexes and specific companies.",
@@ -468,6 +491,26 @@ export function SettingsPanel() {
                                 <a href={DATA_SOURCES.gold.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
                                     {DATA_SOURCES.gold.url}
                                 </a>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="eur-bonds">
+                            <AccordionTrigger>{DATA_SOURCES.eurBonds.title}</AccordionTrigger>
+                            <AccordionContent>
+                                <p className="mb-2">{DATA_SOURCES.eurBonds.description}</p>
+                                <div className="flex flex-col gap-1 mb-2">
+                                    <a href={DATA_SOURCES.eurBonds.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.eurBonds.url} (Yield Data)
+                                    </a>
+                                    <a href={DATA_SOURCES.eurBonds.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                        {DATA_SOURCES.eurBonds.url2} (ETF Data)
+                                    </a>
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground italic mb-2">{DATA_SOURCES.eurBonds.details}</p>
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">Total Return Calculation:</p>
+                                    <CodeBlock code={DATA_SOURCES.eurBonds.code!} />
+                                </div>
                             </AccordionContent>
                         </AccordionItem>
 

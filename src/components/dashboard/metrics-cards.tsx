@@ -12,7 +12,7 @@ interface MetricsCardsProps {
 export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) {
     if (!portfolio) {
         return (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
                 {["Cumulative Return", "CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR", "Portfolio CAPE"].map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -60,7 +60,7 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
     const formatNumber = (v: number) => v.toFixed(2);
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Cumulative Return</CardTitle>

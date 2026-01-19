@@ -12,7 +12,7 @@ from datetime import datetime
 YF_ASSETS = {
     "sp500_tr_usd": "^SP500TR",   # S&P 500 Total Return
     "brk_b_usd": "BRK-B",         # Berkshire Hathaway
-    "nasdaq_tr_usd": "QQQ",         # Nasdaq TR Proxy
+    "nasdaq_tr_usd": "QQQ",       # Nasdaq TR Proxy
     "dgeix_usd": "DGEIX",         # Dimensional US Core Equity I
     "dfemx_usd": "DFEMX",         # DFA Emerging Markets
     "commodity_usd": "^BCOM",     # Bloomberg Commodity Index

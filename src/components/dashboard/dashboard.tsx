@@ -32,9 +32,9 @@ export function Dashboard() {
     }
 
     return (
-        <div className="grid gap-6 md:grid-cols-12 md:h-[calc(100vh-100px)]">
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-12 md:h-[calc(100vh-100px)] h-auto">
             {/* Left Column: Asset Allocation */}
-            <div className="md:col-span-4 lg:col-span-3 flex flex-col gap-4 md:h-full">
+            <div className="col-span-1 md:col-span-4 lg:col-span-3 flex flex-col gap-4 md:h-full">
                 <AssetAllocation
                     weights={weights}
                     onWeightChange={handleWeightChange}
@@ -43,8 +43,8 @@ export function Dashboard() {
             </div>
 
             {/* Right Column: Charts & Metrics */}
-            <div className="md:col-span-8 lg:col-span-9 space-y-6 pb-6 md:overflow-y-auto md:pr-2 md:pb-10">
-                <div className="grid gap-4 md:grid-cols-1">
+            <div className="col-span-1 md:col-span-8 lg:col-span-9 space-y-6 pb-6 md:overflow-y-auto overflow-visible md:pr-2 md:pb-10">
+                <div className="grid gap-4 grid-cols-1 md:grid-cols-1">
                     <div className="flex items-center justify-between">
                         <h2 className="text-2xl font-bold tracking-tight">Overview</h2>
                     </div>
@@ -56,7 +56,7 @@ export function Dashboard() {
 
                 <PortfolioChart portfolio={portfolio} />
 
-                <div className="grid gap-6 md:grid-cols-4">
+                <div className="grid gap-6 grid-cols-1 md:grid-cols-4">
                     <AnnualReturnsChart portfolio={portfolio} />
                     <DrawdownChart
                         portfolios={portfolio
