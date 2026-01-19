@@ -2,12 +2,31 @@ import pandas as pd
 import glob
 import os
 import pandas_datareader as pdr
+import pandas_datareader.data as web
 import yfinance as yf
 import numpy as np
 import requests
+import logging
+import sys
 from io import StringIO
 from datetime import datetime
 
+# ---------------------------------------------------------
+# Logging Configuration
+# ---------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('process.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------
 # Configuration for additional YFinance assets
 YF_ASSETS = {
     "sp500_tr_usd": "^SP500TR",   # S&P 500 Total Return
@@ -290,7 +309,17 @@ SG_CTA_INDEX_DATA = [
 ]
 
 def get_fred_series_raw(series_id, name):
-    """Fetch series from St. Louis Fed (FRED) as CSV."""
+    """Fetch series from St. Louis Fed (FRED). Tries pandas_datareader first, then direct CSV."""
+    # Method 1: pandas_datareader
+    try:
+        # Defaults to last 30 years if not specified
+        df = web.DataReader(series_id, 'fred', start="1990-01-01")
+        df.columns = [name]
+        return df
+    except Exception as e:
+        logger.warning(f"pandas_datareader failed for {series_id}: {e}. Retrying with direct CSV download.")
+
+    # Method 2: Direct CSV
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     try:
         response = requests.get(url)
@@ -299,13 +328,16 @@ def get_fred_series_raw(series_id, name):
             df = df.apply(pd.to_numeric, errors='coerce').dropna()
             df.columns = [name]
             return df
-    except Exception:
-        pass
+        else:
+             logger.error(f"Failed to fetch {series_id} via CSV. Status: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error fetching {series_id} via CSV: {e}")
+    
     return pd.DataFrame()
 
 def get_monthly_yf_data(ticker, start_date="1970-01-01"):
     """Downloads and formats yfinance monthly data."""
-    print(f"Downloading {ticker} from {start_date}...")
+    logger.info(f"Downloading {ticker} from {start_date}...")
     try:
         df = yf.download(ticker, start=start_date, interval="1mo", auto_adjust=True, progress=False)
         if df.empty:
@@ -322,21 +354,24 @@ def get_monthly_yf_data(ticker, start_date="1970-01-01"):
         series = series.resample("ME").last().ffill()  # Ensure no internal gaps after resampling
         return series.dropna()  # Remove leading/trailing NaNs
     except Exception as e:
-        print(f"Error downloading {ticker}: {e}")
+        logger.error(f"Error downloading {ticker}: {e}")
         return pd.Series(dtype='float64')
 
-
-
 def get_ntsg_portfolio(start_date="1999-01-01"):
-    """NTSG (WisdomTree Global Efficient Core) Proxy: 90/60 Strategy using local World data."""
-    print("Calculating NTSG (Global Efficient Core) portfolio...")
-    
-    # 1. Load MSCI World from local source file
+    """
+    NTSG Proxy: 90% MSCI World + 60% Global Bond Futures (implied financing).
+    Global Basket: ~70% US, 15% EUR, 8% JPY, 7% GBP.
+    """
+    logger.info("Calculating NTSG (Global Efficient Core) portfolio with Global Data...")
+
+    # ---------------------------------------------------------
+    # 1. Load MSCI World (Equity Component)
+    # ---------------------------------------------------------
     source_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "source")
     excel_path = os.path.join(source_dir, "world.xlsx")
     
     try:
-        # Use column 0 (Date) and column 1 (Index Value)
+        # ENSURE this Excel contains "Net Total Return" or "Gross Total Return", not Price Index
         msci_world = pd.read_excel(excel_path, skiprows=5).iloc[:, [0, 1]]
         msci_world.columns = ['Date', 'Index']
         msci_world['Date'] = pd.to_datetime(msci_world['Date'])
@@ -345,26 +380,86 @@ def get_ntsg_portfolio(start_date="1999-01-01"):
         world_m = msci_world['Index'].resample('ME').last().ffill()
         equity_ret = world_m.pct_change().fillna(0)
     except Exception as e:
-        print(f"Error loading World data for NTSG: {e}")
+        logger.error(f"Error loading World data: {e}")
         return pd.Series(dtype='float64')
 
-    # 2. Bonds & Rates
-    treasury = get_fred_series_raw("DGS10", "Yield") / 100
-    tbill = get_fred_series_raw("DFF", "Rate") / 100
+    # ---------------------------------------------------------
+    # 2. Define Global Weights (Approx. Currency Weights)
+    # ---------------------------------------------------------
+    # NTSG targets currency weights of MSCI World. Approx historical averages:
+    w = {
+        'US': 0.68,  # USD
+        'EU': 0.16,  # EUR (Germany Proxy)
+        'JP': 0.09,  # JPY
+        'UK': 0.07   # GBP
+    }
+
+    # ---------------------------------------------------------
+    # 3. Fetch Global Data (Yields & Rates) from FRED
+    # ---------------------------------------------------------
+    # Tickers: 10Y Govt Yields (Monthly) & Immediate Rates (Monthly)
+    tickers = {
+        # United States
+        'US_Yield': 'IRLTLT01USM156N', 'US_Rate': 'FEDFUNDS',
+        # Germany (Euro Proxy)
+        'EU_Yield': 'IRLTLT01DEM156N', 'EU_Rate': 'IRSTCI01EZM156N',
+        # Japan
+        'JP_Yield': 'IRLTLT01JPM156N', 'JP_Rate': 'IRSTCI01JPM156N',
+        # United Kingdom
+        'UK_Yield': 'IRLTLT01GBM156N', 'UK_Rate': 'IRSTCI01GBM156N',
+    }
     
-    if treasury.empty or tbill.empty:
-        return pd.Series(dtype='float64')
+    data_frames = []
+    for name, ticker in tickers.items():
+        df = get_fred_series_raw(ticker, name)
+        # Resample to monthly end to match equity dates
+        df = df.resample('ME').last() 
+        data_frames.append(df)
         
-    combined = pd.DataFrame({'equity_ret': equity_ret, 'yield': treasury['Yield'], 'rate': tbill['Rate']}).dropna()
+    if not data_frames:
+        return pd.Series(dtype='float64')
+
+    # Combine and Forward Fill missing data
+    macro_data = pd.concat(data_frames, axis=1).ffill().dropna()
     
-    # Bond Return (Duration ~7.0)
-    yield_chg = combined['yield'].diff().fillna(0)
-    bond_ret = -7.0 * yield_chg + (combined['yield'].shift(1).fillna(combined['yield']) / 12)
+    # ---------------------------------------------------------
+    # 4. Construct Composite Yield & Borrowing Cost
+    # ---------------------------------------------------------
+    # Global 10Y Yield Composite
+    macro_data['Global_Yield'] = (
+        w['US'] * macro_data['US_Yield'] +
+        w['EU'] * macro_data['EU_Yield'] +
+        w['JP'] * macro_data['JP_Yield'] +
+        w['UK'] * macro_data['UK_Yield']
+    ) / 100  # Convert to decimal
+
+    # Global Cash Rate Composite (Cost of Leverage)
+    macro_data['Global_Rate'] = (
+        w['US'] * macro_data['US_Rate'] +
+        w['EU'] * macro_data['EU_Rate'] +
+        w['JP'] * macro_data['JP_Rate'] +
+        w['UK'] * macro_data['UK_Rate']
+    ) / 100  # Convert to decimal
+
+    # Align with Equity Data
+    combined = pd.concat([equity_ret, macro_data], axis=1).dropna()
+    combined.rename(columns={'Index': 'equity_ret'}, inplace=True)
+
+    # ---------------------------------------------------------
+    # 5. Calculate Returns
+    # ---------------------------------------------------------
+    # Global Bond Return (Target Duration ~7.0)
+    # Bond Ret ~= Yield / 12 - Duration * Change_in_Yield
+    yield_chg = combined['Global_Yield'].diff().fillna(0)
+    bond_ret = (combined['Global_Yield'].shift(1).fillna(combined['Global_Yield']) / 12) - (7.0 * yield_chg)
     
-    # Cash/Borrowing Cost
-    cash_cost = combined['rate'] / 12
+    # Cash/Borrowing Cost (Weighted average of local risk-free rates)
+    cash_cost = combined['Global_Rate'] / 12
     
-    # NTSG: 90% Equity + 60% Bonds - 50% Borrowing Cost
+    # NTSG Formula: 90% Equity + 60% Bond Futures (Excess Return)
+    # Excess Return = (Bond_Ret - Cash_Cost)
+    # Portfolio = 0.90 * Equity + 0.10 * Cash + 0.60 * Excess_Bond
+    # Mathematically simplifies to:
     ntsg_ret = (0.90 * combined['equity_ret'] + 
                 0.60 * bond_ret - 
                 0.50 * cash_cost)
@@ -372,10 +467,9 @@ def get_ntsg_portfolio(start_date="1999-01-01"):
     ntsg_index = 100 * (1 + ntsg_ret).cumprod()
     return ntsg_index.rename('ntsg_usd')
 
-
 def get_eur_bonds_10y_portfolio(start_date="1980-01-01"):
     """Backtests the EUR Government Bonds 10y portfolio."""
-    print("Calculating EUR Government Bonds 10y portfolio...")
+    logger.info("Calculating EUR Government Bonds 10y portfolio...")
     etf_ticker = "SXRQ.DE"
     duration = 8.2
     
@@ -413,7 +507,7 @@ def get_eur_bonds_10y_portfolio(start_date="1980-01-01"):
 
 def get_cash_portfolio(start_date="1999-01-04"):
     """Backtests the CASH portfolio (Euribor for EUR, T-Bill for USD)."""
-    print("Calculating CASH portfolio (Local Market rates)...")
+    logger.info("Calculating CASH portfolio (Local Market rates)...")
     credit_spread = 0.0050 # 50 bps
     
     # 1. EUR Cash (Euribor 3M + spread) spliced with ETF
@@ -448,7 +542,7 @@ def get_cash_portfolio(start_date="1999-01-04"):
 
 def get_dbmf_portfolio():
     """Proxy for iMGP DBi Managed Futures using SG CTA Index and actual DBMF data."""
-    print("Calculating DBMF portfolio (SG CTA Index + DBMF)...")
+    logger.info("Calculating DBMF portfolio (SG CTA Index + DBMF)...")
     
     # 1. Load SG CTA proxy data
     df_proxy = pd.DataFrame(SG_CTA_INDEX_DATA)
@@ -507,7 +601,7 @@ def get_enhanced_commodity_portfolio(start_year=1991):
     Constructs the WisdomTree Enhanced Commodity portfolio.
     Uses BCOM proxy (enhanced by 1.5% alpha) spliced with WCOA.L ETF.
     """
-    print("Calculating WisdomTree Enhanced Commodity portfolio...")
+    logger.info("Calculating WisdomTree Enhanced Commodity portfolio...")
     
     # 1. Get Proxy Data (BCOM)
     proxy_rets = pd.Series(dtype='float64')
@@ -526,14 +620,14 @@ def get_enhanced_commodity_portfolio(start_year=1991):
             
             # Use synthetic if download is too short (e.g. starts after 1992)
             if monthly_rets.empty or monthly_rets.index[0].year > start_year + 1:
-                print(f"  > BCOM download short. Using synthetic history.")
+                logger.warning(f"  > BCOM download short. Using synthetic history.")
                 proxy_rets = generate_synthetic_monthly_history(start_year)
             else:
                 proxy_rets = monthly_rets
         else:
             proxy_rets = generate_synthetic_monthly_history(start_year)
     except Exception as e:
-        print(f"  > BCOM download failed ({e}). Using synthetic history.")
+        logger.warning(f"  > BCOM download failed ({e}). Using synthetic history.")
         proxy_rets = generate_synthetic_monthly_history(start_year)
 
     if proxy_rets.empty:
@@ -552,7 +646,7 @@ def get_enhanced_commodity_portfolio(start_year=1991):
             prices_etf = prices_etf.resample('ME').last()
             etf_rets = prices_etf.pct_change().dropna()
     except Exception as e:
-        print(f"  > WCOA.L download failed: {e}")
+        logger.error(f"  > WCOA.L download failed: {e}")
 
     # 3. Apply Enhancement to Proxy (1991-2016)
     # 1.5% Annual Alpha -> ~0.124% Monthly
@@ -578,7 +672,7 @@ def get_lg_multistrategy_portfolio(start_date='1991-01-01'):
     Uses ^SPGSCI (S&P GSCI) before 2006-02-06, and DBC (Invesco DB Commodity Index) afterwards.
     Calculates on daily data then resamples to monthly.
     """
-    print("Calculating L&G Multi-Strategy Enhanced Commodities portfolio...")
+    logger.info("Calculating L&G Multi-Strategy Enhanced Commodities portfolio...")
     tickers = ['^SPGSCI', 'DBC']
     switch_date = '2006-02-06'
     
@@ -597,7 +691,7 @@ def get_lg_multistrategy_portfolio(start_date='1991-01-01'):
 
         # Check if we have both columns
         if '^SPGSCI' not in df.columns or 'DBC' not in df.columns:
-            print("  > Missing ticker data for LG Strategy.")
+            logger.warning("  > Missing ticker data for LG Strategy.")
             return pd.Series(dtype='float64')
 
         # Calculate daily returns
@@ -622,7 +716,7 @@ def get_lg_multistrategy_portfolio(start_date='1991-01-01'):
         return usd_index_m.rename('lg_commodity_usd')
 
     except Exception as e:
-        print(f"  > Error calculating LG Strategy: {e}")
+        logger.error(f"  > Error calculating LG Strategy: {e}")
         return pd.Series(dtype='float64')
 
 def get_bloomberg_roll_select_portfolio(start_date='1991-01-01'):
@@ -633,7 +727,7 @@ def get_bloomberg_roll_select_portfolio(start_date='1991-01-01'):
       - 2012-2018: Bloomberg Commodity Index (^BCOM)
       - 2018-Pres: iShares Bloomberg Roll Select Commodity Strategy ETF (CMDY)
     """
-    print("Calculating Bloomberg Roll Select Commodity portfolio...")
+    logger.info("Calculating Bloomberg Roll Select Commodity portfolio...")
     
     ticker_early = '^SPGSCI'
     ticker_mid = '^BCOM'
@@ -684,7 +778,7 @@ def get_bloomberg_roll_select_portfolio(start_date='1991-01-01'):
         return usd_index_m.rename('roll_select_commodity_usd')
 
     except Exception as e:
-        print(f"  > Error calculating Bloomberg Roll Select: {e}")
+        logger.error(f"  > Error calculating Bloomberg Roll Select: {e}")
         return pd.Series(dtype='float64')
 
 def get_ubs_cmci_portfolio(start_date='1991-01-01'):
@@ -696,7 +790,7 @@ def get_ubs_cmci_portfolio(start_date='1991-01-01'):
       3. Long-term Proxy: ^SPGSCI (S&P GSCI Index)
     Returns overwrite in that priority order.
     """
-    print("Calculating UBS CMCI Composite Commodity portfolio...")
+    logger.info("Calculating UBS CMCI Composite Commodity portfolio...")
     
     ticker_etf = "UC14.L"
     ticker_index = "^CMCIER"
@@ -725,7 +819,7 @@ def get_ubs_cmci_portfolio(start_date='1991-01-01'):
         c_proxy = returns[ticker_proxy] if ticker_proxy in returns.columns else pd.Series(dtype='float64')
 
         if c_proxy.empty:
-            print("  > Missing proxy ^SPGSCI for UBS CMCI.")
+            logger.warning("  > Missing proxy ^SPGSCI for UBS CMCI.")
             return pd.Series(dtype='float64')
 
         # Splicing: Start with Proxy, overwrite with Index, then ETF
@@ -749,10 +843,11 @@ def get_ubs_cmci_portfolio(start_date='1991-01-01'):
         return usd_index_m.rename('ubs_commodity_usd')
 
     except Exception as e:
-        print(f"  > Error calculating UBS CMCI: {e}")
+        logger.error(f"  > Error calculating UBS CMCI: {e}")
         return pd.Series(dtype='float64')
 
 def process_files():
+    logger.info("Starting Data Processing...")
     base_path = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_path)
     
@@ -762,14 +857,14 @@ def process_files():
     files = [f for f in files if not os.path.basename(f).startswith('~$')]
     
     if not files:
-        print(f"No Excel files found in {source_dir}.")
+        logger.warning(f"No Excel files found in {source_dir}.")
         return
 
-    print(f"Found {len(files)} MSCI files.")
+    logger.info(f"Found {len(files)} MSCI files.")
     
     all_data = []
     for file_path in sorted(files):
-        print(f"Reading {os.path.basename(file_path)}...")
+        logger.info(f"Reading {os.path.basename(file_path)}...")
         try:
             df = pd.read_excel(file_path, skiprows=5)
             df = df.iloc[:, [0, 1]]
@@ -791,11 +886,11 @@ def process_files():
                 # Reconstruct the index starting from first_val
                 first_val = df[asset_name].iloc[0]
                 df[asset_name] = first_val * (1 + adj_rets).cumprod()
-                print(f"  Applied TER of {ter*100:.2f}% to {asset_name}")
+                logger.info(f"  Applied TER of {ter*100:.2f}% to {asset_name}")
 
             all_data.append(df)
         except Exception as e:
-            print(f"Error processing {os.path.basename(file_path)}: {e}")
+            logger.error(f"Error processing {os.path.basename(file_path)}: {e}")
 
     if not all_data: return
 
@@ -809,7 +904,7 @@ def process_files():
         combined['coletti_eq_usd'] = combined[available_portfolio_assets].mul(0.2).sum(axis=1, min_count=5)
     
     # 2. Add Additional YFinance Assets
-    print("Fetching additional YFinance assets...")
+    logger.info("Fetching additional YFinance assets...")
     for name, ticker in YF_ASSETS.items():
         series = get_monthly_yf_data(ticker)
         if series.empty: continue
@@ -825,7 +920,7 @@ def process_files():
             adj_rets.iloc[0] = 0
             # Reconstruct series
             series = series.iloc[0] * (1 + adj_rets).cumprod()
-            print(f"  Applied TER of {ter*100:.2f}% to {name}")
+            logger.info(f"  Applied TER of {ter*100:.2f}% to {name}")
             
         combined = combined.join(series.rename(name), how='outer')
         # Standardize joining: ffill from start of asset to end of combined index if needed
@@ -842,7 +937,7 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_dbmf = df_dbmf.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to dbmf")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to dbmf")
         combined = combined.join(df_dbmf, how='outer')
 
     # 4. Add NTSG Portfolio
@@ -854,7 +949,7 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_ntsg = df_ntsg.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to ntsg")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to ntsg")
         combined = combined.join(df_ntsg, how='outer')
 
     # 6. Add EUR Government Bonds 10y
@@ -866,12 +961,12 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_bonds = df_bonds.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to eur_government_bonds_10y")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to eur_government_bonds_10y")
         combined = combined.join(df_bonds.to_frame(), how='outer')
 
     # 5. Add Gold Portfolio from CSV
     # https://www.macrotrends.net/1333/historical-gold-prices-100-year-chart
-    print("Reading gold.csv...")
+    logger.info("Reading gold.csv...")
     gold_csv_path = os.path.join(source_dir, "gold.csv")
     if os.path.exists(gold_csv_path):
         try:
@@ -890,11 +985,11 @@ def process_files():
             adj_rets = rets - monthly_ter
             adj_rets.iloc[0] = 0
             df_gold = df_gold.iloc[0] * (1 + adj_rets).cumprod()
-            print(f"  Applied TER of {ter*100:.2f}% to gold_usd")
+            logger.info(f"  Applied TER of {ter*100:.2f}% to gold_usd")
             combined = combined.join(df_gold.rename('gold_usd'), how='outer')
             combined['gold_usd'] = combined['gold_usd'].ffill()
         except Exception as e:
-            print(f"Error processing gold.csv: {e}")
+            logger.error(f"Error processing gold.csv: {e}")
 
     # 7. Add CASH Portfolio
     df_cash = get_cash_portfolio()
@@ -906,7 +1001,7 @@ def process_files():
             adj_rets = rets - monthly_ter
             adj_rets.iloc[0] = 0
             df_cash[col] = df_cash[col].iloc[0] * (1 + adj_rets).cumprod()
-            print(f"  Applied TER of {ter*100:.2f}% to {col}")
+            logger.info(f"  Applied TER of {ter*100:.2f}% to {col}")
         combined = combined.join(df_cash, how='outer')
 
     # 8. Add Enhanced Commodity Portfolio
@@ -918,7 +1013,7 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_comm_enh = df_comm_enh.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to commodity_enhanced_usd")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to commodity_enhanced_usd")
         combined = combined.join(df_comm_enh, how='outer')
 
     # 9. Add L&G Multi-Strategy Enhanced Commodities
@@ -930,7 +1025,7 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_lg = df_lg.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to lg_commodity_usd")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to lg_commodity_usd")
         combined = combined.join(df_lg, how='outer')
 
     # 10. Add Bloomberg Roll Select Commodity
@@ -942,7 +1037,7 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_roll = df_roll.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to roll_select_commodity_usd")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to roll_select_commodity_usd")
         combined = combined.join(df_roll, how='outer')
 
     # 12. Add UBS CMCI Composite Commodity
@@ -954,11 +1049,11 @@ def process_files():
         adj_rets = rets - monthly_ter
         adj_rets.iloc[0] = 0
         df_ubs = df_ubs.iloc[0] * (1 + adj_rets).cumprod()
-        print(f"  Applied TER of {ter*100:.2f}% to ubs_commodity_usd")
+        logger.info(f"  Applied TER of {ter*100:.2f}% to ubs_commodity_usd")
         combined = combined.join(df_ubs, how='outer')
 
     # 13. Fetch Exchange Rates and convert columns
-    print("Fetching exchange rates (FRED + YFinance fallback)...")
+    logger.info("Fetching exchange rates (FRED + YFinance fallback)...")
     try:
         fx_fred = pdr.get_data_fred('DEXUSEU', start="1999-01-01")['DEXUSEU']
         dem_usd = get_fred_series_raw("EXGEUS", "Rate")
@@ -971,7 +1066,7 @@ def process_files():
         full_idx = combined.index.union(fx_rates.index).sort_values()
         fx_rates = fx_rates.reindex(full_idx).ffill().reindex(combined.index)
         
-        print("Calculating cross-currency columns...")
+        logger.info("Calculating cross-currency columns...")
         for col in list(combined.columns):
             if col in ['cash_usd', 'cash_eur']: continue # Skip local cash versions
             if col.endswith('_usd'):
@@ -980,7 +1075,7 @@ def process_files():
                 combined[col.replace('_eur', '_usd')] = combined[col] * fx_rates
             else:
                 combined[f"{col}_eur"] = combined[col] / fx_rates
-    except Exception as e: print(f"Warning FX: {e}")
+    except Exception as e: logger.warning(f"Warning FX: {e}")
 
     norm_targets = ['coletti_eq_usd', 'coletti_eq_eur', 
                     'eur_government_bonds_10y_usd', 'eur_government_bonds_10y_eur',
@@ -1054,7 +1149,7 @@ def process_files():
     combined.to_excel(writer, index=False, sheet_name='Data')
     writer.sheets['Data'].freeze_panes(1, 1)
     writer.close()
-    print(f"Success! Final Shape: {combined.shape}")
+    logger.info(f"Success! Final Shape: {combined.shape}")
 
 if __name__ == "__main__":
     process_files()
