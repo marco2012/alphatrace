@@ -30,10 +30,12 @@ import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigge
 import {
     annualVol,
     averageRolling10YearCAGR,
+    averageRolling10YearVol,
     averageRolling5YearCAGR,
     cagr,
     cagrRecurring,
     computeAnnualReturns,
+    downsideDeviation,
     formatMonthsAsYearsAndMonths,
     PortfolioResult,
     sharpe,
@@ -77,7 +79,10 @@ const METRIC_EXPLANATIONS = {
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
     avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
+    sharpe10YValue: "Sharpe (10Y). Sharpe Ratio calculated using the Average 10-Year Rolling CAGR.",
+    sortino10YValue: "Sortino (10Y). Sortino Ratio calculated using the Average 10-Year Rolling CAGR.",
     avgRolling5YearCAGRValue: "Average 5Y Rolling CAGR. The average of all possible 5-year rolling Compound Annual Growth Rates.",
+    vol10YValue: "Volatility (10Y). The average annualized volatility over rolling 10-year periods.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
     capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
 };
@@ -193,6 +198,7 @@ export function AnalysisSection() {
     const [simSelectedKey, setSimSelectedKey] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [decomposePortfolios, setDecomposePortfolios] = useState(false);
+    const [showRollingMetrics, setShowRollingMetrics] = useState(true);
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
 
@@ -744,9 +750,16 @@ export function AnalysisSection() {
                     : cagr(Object.keys(r.idxMap).sort().map((d) => ({ value: r.idxMap[d] })));
                 const volValue = annualVol(r.portRets);
                 const sharpeValue = sharpe(r.portRets, riskFreeRate);
+                const avgRolling10YearCAGRValue = averageRolling10YearCAGR(r);
+                const sharpe10YValue = volValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / volValue : 0;
+                
+                // New metrics for rolling view
+                const vol10YValue = averageRolling10YearVol(r);
+                const ddValue = downsideDeviation(r.portRets, riskFreeRate);
+                const sortino10YValue = ddValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / ddValue : 0;
+
                 const sortinoValue = sortino(r.portRets, riskFreeRate);
                 const maxDD = r.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
-                const avgRolling10YearCAGRValue = averageRolling10YearCAGR(r);
                 const avgRolling5YearCAGRValue = averageRolling5YearCAGR(r);
                 const calmarValue = calmar(cagrValue, maxDD);
                 const ulcerIndexValue = ulcerIndex(r.drawdowns);
@@ -773,10 +786,16 @@ export function AnalysisSection() {
                     cagr: fmtPct(cagrValue),
                     volValue,
                     vol: fmtPct(volValue),
+                    vol10YValue,
+                    vol10Y: fmtPct(vol10YValue),
                     sharpeValue,
                     sharpe: fmtNum(sharpeValue),
+                    sharpe10YValue,
+                    sharpe10Y: fmtNum(sharpe10YValue),
                     sortinoValue,
                     sortino: fmtNum(sortinoValue),
+                    sortino10YValue,
+                    sortino10Y: fmtNum(sortino10YValue),
                     maxDDValue: maxDD,
                     maxDD: fmtPct(maxDD),
                     calmarValue,
@@ -804,10 +823,16 @@ export function AnalysisSection() {
                 cagr: string;
                 volValue: number;
                 vol: string;
+                vol10YValue: number;
+                vol10Y: string;
                 sharpeValue: number;
                 sharpe: string;
+                sharpe10YValue: number;
+                sharpe10Y: string;
                 sortinoValue: number;
                 sortino: string;
+                sortino10YValue: number;
+                sortino10Y: string;
                 maxDDValue: number;
                 maxDD: string;
                 calmarValue: number;
@@ -1542,8 +1567,12 @@ export function AnalysisSection() {
 
                 {validItems.length > 0 && (
                     <Card key={`metrics-${calcKey}`}>
-                        <CardHeader>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
                             <CardTitle>Key Metrics</CardTitle>
+                            <div className="flex items-center space-x-2">
+                                <Switch id="rolling-mode" checked={showRollingMetrics} onCheckedChange={setShowRollingMetrics} />
+                                <Label htmlFor="rolling-mode">Rolling Metrics</Label>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             <Table>
@@ -1573,6 +1602,7 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            {!showRollingMetrics && (
                                             <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1589,6 +1619,9 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            )}
+                                            {showRollingMetrics && (
+                                            <>
                                             <TableHead onClick={() => handleSort("avgRolling5YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1621,6 +1654,9 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            </>
+                                            )}
+                                            {!showRollingMetrics ? (
                                             <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1637,6 +1673,25 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            ) : (
+                                            <TableHead onClick={() => handleSort("vol10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Vol (10Y)
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "vol10YValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.vol10YValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            )}
+                                            {!showRollingMetrics ? (
                                             <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1653,6 +1708,25 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            ) : (
+                                            <TableHead onClick={() => handleSort("sharpe10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Sharpe (10Y)
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "sharpe10YValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.sharpe10YValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            )}
+                                            {!showRollingMetrics ? (
                                             <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1669,6 +1743,24 @@ export function AnalysisSection() {
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
+                                            ) : (
+                                            <TableHead onClick={() => handleSort("sortino10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Sortino (10Y)
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "sortino10YValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.sortino10YValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            )}
                                             <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1755,12 +1847,30 @@ export function AnalysisSection() {
                                                 <TableCell className="text-right font-medium">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                                 </TableCell>
+                                                {!showRollingMetrics && (
                                                 <TableCell className="text-right">{row.cagr}</TableCell>
+                                                )}
+                                                {showRollingMetrics && (
+                                                <>
                                                 <TableCell className="text-right text-blue-600">{row.avgRolling5YearCAGR}</TableCell>
                                                 <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
+                                                </>
+                                                )}
+                                                {!showRollingMetrics ? (
                                                 <TableCell className="text-right">{row.vol}</TableCell>
+                                                ) : (
+                                                <TableCell className="text-right text-blue-600">{row.vol10Y}</TableCell>
+                                                )}
+                                                {!showRollingMetrics ? (
                                                 <TableCell className="text-right">{row.sharpe}</TableCell>
+                                                ) : (
+                                                <TableCell className="text-right text-blue-600">{row.sharpe10Y}</TableCell>
+                                                )}
+                                                {!showRollingMetrics ? (
                                                 <TableCell className="text-right">{row.sortino}</TableCell>
+                                                ) : (
+                                                <TableCell className="text-right text-blue-600">{row.sortino10Y}</TableCell>
+                                                )}
                                                 <TableCell className={`text-right ${(() => {
                                                     const val = Math.abs(row.maxDDValue);
                                                     if (val < 0.15) return "text-red-400";

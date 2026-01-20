@@ -55,6 +55,7 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
     const ulcerIndexValue = ulcerIndex(drawdowns);
 
     const avgRolling10YearCAGR = averageRolling10YearCAGR(portfolio);
+    const sharpe10YValue = volValue !== 0 ? (avgRolling10YearCAGR - rf) / volValue : 0;
 
     const formatPercent = (v: number) => `${(v * 100).toFixed(2)}%`;
     const formatNumber = (v: number) => v.toFixed(2);
@@ -103,6 +104,17 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
                         {formatNumber(sharpeValue)}
                     </div>
                     <p className="text-xs text-muted-foreground">Risk-adjusted return (Rf={(rf * 100).toFixed(0)}%)</p>
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Sharpe (10Y)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                        {avgRolling10YearCAGR !== 0 ? formatNumber(sharpe10YValue) : "--"}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Sharpe using Avg 10Y CAGR</p>
                 </CardContent>
             </Card>
             <Card>

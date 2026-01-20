@@ -630,6 +630,28 @@ export function averageRolling5YearCAGR(portfolio: PortfolioResult): number {
     return averageRollingNCAGR(idxMap, 5);
 }
 
+export function averageRollingVol(mrets: number[], years: number): number {
+    const w = years * 12;
+    if (mrets.length < w) return 0;
+    const vols = [];
+    for (let i = 0; i + w <= mrets.length; i++) {
+        const window = mrets.slice(i, i + w);
+        vols.push(annualVol(window));
+    }
+    return vols.reduce((a, b) => a + b, 0) / vols.length;
+}
+
+export function averageRolling10YearVol(portfolio: PortfolioResult): number {
+    return averageRollingVol(portfolio.portRets, 10);
+}
+
+export function downsideDeviation(mrets: number[], rf = 0): number {
+    const rfM = rf / 12;
+    const dn = mrets.filter(r => r < rfM);
+    const dd = stdev(dn);
+    return dd * Math.sqrt(12);
+}
+
 export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string, baseValue: number = 10000): PortfolioResult {
     // Find indices
     const sIdx = res.dates.findIndex(d => d >= startDate);
