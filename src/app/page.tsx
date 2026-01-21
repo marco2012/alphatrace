@@ -16,12 +16,12 @@ import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { toast } from "sonner";
 
 const CATEGORY_COLORS: Record<string, string> = {
-    stocks: "#2563eb",
-    bonds: "#16a34a",
-    cash: "#64748b",
-    gold: "#d97706",
-    alternatives: "#a855f7",
-    other: "#9333ea",
+  stocks: "#2563eb",
+  bonds: "#16a34a",
+  cash: "#64748b",
+  gold: "#d97706",
+  alternatives: "#a855f7",
+  other: "#9333ea",
 };
 
 export default function Home() {
@@ -136,17 +136,17 @@ export default function Home() {
             {/* Saved Portfolios */}
             <div id="saved-portfolios" className="space-y-3 scroll-mt-24">
               <Card>
-                <CardHeader 
-                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between cursor-pointer select-none hover:bg-muted/50 transition-colors rounded-t-lg"
-                    onClick={() => setIsSavedPortfoliosOpen(!isSavedPortfoliosOpen)}
+                <CardHeader
+                  className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between cursor-pointer select-none hover:bg-muted/50 transition-colors rounded-t-lg"
+                  onClick={() => setIsSavedPortfoliosOpen(!isSavedPortfoliosOpen)}
                 >
                   <div className="flex items-start gap-2">
                     <div className="mt-1">
-                        {isSavedPortfoliosOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                      {isSavedPortfoliosOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
                     </div>
                     <div>
-                        <CardTitle>Saved Portfolios</CardTitle>
-                        <CardDescription>Save a new composition and revisit it any time.</CardDescription>
+                      <CardTitle>Saved Portfolios</CardTitle>
+                      <CardDescription>Save a new composition and revisit it any time.</CardDescription>
                     </div>
                   </div>
                   {savedPortfolios.length > 0 && (
@@ -161,118 +161,149 @@ export default function Home() {
                   )}
                 </CardHeader>
                 {isSavedPortfoliosOpen && (
-                <CardContent className="space-y-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Portfolio Name"
-                        value={newPortfolioName}
-                        onChange={(e) => setNewPortfolioName(e.target.value)}
-                      />
+                  <CardContent className="space-y-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                      <div className="flex-1">
+                        <Input
+                          placeholder="Portfolio Name"
+                          value={newPortfolioName}
+                          onChange={(e) => setNewPortfolioName(e.target.value)}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => {
+                          createNewPortfolio();
+                          setNewPortfolioName("Untitled");
+                        }} className="sm:w-auto">
+                          <FilePlus className="mr-2 h-4 w-4" /> New
+                        </Button>
+                        <Button onClick={handleSave} className="sm:w-auto">
+                          <Plus className="mr-2 h-4 w-4" /> {activePortfolioId ? "Update" : "Save"}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => {
-                        createNewPortfolio();
-                        setNewPortfolioName("Untitled");
-                      }} className="sm:w-auto">
-                        <FilePlus className="mr-2 h-4 w-4" /> New
-                      </Button>
-                      <Button onClick={handleSave} className="sm:w-auto">
-                        <Plus className="mr-2 h-4 w-4" /> {activePortfolioId ? "Update" : "Save"}
-                      </Button>
-                    </div>
-                  </div>
-                  {savedPortfolios.length === 0 ? (
-                    <div className="text-center py-10 text-muted-foreground">
-                      <Briefcase className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                      <p>No portfolios saved yet.</p>
-                    </div>
-                  ) : (
-                    <div className="rounded-md border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead className="hidden text-center sm:table-cell">Stocks</TableHead>
-                            <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
-                            <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
-                            <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
-                            <TableHead className="hidden text-center sm:table-cell">Alts</TableHead>
-                            <TableHead className="text-right pr-10">TER (%)</TableHead>
-                            <TableHead className="hidden md:table-cell pl-10">Date</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {savedPortfolios.map((p) => (
-                            <TableRow
-                              key={p.id}
-                              className={
-                                p.highlighted
-                                  ? "bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
-                                  : activePortfolioId === p.id
-                                    ? "bg-muted/30"
-                                    : undefined
-                              }
-                            >
-                              <TableCell className="max-w-[180px] truncate font-medium sm:max-w-none">{p.name}</TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.stocks }}>
-                                {getCategoryPercentage(p.weights, 'stocks')}%
-                              </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.bonds }}>
-                                {getCategoryPercentage(p.weights, 'bonds')}%
-                              </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.cash }}>
-                                {getCategoryPercentage(p.weights, 'cash')}%
-                              </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.gold }}>
-                                {getCategoryPercentage(p.weights, 'gold')}%
-                              </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.alternatives }}>
-                                {getCategoryPercentage(p.weights, 'alternatives')}%
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-sm pr-10">
-                                {(getPortfolioTER(p.weights) * 100).toFixed(2)}%
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell text-muted-foreground text-xs pl-10">
-                                {new Date(p.date).toLocaleDateString()}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex flex-col justify-end gap-2 sm:flex-row sm:flex-wrap">
-                                  <Button
-                                    className="w-full sm:w-auto"
-                                    variant={p.highlighted ? "default" : "secondary"}
-                                    size="sm"
-                                    onClick={() => togglePortfolioHighlight(p.id)}
-                                  >
-                                    <Highlighter className="h-4 w-4" />
-                                  </Button>
-                                  <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
-                                    <Upload className="h-4 w-4 sm:mr-2" />
-                                    <span className="hidden sm:inline">Load</span>
-                                  </Button>
-                                  <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => {
-                                    const url = getShareUrl(p.weights);
-                                    navigator.clipboard.writeText(url);
-                                    toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
-                                  }}>
-                                    <Share2 className="h-4 w-4" />
-                                  </Button>
-                                  <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleDuplicate(p.id)}>
-                                    <Copy className="h-4 w-4" />
-                                  </Button>
-                                  <Button className="w-full sm:w-auto" variant="destructive" size="sm" onClick={() => handleDeleteClick(p.id, p.name)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
+                    {savedPortfolios.length === 0 ? (
+                      <div className="text-center py-10 text-muted-foreground">
+                        <Briefcase className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                        <p>No portfolios saved yet.</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Name</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Stocks</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Alts</TableHead>
+                              <TableHead className="hidden sm:table-cell text-right pr-10">TER (%)</TableHead>
+                              <TableHead className="hidden md:table-cell pl-10">Date</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
+                          </TableHeader>
+                          <TableBody>
+                            {savedPortfolios.map((p) => (
+                              <TableRow
+                                key={p.id}
+                                className={
+                                  p.highlighted
+                                    ? "bg-yellow-300/60 hover:bg-yellow-300/70 dark:bg-yellow-500/25 dark:hover:bg-yellow-500/35"
+                                    : activePortfolioId === p.id
+                                      ? "bg-muted/30"
+                                      : undefined
+                                }
+                              >
+                                <TableCell className="max-w-[180px] font-medium sm:max-w-none">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="truncate">{p.name}</span>
+                                    <div className="sm:hidden flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-normal">
+                                      {getCategoryPercentage(p.weights, 'stocks') > 0 && (
+                                        <span style={{ color: CATEGORY_COLORS.stocks }}>
+                                          S: {getCategoryPercentage(p.weights, 'stocks')}%
+                                        </span>
+                                      )}
+                                      {getCategoryPercentage(p.weights, 'bonds') > 0 && (
+                                        <span style={{ color: CATEGORY_COLORS.bonds }}>
+                                          B: {getCategoryPercentage(p.weights, 'bonds')}%
+                                        </span>
+                                      )}
+                                      {getCategoryPercentage(p.weights, 'cash') > 0 && (
+                                        <span style={{ color: CATEGORY_COLORS.cash }}>
+                                          C: {getCategoryPercentage(p.weights, 'cash')}%
+                                        </span>
+                                      )}
+                                      {getCategoryPercentage(p.weights, 'gold') > 0 && (
+                                        <span style={{ color: CATEGORY_COLORS.gold }}>
+                                          G: {getCategoryPercentage(p.weights, 'gold')}%
+                                        </span>
+                                      )}
+                                      {getCategoryPercentage(p.weights, 'alternatives') > 0 && (
+                                        <span style={{ color: CATEGORY_COLORS.alternatives }}>
+                                          A: {getCategoryPercentage(p.weights, 'alternatives')}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.stocks }}>
+                                  {getCategoryPercentage(p.weights, 'stocks')}%
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.bonds }}>
+                                  {getCategoryPercentage(p.weights, 'bonds')}%
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.cash }}>
+                                  {getCategoryPercentage(p.weights, 'cash')}%
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.gold }}>
+                                  {getCategoryPercentage(p.weights, 'gold')}%
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.alternatives }}>
+                                  {getCategoryPercentage(p.weights, 'alternatives')}%
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell text-right font-mono text-sm pr-10">
+                                  {(getPortfolioTER(p.weights) * 100).toFixed(2)}%
+                                </TableCell>
+                                <TableCell className="hidden md:table-cell text-muted-foreground text-xs pl-10">
+                                  {new Date(p.date).toLocaleDateString()}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="grid grid-cols-3 gap-1 sm:flex sm:flex-row sm:flex-wrap sm:justify-end sm:gap-2">
+                                    <Button
+                                      className="w-full sm:w-auto"
+                                      variant={p.highlighted ? "default" : "secondary"}
+                                      size="sm"
+                                      onClick={() => togglePortfolioHighlight(p.id)}
+                                    >
+                                      <Highlighter className="h-4 w-4" />
+                                    </Button>
+                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleLoad(p.id, p.name)}>
+                                      <Upload className="h-4 w-4 sm:mr-2" />
+                                      <span className="hidden sm:inline">Load</span>
+                                    </Button>
+                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => {
+                                      const url = getShareUrl(p.weights);
+                                      navigator.clipboard.writeText(url);
+                                      toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
+                                    }}>
+                                      <Share2 className="h-4 w-4" />
+                                    </Button>
+                                    <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => handleDuplicate(p.id)}>
+                                      <Copy className="h-4 w-4" />
+                                    </Button>
+                                    <Button className="w-full sm:w-auto" variant="destructive" size="sm" onClick={() => handleDeleteClick(p.id, p.name)}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
                 )}
               </Card>
             </div>

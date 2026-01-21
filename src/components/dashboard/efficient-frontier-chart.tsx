@@ -38,7 +38,7 @@ function getRollingStats(weights: number[], assetRets: number[][], years: number
     const nPeriods = assetRets[0].length;
     const nAssets = weights.length;
     const window = years * 12;
-    
+
     if (nPeriods < window) return null;
 
     const portRets = new Float64Array(nPeriods);
@@ -53,17 +53,17 @@ function getRollingStats(weights: number[], assetRets: number[][], years: number
     const prices = new Float64Array(nPeriods + 1);
     prices[0] = 1;
     for (let t = 0; t < nPeriods; t++) {
-        prices[t+1] = prices[t] * (1 + portRets[t]);
+        prices[t + 1] = prices[t] * (1 + portRets[t]);
     }
-    
+
     let sumCagr = 0;
     let count = 0;
-    
+
     for (let i = 0; i <= nPeriods - window; i++) {
         const valStart = prices[i];
         const valEnd = prices[i + window];
         // handle div by zero just in case, though prices[0]=1 and prices are usually > 0
-        if (valStart <= 0) continue; 
+        if (valStart <= 0) continue;
         const cagr = Math.pow(valEnd / valStart, 1 / years) - 1;
         sumCagr += cagr;
         count++;
@@ -72,27 +72,27 @@ function getRollingStats(weights: number[], assetRets: number[][], years: number
 
     let sumVol = 0;
     const sqrt12 = Math.sqrt(12);
-    
+
     for (let i = 0; i <= nPeriods - window; i++) {
         let m = 0;
         for (let j = 0; j < window; j++) {
-            m += portRets[i+j];
+            m += portRets[i + j];
         }
         m /= window;
-        
+
         let s = 0;
         for (let j = 0; j < window; j++) {
-            const d = portRets[i+j] - m;
-            s += d*d;
+            const d = portRets[i + j] - m;
+            s += d * d;
         }
         s /= (window - 1);
         const vol = Math.sqrt(s) * sqrt12;
         sumVol += vol;
     }
     const avgVol = count > 0 ? sumVol / count : 0;
-    
+
     const sharpe = avgVol > 0 ? (avgCagr - rf) / avgVol : 0;
-    
+
     return { annualReturn: avgCagr, annualVol: avgVol, sharpe };
 }
 
@@ -189,9 +189,9 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
                 <div className="flex items-center justify-between mb-1">
                     <div className="font-semibold text-sm">{displayLabel}</div>
                     <div className="flex gap-1">
-                        <Button 
-                            size="sm" 
-                            variant="ghost" 
+                        <Button
+                            size="sm"
+                            variant="ghost"
                             className="h-6 w-6 p-0"
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -268,7 +268,20 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const { saveCustomPortfolio } = usePortfolio();
 
     const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
-    
+
+    // Track mobile view for responsive legend
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 640);
+        };
+
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
     // Controlled tooltip state
     const [tooltipState, setTooltipState] = useState<{ active: boolean; payload: any[]; coordinate: { x: number; y: number } | undefined }>({
         active: false,
@@ -281,11 +294,11 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         // However, for Scatter, data is the payload.
         // We need to construct the state.
         // We can get coordinate from the event or the data if it has cx/cy.
-        
+
         // Actually, Recharts onClick on Scatter passes: (props, event)
         // props contains 'payload' (our data item), 'cx', 'cy' (coordinates)
         const { payload, cx, cy, x, y } = data;
-        
+
         // Prevent bubbling if needed, though Recharts handles it.
         if (e && e.stopPropagation) e.stopPropagation();
 
@@ -353,7 +366,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setFocusedSeries(null);
         // We don't reset constraints here to persist them across date changes
     }, [norm, weights, startDate, endDate, rf, useRollingStats]);
-    
+
     useEffect(() => {
         if (activeAssets.length > 0 && Object.keys(interactiveWeights).length === 0) {
             const initial: Record<string, number> = {};
@@ -382,7 +395,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
                 const statsToPoint = (label: string, wVec: number[]) => {
                     let vol, ret, sharpe;
-                    
+
                     if (useRollingStats) {
                         const stats = getRollingStats(wVec, assetRets, 10, rf);
                         if (!stats) {
@@ -420,7 +433,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const curPoint = statsToPoint("Original Portfolio", wCur);
                 setCurrentPoint(curPoint);
 
-                const SIMS = 2000; 
+                const SIMS = 2000;
                 const sims: FrontierPoint[] = [];
                 const maxConstraints = activeAssets.map(a => (constraints[a] ?? 100) / 100);
 
@@ -428,16 +441,16 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     let w: number[] = [];
                     let valid = false;
                     let attempts = 0;
-                    
+
                     // Rejection sampling for constraints
                     while (!valid && attempts < 100) {
                         const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
                         const s = rands.reduce((a, b) => a + b, 0) || 1;
                         w = rands.map((x) => x / s);
-                        
+
                         // Check constraints
                         valid = true;
-                        for(let j=0; j<w.length; j++) {
+                        for (let j = 0; j < w.length; j++) {
                             if (w[j] > maxConstraints[j] + 0.0001) { // tolerance
                                 valid = false;
                                 break;
@@ -445,7 +458,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         }
                         attempts++;
                     }
-                    
+
                     if (valid) {
                         sims.push(statsToPoint("Simulated", w));
                     }
@@ -471,18 +484,18 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const minRisk = sims.reduce((best, p) => (p.vol < best.vol ? p : best), sims[0]);
 
                 // Limit points for rendering performance, but keep enough density
-                const displaySims = sims.length > 500 
-                    ? sims.sort(() => 0.5 - Math.random()).slice(0, 500) 
+                const displaySims = sims.length > 500
+                    ? sims.sort(() => 0.5 - Math.random()).slice(0, 500)
                     : sims;
 
                 setPoints(displaySims);
                 setFrontier(fr);
-                
+
                 const newHighlights = [];
                 if (bestCagr) newHighlights.push({ ...bestCagr, label: "Highest CAGR" });
                 if (bestSharpe) newHighlights.push({ ...bestSharpe, label: "Highest Sharpe" });
                 if (minRisk) newHighlights.push({ ...minRisk, label: "Lowest Risk" });
-                
+
                 setHighlights(newHighlights);
             } finally {
                 setIsLoading(false);
@@ -493,11 +506,11 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
     const calculateInteractivePoint = useCallback((weights: Record<string, number>) => {
         if (!means.length || !cov.length || activeAssets.length === 0) return null;
-        
+
         const wVec = activeAssets.map(asset => weights[asset] || 0);
         const sum = wVec.reduce((a, b) => a + b, 0);
         if (sum === 0) return null;
-        
+
         const normalized = wVec.map(w => w / sum);
         let vol, ret, sharpe;
 
@@ -519,7 +532,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             ret = st.annualReturn;
             sharpe = vol > 0 ? (ret - rf) / vol : 0;
         }
-        
+
         const weightsObj = activeAssets.reduce((acc, asset, i) => {
             acc[asset] = normalized[i];
             return acc;
@@ -534,19 +547,19 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             composition: weightsObj,
         };
     }, [means, cov, activeAssets, rf, useRollingStats, assetRets]);
-    
-    const interactivePoint = useMemo(() => 
+
+    const interactivePoint = useMemo(() =>
         calculateInteractivePoint(interactiveWeights),
         [interactiveWeights, calculateInteractivePoint]
     );
-    
+
     const handleWeightChange = useCallback((asset: string, value: number) => {
         setInteractiveWeights(prev => ({
             ...prev,
             [asset]: Math.round(value) / 100,
         }));
     }, []);
-    
+
     const resetWeights = useCallback(() => {
         const initial: Record<string, number> = {};
         activeAssets.forEach(asset => {
@@ -554,38 +567,38 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         });
         setInteractiveWeights(initial);
     }, [activeAssets, weights]);
-    
+
     const normalizeWeights = useCallback(() => {
         setInteractiveWeights(prev => {
             const entries = Object.entries(prev);
             const sum = entries.reduce((a, b) => a + b[1], 0);
             if (sum === 0) return prev;
-            
+
             // Largest Remainder Method to ensure integer percentages summing to 100
             const raw = entries.map(([asset, w]) => ({
                 asset,
                 val: (w / sum) * 100
             }));
-            
+
             const rounded = raw.map(item => ({
                 asset: item.asset,
                 val: Math.floor(item.val)
             }));
-            
+
             let currentSum = rounded.reduce((a, b) => a + b.val, 0);
             const diff = 100 - currentSum;
-            
+
             if (diff > 0) {
                 const remainders = raw.map((item, i) => ({
                     index: i,
                     rem: item.val - rounded[i].val
                 })).sort((a, b) => b.rem - a.rem);
-                
+
                 for (let i = 0; i < diff; i++) {
                     rounded[remainders[i].index].val++;
                 }
             }
-            
+
             const normalized: Record<string, number> = {};
             rounded.forEach(item => {
                 normalized[item.asset] = item.val / 100;
@@ -596,23 +609,23 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
     const { xDomain, yDomain } = useMemo(() => {
         if (points.length === 0) return { xDomain: [0, 'auto'] as [number, 'auto'], yDomain: [0, 'auto'] as [number, 'auto'] };
-        
+
         const allPoints = [...points, ...highlights];
         if (currentPoint) allPoints.push(currentPoint);
         if (interactivePoint) allPoints.push(interactivePoint);
-        
+
         const vols = allPoints.map(p => p.vol);
         const rets = allPoints.map(p => p.ret);
-        
+
         const minVol = Math.min(...vols);
         const maxVol = Math.max(...vols);
         const minRet = Math.min(...rets);
         const maxRet = Math.max(...rets);
-        
+
         // Add some padding
         const xPad = (maxVol - minVol) * 0.1;
         const yPad = (maxRet - minRet) * 0.1;
-        
+
         return {
             xDomain: [Math.max(0, minVol - xPad), maxVol + xPad] as [number, number],
             yDomain: [minRet - yPad, maxRet + yPad] as [number, number]
@@ -692,22 +705,22 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         </div>
                                     ))}
                                 </div>
-                                    <Button 
-                                        size="sm" 
-                                        variant="outline" 
-                                        className="w-full"
-                                        onClick={() => setConstraints({})}
-                                    >
-                                        Reset All
-                                    </Button>
-                                    <Button 
-                                        size="sm" 
-                                        className="w-full"
-                                        onClick={compute}
-                                    >
-                                        Recompute
-                                    </Button>
-                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full"
+                                    onClick={() => setConstraints({})}
+                                >
+                                    Reset All
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={compute}
+                                >
+                                    Recompute
+                                </Button>
+                            </div>
                         </PopoverContent>
                     </Popover>
                     <div className="flex items-center space-x-2 mr-2">
@@ -766,7 +779,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         )}
                     </div>
                 )}
-                
+
                 <div className="h-[350px] w-full">
                     {points.length === 0 || !currentPoint ? (
                         <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
@@ -835,37 +848,42 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
                                         itemStyle={{ color: "hsl(var(--foreground))" }}
                                         content={
-                                            <CustomTooltip 
+                                            <CustomTooltip
                                                 active={tooltipState.active}
                                                 payload={tooltipState.payload}
-                                                highlights={highlights} 
-                                                currentPoint={currentPoint} 
-                                                interactivePoint={interactivePoint} 
-                                                saveCustomPortfolio={saveCustomPortfolio} 
-                                                onClose={closeTooltip} 
+                                                highlights={highlights}
+                                                currentPoint={currentPoint}
+                                                interactivePoint={interactivePoint}
+                                                saveCustomPortfolio={saveCustomPortfolio}
+                                                onClose={closeTooltip}
                                             />
                                         }
                                     />
-                                    <Legend 
-                                        layout="vertical" 
-                                        align="right" 
-                                        verticalAlign="middle" 
-                                        onClick={handleLegendClick} 
-                                        wrapperStyle={{ cursor: 'pointer', userSelect: 'none', paddingLeft: '20px' }} 
+                                    <Legend
+                                        layout={isMobile ? "horizontal" : "vertical"}
+                                        align={isMobile ? "center" : "right"}
+                                        verticalAlign={isMobile ? "bottom" : "middle"}
+                                        onClick={handleLegendClick}
+                                        wrapperStyle={{
+                                            cursor: 'pointer',
+                                            userSelect: 'none',
+                                            paddingLeft: isMobile ? '0' : '20px',
+                                            paddingTop: isMobile ? '10px' : '0'
+                                        }}
                                     />
-                                    <Scatter 
-                                        name="Simulated" 
-                                        data={points} 
-                                        fill="#94a3b8" 
-                                        legendType="none" 
-                                        hide={focusedSeries !== null} 
+                                    <Scatter
+                                        name="Simulated"
+                                        data={points}
+                                        fill="#94a3b8"
+                                        legendType="none"
+                                        hide={focusedSeries !== null}
                                         onClick={handlePointClick}
                                     />
-                                    <Scatter 
-                                        name="Frontier" 
-                                        data={frontier} 
-                                        fill="#3b82f6" 
-                                        legendType="none" 
+                                    <Scatter
+                                        name="Frontier"
+                                        data={frontier}
+                                        fill="#3b82f6"
+                                        legendType="none"
                                         hide={focusedSeries !== null}
                                         onClick={handlePointClick}
                                     />
