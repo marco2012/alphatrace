@@ -217,16 +217,34 @@ export function AnalysisSection() {
         const allHighlightedSelected = highlighted.every(p => selectedItems.some(i => i.type === "portfolio" && i.id === p.id));
 
         if (allHighlightedSelected) {
-            setSelectedItems(prev => prev.filter(i => !(i.type === "portfolio" && highlightedIds.has(i.id))));
+            setSelectedItems(prev => {
+                const filtered = prev.filter(i => !(i.type === "portfolio" && highlightedIds.has(i.id)));
+                // Restore Current Portfolio if list becomes empty
+                if (filtered.length === 0) {
+                    return [{
+                        id: "current",
+                        type: "portfolio",
+                        name: "Current Portfolio",
+                        color: COLORS[0],
+                        result: null
+                    }];
+                }
+                return filtered;
+            });
             setSelectedForAdd(prev => prev.filter(id => !highlightedIds.has(id)));
             return;
         }
 
-        const currentItems = [...selectedItems];
+        // Check if we should remove 'current' before adding
+        let baseItems = [...selectedItems];
+        if (baseItems.length === 1 && baseItems[0].id === "current") {
+            baseItems = [];
+        }
+
         const itemsToAdd = highlighted
-            .filter(p => !currentItems.some(i => i.type === "portfolio" && i.id === p.id))
+            .filter(p => !baseItems.some(i => i.type === "portfolio" && i.id === p.id))
             .map(p => {
-                const color = getNextColor(currentItems);
+                const color = getNextColor(baseItems);
                 const newItem: AnalysisItem = {
                     id: p.id,
                     type: "portfolio" as const,
@@ -234,12 +252,12 @@ export function AnalysisSection() {
                     color,
                     result: null
                 };
-                currentItems.push(newItem);
+                baseItems.push(newItem);
                 return newItem;
             });
 
         if (itemsToAdd.length > 0) {
-            setSelectedItems([...selectedItems, ...itemsToAdd]);
+            setSelectedItems(baseItems);
         }
 
         setSelectedForAdd(prev => prev.filter(id => !highlightedIds.has(id)));
@@ -1124,15 +1142,39 @@ export function AnalysisSection() {
                 return;
             }
 
-            const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
             const idsToAdd = savedPortfolios.map(p => p.id);
-            const currentSelected = [...baseSelected];
+            
+            // Check if we should remove 'current' before adding
+            let currentSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
+            // If currentSelected was empty (meaning only 'current' was there), it's now empty, which is what we want.
+            // But wait, the original logic preserved 'baseSelected' which EXCLUDED current.
+            // So if 'current' was there, it's gone.
+            
+            // The original logic was: const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
+            // This already removed "current". So if "current" was the only item, baseSelected is empty.
+            // And then it adds to baseSelected.
+            // So the behavior "remove current" is ALREADY mostly there for "Add All", except if we wanted to KEEP it.
+            // But the user wants to REMOVE it. So existing logic for "Add All" is actually fine?
+            // Let's re-read the original "Add All" logic.
+            /*
+            const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
+            ...
+            setSelectedItems(currentSelected);
+            */
+            // Yes, "Add All" logic already removes "Current Portfolio" effectively because it filters it out!
+            // Wait, let's double check.
+            // `const baseSelected = selectedItems.filter(...)`
+            // If `selectedItems` was `[{id: "current"}]`, `baseSelected` is `[]`.
+            // Then we add items. `setSelectedItems` gets the new list. "current" is gone.
+            // So "Add All" works as requested implicitly. I don't need to change it.
+            
+            // However, the second part of `handleAddItem` (adding specific `selectedForAdd` items) needs change.
+            // Let's modify that part.
+            
             const itemsToAdd = idsToAdd
                 .map(id => {
                     const p = savedPortfolios.find(sp => sp.id === id);
                     if (!p) return null;
-                    // Check if already selected in the base set (which excludes 'current' to avoid duplicates if 'current' is effectively one of the saved ones, though IDs differ)
-                    // Actually, we just want to ensure we don't duplicate by ID.
                     if (currentSelected.some(i => i.id === p.id && i.type === "portfolio")) return null;
 
                     const color = getNextColor(currentSelected);
@@ -1149,10 +1191,6 @@ export function AnalysisSection() {
                 .filter(item => item !== null) as AnalysisItem[];
 
             if (itemsToAdd.length > 0) {
-                // We used currentSelected to track colors, but we should just append the new items to the original filtered list
-                // actually currentSelected already contains baseSelected + itemsToAdd because of the push above?
-                // No, currentSelected was [...baseSelected]. We pushed to it.
-                // So currentSelected is the final list we want!
                 setSelectedItems(currentSelected);
                 setSelectedForAdd([]);
             }
@@ -1163,7 +1201,12 @@ export function AnalysisSection() {
             ? selectedForAdd
             : (typeToAdd === "portfolio" ? filteredPortfolios.map(p => p.id) : filteredAssets);
 
-        const currentItems = [...selectedItems];
+        // Check if we should remove 'current'
+        let currentItems = [...selectedItems];
+        if (currentItems.length === 1 && currentItems[0].id === "current") {
+            currentItems = [];
+        }
+
         const itemsToAdd = idsToAdd
             .map(id => {
                 let newItem: AnalysisItem | null = null;
@@ -1197,7 +1240,7 @@ export function AnalysisSection() {
             .filter(item => item !== null) as AnalysisItem[];
 
         if (itemsToAdd.length > 0) {
-            setSelectedItems([...selectedItems, ...itemsToAdd]);
+            setSelectedItems(currentItems);
             setSelectedForAdd([]);
         }
     };
@@ -1206,6 +1249,13 @@ export function AnalysisSection() {
         const isCurrentlySelected = selectedForAdd.includes(id);
         if (!isCurrentlySelected) {
             let newItem: AnalysisItem | null = null;
+            
+            // Check if we should remove 'current' before adding
+            let currentItems = [...selectedItems];
+            if (currentItems.length === 1 && currentItems[0].id === "current") {
+                currentItems = [];
+            }
+
             if (typeToAdd === "portfolio") {
                 const p = savedPortfolios.find(sp => sp.id === id);
                 if (p) {
@@ -1213,7 +1263,7 @@ export function AnalysisSection() {
                         id: p.id,
                         type: "portfolio",
                         name: p.name,
-                        color: getNextColor(selectedItems),
+                        color: getNextColor(currentItems),
                         result: null
                     };
                 }
@@ -1222,13 +1272,24 @@ export function AnalysisSection() {
                     id,
                     type: "asset",
                     name: id,
-                    color: getNextColor(selectedItems),
+                    color: getNextColor(currentItems),
                     result: null
                 };
             }
 
-            if (newItem && !selectedItems.find(i => i.id === newItem!.id && i.type === newItem!.type)) {
-                setSelectedItems([...selectedItems, newItem]);
+            if (newItem && !currentItems.find(i => i.id === newItem!.id && i.type === newItem!.type)) {
+                setSelectedItems([...currentItems, newItem]);
+            } else if (currentItems.length !== selectedItems.length) {
+                // If we removed current but didn't add anything (shouldn't happen here logic-wise), restore?
+                // But we ARE adding newItem.
+                // If newItem was somehow duplicate (already in list), we shouldn't have cleared current?
+                // But currentItems starts with selectedItems (minus current).
+                // If duplicates exist, we just don't add.
+                // But if we stripped current, and didn't add, we are left with empty list if current was only one.
+                // Ideally we shouldn't strip current if we don't add.
+                // But the check !currentItems.find... covers the remaining items.
+                // If newItem is not found in remaining, we add it.
+                // So if we stripped current, we definitely add newItem.
             }
         } else {
             const itemToRemove = selectedItems.find(i => i.id === id && i.type === typeToAdd);
@@ -1237,6 +1298,18 @@ export function AnalysisSection() {
                 if (index > -1) {
                     const newItems = [...selectedItems];
                     newItems.splice(index, 1);
+                    
+                    // Restore Current Portfolio if list becomes empty
+                    if (newItems.length === 0) {
+                        newItems.push({
+                            id: "current",
+                            type: "portfolio",
+                            name: "Current Portfolio",
+                            color: COLORS[0],
+                            result: null
+                        });
+                    }
+                    
                     setSelectedItems(newItems);
                 }
             }
@@ -1272,6 +1345,18 @@ export function AnalysisSection() {
         const newItems = [...selectedItems];
         const removed = newItems[index];
         newItems.splice(index, 1);
+        
+        // Restore Current Portfolio if list becomes empty
+        if (newItems.length === 0) {
+            newItems.push({
+                id: "current",
+                type: "portfolio",
+                name: "Current Portfolio",
+                color: COLORS[0],
+                result: null
+            });
+        }
+        
         setSelectedItems(newItems);
         if (removed) {
             setSelectedForAdd(prev => prev.filter(id => id !== removed.id));
