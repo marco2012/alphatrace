@@ -115,83 +115,85 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                 </div>
             </CardHeader>
             <CardContent className="p-0">
-                <Table>
-                    <TableHeader className="bg-card shadow-sm">
-                        <TableRow>
-                            <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
-                            <TableHead className="w-[55%] sm:w-[35%]">Asset</TableHead>
-                            <TableHead className="text-right w-[15%] sm:w-[10%] px-1 sm:px-4">TER</TableHead>
-                            <TableHead className="text-right w-[30%] pr-2 sm:pr-6">Allocation</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {[...assets].sort((a, b) => {
-                            const catA = getAssetCategory(a).toLowerCase();
-                            const catB = getAssetCategory(b).toLowerCase();
-                            if (catA !== catB) return catB.localeCompare(catA); // category desc
-                            return a.localeCompare(b); // asset asc
-                        }).map((asset) => {
-                            const weight = weights[asset] ?? 0;
-                            const percent = formatPercent(weight);
-                            const category = getAssetCategory(asset);
+                <div className="overflow-x-auto">
+                    <Table>
+                        <TableHeader className="bg-card shadow-sm">
+                            <TableRow>
+                                <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
+                                <TableHead className="w-[55%] sm:w-[35%]">Asset</TableHead>
+                                <TableHead className="text-right w-[15%] sm:w-[10%] px-1 sm:px-4">TER</TableHead>
+                                <TableHead className="text-right w-[30%] pr-2 sm:pr-6">Allocation</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {[...assets].sort((a, b) => {
+                                const catA = getAssetCategory(a).toLowerCase();
+                                const catB = getAssetCategory(b).toLowerCase();
+                                if (catA !== catB) return catB.localeCompare(catA); // category desc
+                                return a.localeCompare(b); // asset asc
+                            }).map((asset) => {
+                                const weight = weights[asset] ?? 0;
+                                const percent = formatPercent(weight);
+                                const category = getAssetCategory(asset);
 
-                            return (
-                                <TableRow
-                                    key={asset}
-                                    className={cn(
-                                        "hover:bg-muted/50 transition-colors",
-                                        weight > 0 && "bg-yellow-50 dark:bg-yellow-300/30"
-                                    )}
-                                >
-                                    <TableCell className="hidden sm:table-cell py-2 pl-6">
-                                        <Badge className={cn("font-medium text-xs uppercase rounded-md border-0", getCategoryBadgeClass(category))}>
-                                            {category}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="font-medium py-2 text-foreground">
-                                        <div className="flex flex-col">
-                                            <div className="flex items-center gap-2 sm:hidden mb-1">
-                                                <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0", getCategoryBadgeClass(category))}>
-                                                    {category}
-                                                </Badge>
+                                return (
+                                    <TableRow
+                                        key={asset}
+                                        className={cn(
+                                            "hover:bg-muted/50 transition-colors",
+                                            weight > 0 && "bg-yellow-50 dark:bg-yellow-300/30"
+                                        )}
+                                    >
+                                        <TableCell className="hidden sm:table-cell py-2 pl-6">
+                                            <Badge className={cn("font-medium text-xs uppercase rounded-md border-0", getCategoryBadgeClass(category))}>
+                                                {category}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="font-medium py-2 text-foreground">
+                                            <div className="flex flex-col">
+                                                <div className="flex items-center gap-2 sm:hidden mb-1">
+                                                    <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0", getCategoryBadgeClass(category))}>
+                                                        {category}
+                                                    </Badge>
+                                                </div>
+                                                <span>{asset}</span>
+                                                {(() => {
+                                                    const firstValidDates = (norm as any)?.firstValidDates || {};
+                                                    const lastValidDates = (norm as any)?.lastValidDates || {};
+                                                    const start = firstValidDates[asset];
+                                                    const end = lastValidDates[asset];
+                                                    return start && end ? (
+                                                        <span className="text-[10px] text-muted-foreground font-normal">
+                                                            {formatDate(start)} - {formatDate(end)}
+                                                        </span>
+                                                    ) : null;
+                                                })()}
                                             </div>
-                                            <span>{asset}</span>
-                                            {(() => {
-                                                const firstValidDates = (norm as any)?.firstValidDates || {};
-                                                const lastValidDates = (norm as any)?.lastValidDates || {};
-                                                const start = firstValidDates[asset];
-                                                const end = lastValidDates[asset];
-                                                return start && end ? (
-                                                    <span className="text-[10px] text-muted-foreground font-normal">
-                                                        {formatDate(start)} - {formatDate(end)}
-                                                    </span>
-                                                ) : null;
-                                            })()}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right py-2 px-1 sm:px-4 text-muted-foreground font-mono text-xs">
-                                        {(getAssetTER(asset) * 100).toFixed(2)}%
-                                    </TableCell>
-                                    <TableCell className="text-right py-2 pr-2 sm:pr-6">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <Input
-                                                type="number"
-                                                value={percent}
-                                                onChange={(e) => handleInputChange(asset, e.target.value)}
-                                                onFocus={(e) => e.target.select()}
-                                                className="h-8 w-16 text-right font-medium"
-                                                min={0}
-                                                max={100}
-                                                step={5}
-                                            />
-                                            <span className="text-muted-foreground w-4 text-left">%</span>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            );
-                        })}
-                    </TableBody>
-                </Table>
+                                        </TableCell>
+                                        <TableCell className="text-right py-2 px-1 sm:px-4 text-muted-foreground font-mono text-xs">
+                                            {(getAssetTER(asset) * 100).toFixed(2)}%
+                                        </TableCell>
+                                        <TableCell className="text-right py-2 pr-2 sm:pr-6">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Input
+                                                    type="number"
+                                                    value={percent}
+                                                    onChange={(e) => handleInputChange(asset, e.target.value)}
+                                                    onFocus={(e) => e.target.select()}
+                                                    className="h-8 w-16 text-right font-medium"
+                                                    min={0}
+                                                    max={100}
+                                                    step={5}
+                                                />
+                                                <span className="text-muted-foreground w-4 text-left">%</span>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
             </CardContent>
         </Card>
     );

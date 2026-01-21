@@ -77,7 +77,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
     return (
         <Sheet open={settingsOpen} onOpenChange={onSettingsOpenChange}>
-            <div className="flex min-h-screen bg-background text-foreground">
+            <div className="flex min-h-screen bg-background text-foreground overflow-x-hidden max-w-full">
                 {/* Sidebar Overlay for mobile */}
                 {isSidebarOpen && (
                     <div
@@ -145,7 +145,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                 {/* Main Content */}
                 <main className={cn(
-                    "flex-1 transition-all duration-300 ease-in-out",
+                    "flex-1 transition-all duration-300 ease-in-out w-full overflow-x-hidden",
                     isSidebarOpen ? "lg:pl-64" : "lg:pl-0"
                 )}>
                     {/* Header */}

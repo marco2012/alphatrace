@@ -15,6 +15,15 @@ import { AnalysisSection } from "@/components/dashboard/analysis-section";
 import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { toast } from "sonner";
 
+const CATEGORY_COLORS: Record<string, string> = {
+    stocks: "#2563eb",
+    bonds: "#16a34a",
+    cash: "#64748b",
+    gold: "#d97706",
+    alternatives: "#a855f7",
+    other: "#9333ea",
+};
+
 export default function Home() {
   const { savedPortfolios, savePortfolio, deletePortfolio, loadPortfolio, duplicatePortfolio, togglePortfolioHighlight, activePortfolioId, activePortfolioName, weights, handleWeightChange, columns, createNewPortfolio } = usePortfolio();
   const [newPortfolioName, setNewPortfolioName] = useState("");
@@ -188,6 +197,7 @@ export default function Home() {
                             <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
                             <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
+                            <TableHead className="hidden text-center sm:table-cell">Alts</TableHead>
                             <TableHead className="text-right pr-10">TER (%)</TableHead>
                             <TableHead className="hidden md:table-cell pl-10">Date</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -206,17 +216,20 @@ export default function Home() {
                               }
                             >
                               <TableCell className="max-w-[180px] truncate font-medium sm:max-w-none">{p.name}</TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell">
+                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.stocks }}>
                                 {getCategoryPercentage(p.weights, 'stocks')}%
                               </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell">
+                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.bonds }}>
                                 {getCategoryPercentage(p.weights, 'bonds')}%
                               </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell">
+                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.cash }}>
                                 {getCategoryPercentage(p.weights, 'cash')}%
                               </TableCell>
-                              <TableCell className="hidden text-center text-sm sm:table-cell">
+                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.gold }}>
                                 {getCategoryPercentage(p.weights, 'gold')}%
+                              </TableCell>
+                              <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.alternatives }}>
+                                {getCategoryPercentage(p.weights, 'alternatives')}%
                               </TableCell>
                               <TableCell className="text-right font-mono text-sm pr-10">
                                 {(getPortfolioTER(p.weights) * 100).toFixed(2)}%
