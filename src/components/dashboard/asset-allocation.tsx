@@ -182,6 +182,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                 className="h-8 w-16 text-right font-medium"
                                                 min={0}
                                                 max={100}
+                                                step={5}
                                             />
                                             <span className="text-muted-foreground w-4 text-left">%</span>
                                         </div>

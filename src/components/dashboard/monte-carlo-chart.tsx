@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
-import { NormalizedData, getAssetCategory, runMonteCarlo, findOptimalWeights, pctChangeSeries, computePortfolio, OptimizationType } from "@/lib/finance";
+import { NormalizedData, getAssetCategory, runMonteCarlo, findOptimalWeights, pctChangeSeries, computePortfolio, OptimizationType, monthsBetween } from "@/lib/finance";
 import { Badge } from "@/components/ui/badge";
 
 type MonteCarloChartProps = {
@@ -239,8 +239,53 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
                                         tickFormatter={(v) => `${currencySymbol}${(v / 1000).toFixed(0)}k`}
                                     />
                                     <Tooltip
-                                        formatter={(value: number) => formatCurrency(value)}
-                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
+                                        content={({ active, payload, label }: any) => {
+                                            if (!active || !payload?.length) return null;
+
+                                            const startDateStr = simulationData[0]?.date;
+                                            if (!startDateStr) return null;
+                                            
+                                            const monthsElapsed = monthsBetween(startDateStr, label);
+                                            const yearsElapsed = monthsElapsed / 12;
+
+                                            const getCAGR = (val: number) => {
+                                                if (yearsElapsed <= 0 || initialInvestment <= 0) return 0;
+                                                // Handle potential negative values if any (though simulation usually > 0)
+                                                if (val <= 0) return -100;
+                                                return (Math.pow(val / initialInvestment, 1 / yearsElapsed) - 1) * 100;
+                                            };
+
+                                            return (
+                                                <div className="rounded-md border bg-card p-3 text-card-foreground shadow-lg min-w-[240px]">
+                                                    <div className="mb-2 border-b pb-2 flex justify-between items-end">
+                                                        <div className="font-semibold text-sm">{label}</div>
+                                                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider tabular-nums">
+                                                            {monthsElapsed} months elapsed
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        {[...payload].sort((a, b) => b.value - a.value).map((entry: any) => {
+                                                            const val = entry.value;
+                                                            const cagr = getCAGR(val);
+                                                            return (
+                                                                <div key={entry.dataKey} className="flex justify-between gap-4">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: entry.stroke === "none" ? entry.fill : entry.stroke }} />
+                                                                        <span className="text-xs text-muted-foreground">{entry.name}</span>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <div className="text-xs font-bold tabular-nums">{formatCurrency(val)}</div>
+                                                                        <div className="text-[10px] text-muted-foreground font-medium tabular-nums">
+                                                                            {yearsElapsed > 0 ? `${cagr.toFixed(2)}% CAGR` : "0.00% CAGR"}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }}
                                     />
                                     <Legend />
 
@@ -337,15 +382,24 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
                                         </Badge>
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                        {Object.entries(optimalWeights)
-                                            .filter(([, w]) => w > 0.005)
-                                            .sort((a, b) => b[1] - a[1])
-                                            .map(([asset, weight]) => (
-                                                <div key={asset} className="flex items-center justify-between text-sm">
-                                                    <span className="truncate mr-2" title={asset}>{asset}</span>
-                                                    <span className="font-mono font-medium">{(weight * 100).toFixed(1)}%</span>
-                                                </div>
-                                            ))}
+                                        {(() => {
+                                            const allSignificant = Object.entries(optimalWeights)
+                                                .filter(([, w]) => w > 0.005)
+                                                .sort((a, b) => b[1] - a[1]);
+                                            
+                                            const topAssets = allSignificant.slice(0, 9);
+                                            const totalDisplayedWeight = topAssets.reduce((sum, [, w]) => sum + w, 0);
+                                            
+                                            return topAssets.map(([asset, weight]) => {
+                                                const normalizedWeight = totalDisplayedWeight > 0 ? weight / totalDisplayedWeight : 0;
+                                                return (
+                                                    <div key={asset} className="flex items-center justify-between text-sm">
+                                                        <span className="truncate mr-2" title={asset}>{asset}</span>
+                                                        <span className="font-mono font-medium">{(normalizedWeight * 100).toFixed(1)}%</span>
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-2">
                                         {strategy === "max_sharpe" && "This allocation maximizes the expected return per unit of risk based on the Sharpe Ratio."}

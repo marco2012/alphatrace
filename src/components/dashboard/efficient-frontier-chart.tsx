@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Download, RotateCcw } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 
@@ -28,6 +30,69 @@ type FrontierPoint = {
     composition: Record<string, number>;
     label: string;
 };
+
+function getRollingStats(weights: number[], assetRets: number[][], years: number = 10, rf: number = 0.02) {
+    if (!assetRets || assetRets.length === 0 || !assetRets[0]) return null;
+    const nPeriods = assetRets[0].length;
+    const nAssets = weights.length;
+    const window = years * 12;
+    
+    if (nPeriods < window) return null;
+
+    const portRets = new Float64Array(nPeriods);
+    for (let t = 0; t < nPeriods; t++) {
+        let r = 0;
+        for (let i = 0; i < nAssets; i++) {
+            r += weights[i] * assetRets[i][t];
+        }
+        portRets[t] = r;
+    }
+
+    const prices = new Float64Array(nPeriods + 1);
+    prices[0] = 1;
+    for (let t = 0; t < nPeriods; t++) {
+        prices[t+1] = prices[t] * (1 + portRets[t]);
+    }
+    
+    let sumCagr = 0;
+    let count = 0;
+    
+    for (let i = 0; i <= nPeriods - window; i++) {
+        const valStart = prices[i];
+        const valEnd = prices[i + window];
+        // handle div by zero just in case, though prices[0]=1 and prices are usually > 0
+        if (valStart <= 0) continue; 
+        const cagr = Math.pow(valEnd / valStart, 1 / years) - 1;
+        sumCagr += cagr;
+        count++;
+    }
+    const avgCagr = count > 0 ? sumCagr / count : 0;
+
+    let sumVol = 0;
+    const sqrt12 = Math.sqrt(12);
+    
+    for (let i = 0; i <= nPeriods - window; i++) {
+        let m = 0;
+        for (let j = 0; j < window; j++) {
+            m += portRets[i+j];
+        }
+        m /= window;
+        
+        let s = 0;
+        for (let j = 0; j < window; j++) {
+            const d = portRets[i+j] - m;
+            s += d*d;
+        }
+        s /= (window - 1);
+        const vol = Math.sqrt(s) * sqrt12;
+        sumVol += vol;
+    }
+    const avgVol = count > 0 ? sumVol / count : 0;
+    
+    const sharpe = avgVol > 0 ? (avgCagr - rf) / avgVol : 0;
+    
+    return { annualReturn: avgCagr, annualVol: avgVol, sharpe };
+}
 
 type EfficientFrontierChartProps = {
     norm: NormalizedData | null;
@@ -67,17 +132,20 @@ function portfolioStats(weights: number[], means: number[], cov: number[][]) {
     return { annualReturn, annualVol };
 }
 
+function isSamePoint(p1: FrontierPoint, p2: FrontierPoint) {
+    return Math.abs(p1.vol - p2.vol) < 0.0001 && Math.abs(p1.ret - p2.ret) < 0.0001;
+}
+
 export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf = 0.02 }: EfficientFrontierChartProps) {
     const [points, setPoints] = useState<FrontierPoint[]>([]);
     const [frontier, setFrontier] = useState<FrontierPoint[]>([]);
     const [highlights, setHighlights] = useState<FrontierPoint[]>([]);
     const [currentPoint, setCurrentPoint] = useState<FrontierPoint | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [focusedSeries, setFocusedSeries] = useState<string | null>(null);
+    const [useRollingStats, setUseRollingStats] = useState(true);
 
-    
     const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
-    const [means, setMeans] = useState<number[]>([]);
-    const [cov, setCov] = useState<number[][]>([]);
 
     const { activeAssets, assetCount, canCompute } = useMemo(() => {
         if (!norm) return { activeAssets: [] as string[], assetCount: 0, canCompute: false };
@@ -89,13 +157,34 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         return { activeAssets, assetCount, canCompute: assetCount >= 2 };
     }, [norm, weights]);
 
+    const { assetRets, means, cov } = useMemo(() => {
+        if (!norm || activeAssets.length < 2) return { assetRets: [], means: [], cov: [] };
+
+        const dates = norm.dates;
+        const lastDate = endDate || dates[dates.length - 1];
+        const i0 = dates.findIndex((d) => d >= startDate);
+        const i1 = dates.findIndex((d) => d >= lastDate);
+        const endIdx = i1 === -1 ? dates.length - 1 : i1;
+
+        const slicedSeries = activeAssets.map((a) => (norm.series[a] as number[]).slice(i0, endIdx + 1));
+        const rets = slicedSeries.map((s) => pctChangeSeries(s));
+        const n = rets[0]?.length || 0;
+        if (n < 12) return { assetRets: [], means: [], cov: [] };
+
+        const meansCalc = rets.map((r) => mean(r));
+        const covCalc = rets.map((ri, i) => rets.map((rj, j) => covariance(ri, rj, meansCalc[i], meansCalc[j])));
+
+        return { assetRets: rets, means: meansCalc, cov: covCalc };
+    }, [norm, activeAssets, startDate, endDate]);
+
     useEffect(() => {
         setPoints([]);
         setFrontier([]);
         setHighlights([]);
         setCurrentPoint(null);
         setInteractiveWeights({});
-    }, [norm, weights, startDate, endDate, rf]);
+        setFocusedSeries(null);
+    }, [norm, weights, startDate, endDate, rf, useRollingStats]);
     
     useEffect(() => {
         if (activeAssets.length > 0 && Object.keys(interactiveWeights).length === 0) {
@@ -109,90 +198,94 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
 
     const compute = async () => {
-        if (!norm) return;
-        if (activeAssets.length < 2) return;
+        if (!norm || activeAssets.length < 2 || assetRets.length === 0) return;
 
         setIsLoading(true);
+        setFocusedSeries(null);
 
-        try {
-            const dates = norm.dates;
-            const lastDate = endDate || dates[dates.length - 1];
-            const i0 = dates.findIndex((d) => d >= startDate);
-            const i1 = dates.findIndex((d) => d >= lastDate);
-            const endIdx = i1 === -1 ? dates.length - 1 : i1;
-
-            const slicedSeries = activeAssets.map((a) => (norm.series[a] as number[]).slice(i0, endIdx + 1));
-            const rets = slicedSeries.map((s) => pctChangeSeries(s));
-            const n = rets[0]?.length || 0;
-            if (n < 12) return;
-
-            const meansCalc = rets.map((r) => mean(r));
-            const covCalc = rets.map((ri, i) => rets.map((rj, j) => covariance(ri, rj, meansCalc[i], meansCalc[j])));
-            
-            setMeans(meansCalc);
-            setCov(covCalc);
-
-
-            const buildWeightsMap = (wVec: number[]) => {
-                const out: Record<string, number> = {};
-                for (let i = 0; i < activeAssets.length; i++) out[activeAssets[i]] = wVec[i] || 0;
-                return out;
-            };
-
-            const statsToPoint = (label: string, wVec: number[]) => {
-                const st = portfolioStats(wVec, meansCalc, covCalc);
-                const vol = st.annualVol;
-                const ret = st.annualReturn;
-                const sharpe = vol > 0 ? (ret - rf) / vol : 0;
-                return {
-                    label,
-                    vol: vol * 100,
-                    ret: ret * 100,
-                    sharpe,
-                    weights: buildWeightsMap(wVec),
-                    composition: {},
+        // Defer to allow UI update
+        setTimeout(() => {
+            try {
+                const buildWeightsMap = (wVec: number[]) => {
+                    const out: Record<string, number> = {};
+                    for (let i = 0; i < activeAssets.length; i++) out[activeAssets[i]] = wVec[i] || 0;
+                    return out;
                 };
-            };
 
-            const wRaw = activeAssets.map((a) => weights[a] ?? 0);
-            const wSum = wRaw.reduce((a, b) => a + b, 0) || 1;
-            const wCur = wRaw.map((w) => w / wSum);
-            const curPoint = statsToPoint("My Portfolio", wCur);
-            setCurrentPoint(curPoint);
+                const statsToPoint = (label: string, wVec: number[]) => {
+                    let vol, ret, sharpe;
+                    
+                    if (useRollingStats) {
+                        const stats = getRollingStats(wVec, assetRets, 10, rf);
+                        if (!stats) {
+                            // Fallback
+                            const st = portfolioStats(wVec, means, cov);
+                            vol = st.annualVol;
+                            ret = st.annualReturn;
+                            sharpe = vol > 0 ? (ret - rf) / vol : 0;
+                        } else {
+                            vol = stats.annualVol;
+                            ret = stats.annualReturn;
+                            sharpe = stats.sharpe;
+                        }
+                    } else {
+                        const st = portfolioStats(wVec, means, cov);
+                        vol = st.annualVol;
+                        ret = st.annualReturn;
+                        sharpe = vol > 0 ? (ret - rf) / vol : 0;
+                    }
 
-            const SIMS = 2000;
-            const sims: FrontierPoint[] = [];
-            for (let i = 0; i < SIMS; i++) {
-                const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
-                const s = rands.reduce((a, b) => a + b, 0) || 1;
-                const w = rands.map((x) => x / s);
-                sims.push(statsToPoint("Simulated", w));
-            }
+                    const wMap = buildWeightsMap(wVec);
+                    return {
+                        label,
+                        vol: vol * 100,
+                        ret: ret * 100,
+                        sharpe,
+                        weights: wMap,
+                        composition: wMap,
+                    };
+                };
 
-            const sorted = [...sims].sort((a, b) => a.vol - b.vol);
-            const fr: FrontierPoint[] = [];
-            let best = -Infinity;
-            for (const p of sorted) {
-                if (p.ret > best) {
-                    fr.push(p);
-                    best = p.ret;
+                const wRaw = activeAssets.map((a) => weights[a] ?? 0);
+                const wSum = wRaw.reduce((a, b) => a + b, 0) || 1;
+                const wCur = wRaw.map((w) => w / wSum);
+                const curPoint = statsToPoint("Original Portfolio", wCur);
+                setCurrentPoint(curPoint);
+
+                const SIMS = 2000;
+                const sims: FrontierPoint[] = [];
+                for (let i = 0; i < SIMS; i++) {
+                    const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
+                    const s = rands.reduce((a, b) => a + b, 0) || 1;
+                    const w = rands.map((x) => x / s);
+                    sims.push(statsToPoint("Simulated", w));
                 }
+
+                const sorted = [...sims].sort((a, b) => a.vol - b.vol);
+                const fr: FrontierPoint[] = [];
+                let best = -Infinity;
+                for (const p of sorted) {
+                    if (p.ret > best) {
+                        fr.push({ ...p, label: "Efficient Frontier" });
+                        best = p.ret;
+                    }
+                }
+
+                const bestCagr = sims.reduce((best, p) => (p.ret > best.ret ? p : best), sims[0]);
+                const bestSharpe = sims.reduce((best, p) => (p.sharpe > best.sharpe ? p : best), sims[0]);
+                const minRisk = sims.reduce((best, p) => (p.vol < best.vol ? p : best), sims[0]);
+
+                setPoints(sims);
+                setFrontier(fr);
+                setHighlights([
+                    { ...bestCagr, label: "Highest CAGR" },
+                    { ...bestSharpe, label: "Highest Sharpe" },
+                    { ...minRisk, label: "Lowest Risk" },
+                ]);
+            } finally {
+                setIsLoading(false);
             }
-
-            const bestCagr = sims.reduce((best, p) => (p.ret > best.ret ? p : best), sims[0]);
-            const bestSharpe = sims.reduce((best, p) => (p.sharpe > best.sharpe ? p : best), sims[0]);
-            const minRisk = sims.reduce((best, p) => (p.vol < best.vol ? p : best), sims[0]);
-
-            setPoints(sims);
-            setFrontier(fr);
-            setHighlights([
-                { ...bestCagr, label: "Highest CAGR" },
-                { ...bestSharpe, label: "Highest Sharpe" },
-                { ...minRisk, label: "Lowest Risk" },
-            ]);
-        } finally {
-            setIsLoading(false);
-        }
+        }, 0);
     };
 
 
@@ -204,20 +297,41 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         if (sum === 0) return null;
         
         const normalized = wVec.map(w => w / sum);
-        const st = portfolioStats(normalized, means, cov);
+        let vol, ret, sharpe;
+
+        if (useRollingStats) {
+            const stats = getRollingStats(normalized, assetRets, 10, rf);
+            if (!stats) {
+                const st = portfolioStats(normalized, means, cov);
+                vol = st.annualVol;
+                ret = st.annualReturn;
+                sharpe = vol > 0 ? (ret - rf) / vol : 0;
+            } else {
+                vol = stats.annualVol;
+                ret = stats.annualReturn;
+                sharpe = stats.sharpe;
+            }
+        } else {
+            const st = portfolioStats(normalized, means, cov);
+            vol = st.annualVol;
+            ret = st.annualReturn;
+            sharpe = vol > 0 ? (ret - rf) / vol : 0;
+        }
         
+        const weightsObj = activeAssets.reduce((acc, asset, i) => {
+            acc[asset] = normalized[i];
+            return acc;
+        }, {} as Record<string, number>);
+
         return {
-            label: "Interactive Portfolio",
-            vol: st.annualVol * 100,
-            ret: st.annualReturn * 100,
-            sharpe: st.annualVol > 0 ? (st.annualReturn - rf) / st.annualVol : 0,
-            weights: activeAssets.reduce((acc, asset, i) => {
-                acc[asset] = normalized[i];
-                return acc;
-            }, {} as Record<string, number>),
-            composition: {},
+            label: "Interactive",
+            vol: vol * 100,
+            ret: ret * 100,
+            sharpe,
+            weights: weightsObj,
+            composition: weightsObj,
         };
-    }, [means, cov, activeAssets, rf]);
+    }, [means, cov, activeAssets, rf, useRollingStats, assetRets]);
     
     const interactivePoint = useMemo(() => 
         calculateInteractivePoint(interactiveWeights),
@@ -227,29 +341,85 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const handleWeightChange = useCallback((asset: string, value: number) => {
         setInteractiveWeights(prev => ({
             ...prev,
-            [asset]: value / 100,
+            [asset]: Math.round(value) / 100,
         }));
     }, []);
     
     const resetWeights = useCallback(() => {
         const initial: Record<string, number> = {};
         activeAssets.forEach(asset => {
-            initial[asset] = weights[asset] || 0;
+            initial[asset] = Math.round((weights[asset] || 0) * 100) / 100;
         });
         setInteractiveWeights(initial);
     }, [activeAssets, weights]);
     
     const normalizeWeights = useCallback(() => {
         setInteractiveWeights(prev => {
-            const sum = Object.values(prev).reduce((a, b) => a + b, 0);
+            const entries = Object.entries(prev);
+            const sum = entries.reduce((a, b) => a + b[1], 0);
             if (sum === 0) return prev;
             
+            // Largest Remainder Method to ensure integer percentages summing to 100
+            const raw = entries.map(([asset, w]) => ({
+                asset,
+                val: (w / sum) * 100
+            }));
+            
+            const rounded = raw.map(item => ({
+                asset: item.asset,
+                val: Math.floor(item.val)
+            }));
+            
+            let currentSum = rounded.reduce((a, b) => a + b.val, 0);
+            const diff = 100 - currentSum;
+            
+            if (diff > 0) {
+                const remainders = raw.map((item, i) => ({
+                    index: i,
+                    rem: item.val - rounded[i].val
+                })).sort((a, b) => b.rem - a.rem);
+                
+                for (let i = 0; i < diff; i++) {
+                    rounded[remainders[i].index].val++;
+                }
+            }
+            
             const normalized: Record<string, number> = {};
-            Object.keys(prev).forEach(asset => {
-                normalized[asset] = prev[asset] / sum;
+            rounded.forEach(item => {
+                normalized[item.asset] = item.val / 100;
             });
             return normalized;
         });
+    }, []);
+
+    const { xDomain, yDomain } = useMemo(() => {
+        if (points.length === 0) return { xDomain: [0, 'auto'] as [number, 'auto'], yDomain: [0, 'auto'] as [number, 'auto'] };
+        
+        const allPoints = [...points, ...highlights];
+        if (currentPoint) allPoints.push(currentPoint);
+        if (interactivePoint) allPoints.push(interactivePoint);
+        
+        const vols = allPoints.map(p => p.vol);
+        const rets = allPoints.map(p => p.ret);
+        
+        const minVol = Math.min(...vols);
+        const maxVol = Math.max(...vols);
+        const minRet = Math.min(...rets);
+        const maxRet = Math.max(...rets);
+        
+        // Add some padding
+        const xPad = (maxVol - minVol) * 0.1;
+        const yPad = (maxRet - minRet) * 0.1;
+        
+        return {
+            xDomain: [Math.max(0, minVol - xPad), maxVol + xPad] as [number, number],
+            yDomain: [minRet - yPad, maxRet + yPad] as [number, number]
+        };
+    }, [points, highlights, currentPoint, interactivePoint]);
+
+    const handleLegendClick = useCallback((e: any) => {
+        const name = e.value;
+        setFocusedSeries(prev => prev === name ? null : name);
     }, []);
 
     const downloadCSV = () => {
@@ -281,6 +451,10 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                    <div className="flex items-center space-x-2 mr-2">
+                        <Switch id="rolling-stats" checked={useRollingStats} onCheckedChange={setUseRollingStats} />
+                        <Label htmlFor="rolling-stats" className="text-xs whitespace-nowrap">Use 10y Rolling</Label>
+                    </div>
                     <Button variant="outline" size="sm" onClick={downloadCSV} disabled={points.length === 0}>
                         <Download className="h-4 w-4" />
                     </Button>
@@ -308,7 +482,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     <div key={asset} className="rounded-md border p-3">
                                         <div className="mb-2 flex items-center justify-between">
                                             <div className="text-sm font-medium truncate">{asset}</div>
-                                            <div className="text-sm font-bold text-primary ml-2">{value.toFixed(1)}%</div>
+                                            <div className="text-sm font-bold text-primary ml-2">{Math.round(value)}%</div>
                                         </div>
                                         <Slider
                                             value={[value]}
@@ -374,6 +548,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
                                         name="Volatility"
                                         label={{ value: "Risk (Annualized Volatility)", position: "insideBottom", offset: -5 }}
+                                        domain={xDomain}
                                     />
                                     <YAxis
                                         type="number"
@@ -385,6 +560,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
                                         name="Return"
                                         label={{ value: "CAGR / Annual Return", angle: -90, position: "insideLeft" }}
+                                        domain={yDomain}
                                     />
                                     <Tooltip
                                         contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
@@ -393,37 +569,107 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             if (!active || !payload?.length) return null;
                                             const p = payload[0]?.payload as FrontierPoint;
                                             if (!p) return null;
-                                            const comp = Object.entries(p.composition || {})
-                                                .sort((a, b) => b[1] - a[1])
-                                                .map(([k, v]) => `${k}: ${(v * 100).toFixed(0)}%`)
-                                                .join(" • ");
+                                            
+                                            // Determine correct label if matching a special point
+                                            let displayLabel = p.label;
+                                            const matchHighlight = highlights.find(h => isSamePoint(h, p));
+                                            if (matchHighlight) displayLabel = matchHighlight.label;
+                                            else if (currentPoint && isSamePoint(currentPoint, p)) displayLabel = currentPoint.label;
+                                            else if (interactivePoint && isSamePoint(interactivePoint, p)) displayLabel = interactivePoint.label;
+
+                                            const CATEGORY_COLORS: Record<string, string> = {
+                                                stocks: "text-blue-500",
+                                                bonds: "text-green-500",
+                                                gold: "text-yellow-500",
+                                                cash: "text-gray-500",
+                                                alternatives: "text-purple-500",
+                                            };
+                                            const DEFAULT_COLOR = "text-muted-foreground";
+
+                                            const groupedAssets: Record<string, { name: string; weight: number }[]> = {};
+                                            Object.entries(p.composition || {}).forEach(([asset, weight]) => {
+                                                if (weight < 0.001) return; // Hide negligible weights
+                                                const cat = getAssetCategory(asset);
+                                                if (!groupedAssets[cat]) groupedAssets[cat] = [];
+                                                groupedAssets[cat].push({ name: asset, weight });
+                                            });
+
+                                            // Sort categories (custom order if desired, or alphabetical)
+                                            // Preferred order: Stocks, Bonds, Gold, Alts, Cash
+                                            const catOrder = ["stocks", "bonds", "gold", "alternatives", "cash"];
+                                            const categories = Object.keys(groupedAssets).sort((a, b) => {
+                                                const ia = catOrder.indexOf(a);
+                                                const ib = catOrder.indexOf(b);
+                                                if (ia !== -1 && ib !== -1) return ia - ib;
+                                                if (ia !== -1) return -1;
+                                                if (ib !== -1) return 1;
+                                                return a.localeCompare(b);
+                                            });
+
+                                            categories.forEach(cat => {
+                                                groupedAssets[cat].sort((a, b) => b.weight - a.weight);
+                                            });
+
                                             return (
-                                                <div className="rounded-md border bg-card p-2 text-card-foreground shadow-sm">
-                                                    <div className="text-sm font-medium">{p.label}</div>
-                                                    <div className="text-xs text-muted-foreground">CAGR: {p.ret.toFixed(2)}%</div>
-                                                    <div className="text-xs text-muted-foreground">Sharpe: {p.sharpe.toFixed(2)}</div>
-                                                    <div className="text-xs text-muted-foreground">Risk: {p.vol.toFixed(2)}%</div>
-                                                    <div className="mt-1 text-xs text-muted-foreground">{comp}</div>
+                                                <div className="rounded-md border bg-card p-3 text-card-foreground shadow-lg min-w-[320px] max-w-[450px]">
+                                                    <div className="mb-2 border-b pb-2">
+                                                        <div className="font-semibold text-sm">{displayLabel}</div>
+                                                        <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground">
+                                                            <div className="flex flex-col items-start">
+                                                                <span className="text-[10px] uppercase tracking-wider">CAGR</span>
+                                                                <span className="font-medium text-foreground">{p.ret.toFixed(2)}%</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-start">
+                                                                <span className="text-[10px] uppercase tracking-wider">Risk</span>
+                                                                <span className="font-medium text-foreground">{p.vol.toFixed(2)}%</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-start">
+                                                                <span className="text-[10px] uppercase tracking-wider">Sharpe</span>
+                                                                <span className="font-medium text-foreground">{p.sharpe.toFixed(2)}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-3 text-xs">
+                                                        {categories.map(cat => (
+                                                            <div key={cat}>
+                                                                <div className={`mb-1 flex items-center gap-1.5 font-semibold capitalize ${CATEGORY_COLORS[cat] || DEFAULT_COLOR}`}>
+                                                                    <div className={`h-1.5 w-1.5 rounded-full bg-current`} />
+                                                                    {cat}
+                                                                </div>
+                                                                <div className="pl-3 space-y-1">
+                                                                    {groupedAssets[cat].map(asset => (
+                                                                        <div key={asset.name} className="flex justify-between gap-4">
+                                                                            <span className="text-muted-foreground" title={asset.name}>{asset.name}</span>
+                                                                            <span className="font-medium tabular-nums whitespace-nowrap">{(asset.weight * 100).toFixed(1)}%</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             );
                                         }}
                                     />
-                                    <Legend verticalAlign="bottom" />
-                                    <Scatter name="Simulated" data={points} fill="#94a3b8" />
-                                    <Scatter name="Frontier" data={frontier} fill="#3b82f6" />
+                                    <Legend verticalAlign="bottom" onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer', userSelect: 'none' }} />
+                                    <Scatter name="Simulated" data={points} fill="#94a3b8" legendType="none" hide={focusedSeries !== null} />
+                                    <Scatter name="Frontier" data={frontier} fill="#3b82f6" legendType="none" hide={focusedSeries !== null} />
                                     {interactivePoint && (
                                         <Scatter
                                             name={`Interactive (${interactivePoint.ret.toFixed(2)}%)`}
                                             data={[interactivePoint]}
-                                            fill="#ef4444"
+                                            fill="#f97316"
                                             shape="circle"
+                                            legendType="none"
+                                            hide={focusedSeries !== null}
                                         />
                                     )}
                                     <Scatter
                                         name={`Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
                                         data={[currentPoint]}
-                                        fill="#f97316"
+                                        fill="#ef4444"
                                         shape="diamond"
+                                        hide={focusedSeries !== null && focusedSeries !== `Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -432,6 +678,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         })()}
                                         data={highlights.filter((p) => p.label === "Highest CAGR")}
                                         fill="#22c55e"
+                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest CAGR") ? `Highest CAGR (${highlights.find((h) => h.label === "Highest CAGR")!.ret.toFixed(2)}%)` : "Highest CAGR")}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -440,6 +687,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         })()}
                                         data={highlights.filter((p) => p.label === "Highest Sharpe")}
                                         fill="#a855f7"
+                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest Sharpe") ? `Highest Sharpe (${highlights.find((h) => h.label === "Highest Sharpe")!.ret.toFixed(2)}%)` : "Highest Sharpe")}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -448,6 +696,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         })()}
                                         data={highlights.filter((p) => p.label === "Lowest Risk")}
                                         fill="#f59e0b"
+                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Lowest Risk") ? `Lowest Risk (${highlights.find((h) => h.label === "Lowest Risk")!.ret.toFixed(2)}%)` : "Lowest Risk")}
                                     />
                                 </ScatterChart>
                             </ResponsiveContainer>
