@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, memo } from "react";
 import {
     CartesianGrid,
     Legend,
@@ -19,8 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Download, RotateCcw } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Download, RotateCcw, Save, Settings, X } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
+import { usePortfolio } from "@/context/portfolio-context";
 
 type FrontierPoint = {
     vol: number;
@@ -136,6 +138,123 @@ function isSamePoint(p1: FrontierPoint, p2: FrontierPoint) {
     return Math.abs(p1.vol - p2.vol) < 0.0001 && Math.abs(p1.ret - p2.ret) < 0.0001;
 }
 
+const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interactivePoint, saveCustomPortfolio, onClose }: any) => {
+    if (!active || !payload?.length) return null;
+    const p = payload[0]?.payload as FrontierPoint;
+    if (!p) return null;
+
+    // Determine correct label if matching a special point
+    let displayLabel = p.label;
+    const matchHighlight = highlights.find((h: FrontierPoint) => isSamePoint(h, p));
+    if (matchHighlight) displayLabel = matchHighlight.label;
+    else if (currentPoint && isSamePoint(currentPoint, p)) displayLabel = currentPoint.label;
+    else if (interactivePoint && isSamePoint(interactivePoint, p)) displayLabel = interactivePoint.label;
+
+    const CATEGORY_COLORS: Record<string, string> = {
+        stocks: "text-blue-500",
+        bonds: "text-green-500",
+        gold: "text-yellow-500",
+        cash: "text-gray-500",
+        alternatives: "text-purple-500",
+    };
+    const DEFAULT_COLOR = "text-muted-foreground";
+
+    const groupedAssets: Record<string, { name: string; weight: number }[]> = {};
+    Object.entries(p.composition || {}).forEach(([asset, weight]) => {
+        if (weight < 0.001) return; // Hide negligible weights
+        const cat = getAssetCategory(asset);
+        if (!groupedAssets[cat]) groupedAssets[cat] = [];
+        groupedAssets[cat].push({ name: asset, weight });
+    });
+
+    // Sort categories (custom order if desired, or alphabetical)
+    // Preferred order: Stocks, Bonds, Gold, Alts, Cash
+    const catOrder = ["stocks", "bonds", "gold", "alternatives", "cash"];
+    const categories = Object.keys(groupedAssets).sort((a, b) => {
+        const ia = catOrder.indexOf(a);
+        const ib = catOrder.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    categories.forEach(cat => {
+        groupedAssets[cat].sort((a, b) => b.weight - a.weight);
+    });
+
+    return (
+        <div className="rounded-md border bg-card p-3 text-card-foreground shadow-lg min-w-[320px] max-w-[450px]">
+            <div className="mb-2 border-b pb-2">
+                <div className="flex items-center justify-between mb-1">
+                    <div className="font-semibold text-sm">{displayLabel}</div>
+                    <div className="flex gap-1">
+                        <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="h-6 w-6 p-0"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const name = prompt("Enter a name for this portfolio:", displayLabel);
+                                if (name) {
+                                    saveCustomPortfolio(name, p.weights);
+                                }
+                            }}
+                            title="Save Portfolio"
+                        >
+                            <Save className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onClose?.();
+                            }}
+                            title="Close"
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
+                </div>
+                <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground">
+                    <div className="flex flex-col items-start">
+                        <span className="text-[10px] uppercase tracking-wider">CAGR</span>
+                        <span className="font-medium text-foreground">{p.ret.toFixed(2)}%</span>
+                    </div>
+                    <div className="flex flex-col items-start">
+                        <span className="text-[10px] uppercase tracking-wider">Risk</span>
+                        <span className="font-medium text-foreground">{p.vol.toFixed(2)}%</span>
+                    </div>
+                    <div className="flex flex-col items-start">
+                        <span className="text-[10px] uppercase tracking-wider">Sharpe</span>
+                        <span className="font-medium text-foreground">{p.sharpe.toFixed(2)}</span>
+                    </div>
+                </div>
+            </div>
+            <div className="space-y-3 text-xs">
+                {categories.map(cat => (
+                    <div key={cat}>
+                        <div className={`mb-1 flex items-center gap-1.5 font-semibold capitalize ${CATEGORY_COLORS[cat] || DEFAULT_COLOR}`}>
+                            <div className={`h-1.5 w-1.5 rounded-full bg-current`} />
+                            {cat}
+                        </div>
+                        <div className="pl-3 space-y-1">
+                            {groupedAssets[cat].map(asset => (
+                                <div key={asset.name} className="flex justify-between gap-4">
+                                    <span className="text-muted-foreground" title={asset.name}>{asset.name}</span>
+                                    <span className="font-medium tabular-nums whitespace-nowrap">{(asset.weight * 100).toFixed(1)}%</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
+
 export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf = 0.02 }: EfficientFrontierChartProps) {
     const [points, setPoints] = useState<FrontierPoint[]>([]);
     const [frontier, setFrontier] = useState<FrontierPoint[]>([]);
@@ -144,8 +263,42 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const [isLoading, setIsLoading] = useState(false);
     const [focusedSeries, setFocusedSeries] = useState<string | null>(null);
     const [useRollingStats, setUseRollingStats] = useState(true);
+    const [constraints, setConstraints] = useState<Record<string, number>>({});
+
+    const { saveCustomPortfolio } = usePortfolio();
 
     const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
+    
+    // Controlled tooltip state
+    const [tooltipState, setTooltipState] = useState<{ active: boolean; payload: any[]; coordinate: { x: number; y: number } | undefined }>({
+        active: false,
+        payload: [],
+        coordinate: undefined,
+    });
+
+    const handlePointClick = useCallback((data: any, index: number, e: React.MouseEvent) => {
+        // Recharts might pass different args depending on version/component, but usually props+event
+        // However, for Scatter, data is the payload.
+        // We need to construct the state.
+        // We can get coordinate from the event or the data if it has cx/cy.
+        
+        // Actually, Recharts onClick on Scatter passes: (props, event)
+        // props contains 'payload' (our data item), 'cx', 'cy' (coordinates)
+        const { payload, cx, cy, x, y } = data;
+        
+        // Prevent bubbling if needed, though Recharts handles it.
+        if (e && e.stopPropagation) e.stopPropagation();
+
+        setTooltipState({
+            active: true,
+            payload: [data], // Tooltip expects an array of entries usually, but we check payload[0].payload in custom tooltip
+            coordinate: { x: cx ?? x, y: cy ?? y },
+        });
+    }, []);
+
+    const closeTooltip = useCallback(() => {
+        setTooltipState(prev => ({ ...prev, active: false }));
+    }, []);
 
     const { activeAssets, assetCount, canCompute } = useMemo(() => {
         if (!norm) return { activeAssets: [] as string[], assetCount: 0, canCompute: false };
@@ -156,6 +309,20 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         const assetCount = activeAssets.length;
         return { activeAssets, assetCount, canCompute: assetCount >= 2 };
     }, [norm, weights]);
+
+    useEffect(() => {
+        if (activeAssets.length > 0 && Object.keys(constraints).length === 0) {
+            const defaults: Record<string, number> = {};
+            activeAssets.forEach(a => {
+                const lower = a.toLowerCase();
+                if (lower.includes("gold")) defaults[a] = 15;
+                else if (lower.includes("dbmf")) defaults[a] = 20;
+            });
+            if (Object.keys(defaults).length > 0) {
+                setConstraints(defaults);
+            }
+        }
+    }, [activeAssets, constraints]);
 
     const { assetRets, means, cov } = useMemo(() => {
         if (!norm || activeAssets.length < 2) return { assetRets: [], means: [], cov: [] };
@@ -184,6 +351,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setCurrentPoint(null);
         setInteractiveWeights({});
         setFocusedSeries(null);
+        // We don't reset constraints here to persist them across date changes
     }, [norm, weights, startDate, endDate, rf, useRollingStats]);
     
     useEffect(() => {
@@ -252,13 +420,40 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const curPoint = statsToPoint("Original Portfolio", wCur);
                 setCurrentPoint(curPoint);
 
-                const SIMS = 2000;
+                const SIMS = 2000; 
                 const sims: FrontierPoint[] = [];
+                const maxConstraints = activeAssets.map(a => (constraints[a] ?? 100) / 100);
+
                 for (let i = 0; i < SIMS; i++) {
-                    const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
-                    const s = rands.reduce((a, b) => a + b, 0) || 1;
-                    const w = rands.map((x) => x / s);
-                    sims.push(statsToPoint("Simulated", w));
+                    let w: number[] = [];
+                    let valid = false;
+                    let attempts = 0;
+                    
+                    // Rejection sampling for constraints
+                    while (!valid && attempts < 100) {
+                        const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
+                        const s = rands.reduce((a, b) => a + b, 0) || 1;
+                        w = rands.map((x) => x / s);
+                        
+                        // Check constraints
+                        valid = true;
+                        for(let j=0; j<w.length; j++) {
+                            if (w[j] > maxConstraints[j] + 0.0001) { // tolerance
+                                valid = false;
+                                break;
+                            }
+                        }
+                        attempts++;
+                    }
+                    
+                    if (valid) {
+                        sims.push(statsToPoint("Simulated", w));
+                    }
+                }
+
+                if (sims.length === 0) {
+                    // Fallback if constraints are too tight
+                    console.warn("No valid portfolios found with current constraints.");
                 }
 
                 const sorted = [...sims].sort((a, b) => a.vol - b.vol);
@@ -275,13 +470,20 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const bestSharpe = sims.reduce((best, p) => (p.sharpe > best.sharpe ? p : best), sims[0]);
                 const minRisk = sims.reduce((best, p) => (p.vol < best.vol ? p : best), sims[0]);
 
-                setPoints(sims);
+                // Limit points for rendering performance, but keep enough density
+                const displaySims = sims.length > 500 
+                    ? sims.sort(() => 0.5 - Math.random()).slice(0, 500) 
+                    : sims;
+
+                setPoints(displaySims);
                 setFrontier(fr);
-                setHighlights([
-                    { ...bestCagr, label: "Highest CAGR" },
-                    { ...bestSharpe, label: "Highest Sharpe" },
-                    { ...minRisk, label: "Lowest Risk" },
-                ]);
+                
+                const newHighlights = [];
+                if (bestCagr) newHighlights.push({ ...bestCagr, label: "Highest CAGR" });
+                if (bestSharpe) newHighlights.push({ ...bestSharpe, label: "Highest Sharpe" });
+                if (minRisk) newHighlights.push({ ...minRisk, label: "Lowest Risk" });
+                
+                setHighlights(newHighlights);
             } finally {
                 setIsLoading(false);
             }
@@ -451,6 +653,63 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm">
+                                <Settings className="h-4 w-4 mr-2" />
+                                Constraints
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80">
+                            <div className="grid gap-4">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium leading-none">Simulation Constraints</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        Set maximum weight % for each asset in the simulation.
+                                    </p>
+                                </div>
+                                <div className="grid gap-2 max-h-[300px] overflow-y-auto pr-2">
+                                    {activeAssets.map((asset) => (
+                                        <div key={asset} className="grid grid-cols-3 items-center gap-4">
+                                            <Label htmlFor={`constraint-${asset}`} className="col-span-2 text-xs truncate" title={asset}>
+                                                {asset}
+                                            </Label>
+                                            <Input
+                                                id={`constraint-${asset}`}
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                className="h-8"
+                                                value={constraints[asset] ?? 100}
+                                                onChange={(e) => {
+                                                    const val = parseFloat(e.target.value);
+                                                    setConstraints(prev => ({
+                                                        ...prev,
+                                                        [asset]: isNaN(val) ? 100 : Math.max(0, Math.min(100, val))
+                                                    }));
+                                                }}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        className="w-full"
+                                        onClick={() => setConstraints({})}
+                                    >
+                                        Reset All
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        className="w-full"
+                                        onClick={compute}
+                                    >
+                                        Recompute
+                                    </Button>
+                                </div>
+                        </PopoverContent>
+                    </Popover>
                     <div className="flex items-center space-x-2 mr-2">
                         <Switch id="rolling-stats" checked={useRollingStats} onCheckedChange={setUseRollingStats} />
                         <Label htmlFor="rolling-stats" className="text-xs whitespace-nowrap">Use 10y Rolling</Label>
@@ -536,7 +795,14 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                 </div>
                             )}
                             <ResponsiveContainer width="100%" height="100%">
-                                <ScatterChart>
+                                <ScatterChart style={{ outline: 'none' }} onClick={() => closeTooltip()}>
+                                    <defs>
+                                        <style>{`
+                                            .recharts-surface:focus { outline: none !important; }
+                                            .recharts-layer:focus { outline: none !important; }
+                                            path:focus { outline: none !important; }
+                                        `}</style>
+                                    </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                     <XAxis
                                         type="number"
@@ -563,97 +829,46 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         domain={yDomain}
                                     />
                                     <Tooltip
+                                        active={tooltipState.active}
+                                        position={{ x: 0, y: 0 }}
+                                        cursor={false}
                                         contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
                                         itemStyle={{ color: "hsl(var(--foreground))" }}
-                                        content={({ active, payload }: any) => {
-                                            if (!active || !payload?.length) return null;
-                                            const p = payload[0]?.payload as FrontierPoint;
-                                            if (!p) return null;
-                                            
-                                            // Determine correct label if matching a special point
-                                            let displayLabel = p.label;
-                                            const matchHighlight = highlights.find(h => isSamePoint(h, p));
-                                            if (matchHighlight) displayLabel = matchHighlight.label;
-                                            else if (currentPoint && isSamePoint(currentPoint, p)) displayLabel = currentPoint.label;
-                                            else if (interactivePoint && isSamePoint(interactivePoint, p)) displayLabel = interactivePoint.label;
-
-                                            const CATEGORY_COLORS: Record<string, string> = {
-                                                stocks: "text-blue-500",
-                                                bonds: "text-green-500",
-                                                gold: "text-yellow-500",
-                                                cash: "text-gray-500",
-                                                alternatives: "text-purple-500",
-                                            };
-                                            const DEFAULT_COLOR = "text-muted-foreground";
-
-                                            const groupedAssets: Record<string, { name: string; weight: number }[]> = {};
-                                            Object.entries(p.composition || {}).forEach(([asset, weight]) => {
-                                                if (weight < 0.001) return; // Hide negligible weights
-                                                const cat = getAssetCategory(asset);
-                                                if (!groupedAssets[cat]) groupedAssets[cat] = [];
-                                                groupedAssets[cat].push({ name: asset, weight });
-                                            });
-
-                                            // Sort categories (custom order if desired, or alphabetical)
-                                            // Preferred order: Stocks, Bonds, Gold, Alts, Cash
-                                            const catOrder = ["stocks", "bonds", "gold", "alternatives", "cash"];
-                                            const categories = Object.keys(groupedAssets).sort((a, b) => {
-                                                const ia = catOrder.indexOf(a);
-                                                const ib = catOrder.indexOf(b);
-                                                if (ia !== -1 && ib !== -1) return ia - ib;
-                                                if (ia !== -1) return -1;
-                                                if (ib !== -1) return 1;
-                                                return a.localeCompare(b);
-                                            });
-
-                                            categories.forEach(cat => {
-                                                groupedAssets[cat].sort((a, b) => b.weight - a.weight);
-                                            });
-
-                                            return (
-                                                <div className="rounded-md border bg-card p-3 text-card-foreground shadow-lg min-w-[320px] max-w-[450px]">
-                                                    <div className="mb-2 border-b pb-2">
-                                                        <div className="font-semibold text-sm">{displayLabel}</div>
-                                                        <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground">
-                                                            <div className="flex flex-col items-start">
-                                                                <span className="text-[10px] uppercase tracking-wider">CAGR</span>
-                                                                <span className="font-medium text-foreground">{p.ret.toFixed(2)}%</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-start">
-                                                                <span className="text-[10px] uppercase tracking-wider">Risk</span>
-                                                                <span className="font-medium text-foreground">{p.vol.toFixed(2)}%</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-start">
-                                                                <span className="text-[10px] uppercase tracking-wider">Sharpe</span>
-                                                                <span className="font-medium text-foreground">{p.sharpe.toFixed(2)}</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-3 text-xs">
-                                                        {categories.map(cat => (
-                                                            <div key={cat}>
-                                                                <div className={`mb-1 flex items-center gap-1.5 font-semibold capitalize ${CATEGORY_COLORS[cat] || DEFAULT_COLOR}`}>
-                                                                    <div className={`h-1.5 w-1.5 rounded-full bg-current`} />
-                                                                    {cat}
-                                                                </div>
-                                                                <div className="pl-3 space-y-1">
-                                                                    {groupedAssets[cat].map(asset => (
-                                                                        <div key={asset.name} className="flex justify-between gap-4">
-                                                                            <span className="text-muted-foreground" title={asset.name}>{asset.name}</span>
-                                                                            <span className="font-medium tabular-nums whitespace-nowrap">{(asset.weight * 100).toFixed(1)}%</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            );
-                                        }}
+                                        content={
+                                            <CustomTooltip 
+                                                active={tooltipState.active}
+                                                payload={tooltipState.payload}
+                                                highlights={highlights} 
+                                                currentPoint={currentPoint} 
+                                                interactivePoint={interactivePoint} 
+                                                saveCustomPortfolio={saveCustomPortfolio} 
+                                                onClose={closeTooltip} 
+                                            />
+                                        }
                                     />
-                                    <Legend verticalAlign="bottom" onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer', userSelect: 'none' }} />
-                                    <Scatter name="Simulated" data={points} fill="#94a3b8" legendType="none" hide={focusedSeries !== null} />
-                                    <Scatter name="Frontier" data={frontier} fill="#3b82f6" legendType="none" hide={focusedSeries !== null} />
+                                    <Legend 
+                                        layout="vertical" 
+                                        align="right" 
+                                        verticalAlign="middle" 
+                                        onClick={handleLegendClick} 
+                                        wrapperStyle={{ cursor: 'pointer', userSelect: 'none', paddingLeft: '20px' }} 
+                                    />
+                                    <Scatter 
+                                        name="Simulated" 
+                                        data={points} 
+                                        fill="#94a3b8" 
+                                        legendType="none" 
+                                        hide={focusedSeries !== null} 
+                                        onClick={handlePointClick}
+                                    />
+                                    <Scatter 
+                                        name="Frontier" 
+                                        data={frontier} 
+                                        fill="#3b82f6" 
+                                        legendType="none" 
+                                        hide={focusedSeries !== null}
+                                        onClick={handlePointClick}
+                                    />
                                     {interactivePoint && (
                                         <Scatter
                                             name={`Interactive (${interactivePoint.ret.toFixed(2)}%)`}
@@ -662,6 +877,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             shape="circle"
                                             legendType="none"
                                             hide={focusedSeries !== null}
+                                            onClick={handlePointClick}
                                         />
                                     )}
                                     <Scatter
@@ -670,6 +886,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         fill="#ef4444"
                                         shape="diamond"
                                         hide={focusedSeries !== null && focusedSeries !== `Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
+                                        onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -679,6 +896,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         data={highlights.filter((p) => p.label === "Highest CAGR")}
                                         fill="#22c55e"
                                         hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest CAGR") ? `Highest CAGR (${highlights.find((h) => h.label === "Highest CAGR")!.ret.toFixed(2)}%)` : "Highest CAGR")}
+                                        onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -688,6 +906,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         data={highlights.filter((p) => p.label === "Highest Sharpe")}
                                         fill="#a855f7"
                                         hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest Sharpe") ? `Highest Sharpe (${highlights.find((h) => h.label === "Highest Sharpe")!.ret.toFixed(2)}%)` : "Highest Sharpe")}
+                                        onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
@@ -697,6 +916,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         data={highlights.filter((p) => p.label === "Lowest Risk")}
                                         fill="#f59e0b"
                                         hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Lowest Risk") ? `Lowest Risk (${highlights.find((h) => h.label === "Lowest Risk")!.ret.toFixed(2)}%)` : "Lowest Risk")}
+                                        onClick={handlePointClick}
                                     />
                                 </ScatterChart>
                             </ResponsiveContainer>

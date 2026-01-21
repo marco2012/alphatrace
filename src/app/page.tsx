@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { usePortfolio } from "@/context/portfolio-context";
-import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus, Highlighter } from "lucide-react";
+import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus, Highlighter, ChevronDown, ChevronUp } from "lucide-react";
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
 import { AnalysisSection } from "@/components/dashboard/analysis-section";
@@ -20,6 +20,7 @@ export default function Home() {
   const [newPortfolioName, setNewPortfolioName] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [portfolioToDelete, setPortfolioToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isSavedPortfoliosOpen, setIsSavedPortfoliosOpen] = useState(true);
 
   const formatClassBreakdown = (w: Record<string, number>) => {
     const entries = Object.entries(w || {}).filter(([, v]) => (v ?? 0) > 0);
@@ -126,13 +127,22 @@ export default function Home() {
             {/* Saved Portfolios */}
             <div id="saved-portfolios" className="space-y-3 scroll-mt-24">
               <Card>
-                <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <CardTitle>Saved Portfolios</CardTitle>
-                    <CardDescription>Save a new composition and revisit it any time.</CardDescription>
+                <CardHeader 
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between cursor-pointer select-none hover:bg-muted/50 transition-colors rounded-t-lg"
+                    onClick={() => setIsSavedPortfoliosOpen(!isSavedPortfoliosOpen)}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="mt-1">
+                        {isSavedPortfoliosOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                    </div>
+                    <div>
+                        <CardTitle>Saved Portfolios</CardTitle>
+                        <CardDescription>Save a new composition and revisit it any time.</CardDescription>
+                    </div>
                   </div>
                   {savedPortfolios.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={() => {
+                    <Button variant="outline" size="sm" onClick={(e) => {
+                      e.stopPropagation();
                       const url = getShareAllUrl(savedPortfolios);
                       navigator.clipboard.writeText(url);
                       toast.success("Link to share all portfolios copied!", { duration: 1800 });
@@ -141,6 +151,7 @@ export default function Home() {
                     </Button>
                   )}
                 </CardHeader>
+                {isSavedPortfoliosOpen && (
                 <CardContent className="space-y-6">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                     <div className="flex-1">
@@ -249,6 +260,7 @@ export default function Home() {
                     </div>
                   )}
                 </CardContent>
+                )}
               </Card>
             </div>
 

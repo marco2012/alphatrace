@@ -64,6 +64,7 @@ interface PortfolioContextType {
     activePortfolioId: string | null;
     activePortfolioName: string | null;
     savePortfolio: (name: string) => void;
+    saveCustomPortfolio: (name: string, weights: Record<string, number>) => void;
     deletePortfolio: (id: string) => void;
     loadPortfolio: (id: string) => void;
     duplicatePortfolio: (id: string) => SavedPortfolio | null;
@@ -503,6 +504,30 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         setActivePortfolioName(newPortfolio.name);
     };
 
+    const saveCustomPortfolio = (name: string, customWeights: Record<string, number>) => {
+        const trimmed = (name || "").trim();
+        if (!trimmed) return;
+
+        const now = new Date().toISOString();
+        const newPortfolio: SavedPortfolio = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            name: trimmed,
+            weights: { ...customWeights },
+            date: now,
+            highlighted: false,
+        };
+
+        const updated = [...savedPortfolios, newPortfolio];
+        setSavedPortfolios(updated);
+        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        
+        // Optionally switch to it? For now, just save it.
+        // If we want to switch:
+        // setWeights(customWeights);
+        // setActivePortfolioId(newPortfolio.id);
+        // setActivePortfolioName(newPortfolio.name);
+    };
+
     const togglePortfolioHighlight = (id: string) => {
         const updated = savedPortfolios.map(p =>
             p.id === id ? { ...p, highlighted: !Boolean(p.highlighted) } : p
@@ -673,6 +698,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             activePortfolioId,
             activePortfolioName,
             savePortfolio,
+            saveCustomPortfolio,
             deletePortfolio,
             loadPortfolio,
             duplicatePortfolio,

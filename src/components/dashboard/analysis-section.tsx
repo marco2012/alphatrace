@@ -1924,6 +1924,11 @@ export function AnalysisSection() {
                     <TabsContent value="performance" className="space-y-6 mt-6">
                         {validItems.length > 1 ? (
                             <>
+                                <RiskReturnScatterChart
+                                    key={`risk-return-${calcKey}`}
+                                    items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
+                                />
+
                                 <Card key={`growth-${calcKey}`}>
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <CardTitle>Growth Comparison</CardTitle>
@@ -2080,54 +2085,6 @@ export function AnalysisSection() {
                                     </CardContent>
                                 </Card>
 
-                                <Card key={`annual-${calcKey}`}>
-                                    <CardHeader className="flex flex-row items-center justify-between">
-                                        <div>
-                                            <CardTitle>Annual Returns</CardTitle>
-                                            <CardDescription>Year-over-year performance.</CardDescription>
-                                        </div>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => downloadCSV(annualComparisonData, "annual-returns")}
-                                        >
-                                            <Download className="h-4 w-4" />
-                                        </Button>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="h-[300px] w-full">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={annualComparisonData}>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                                                    <XAxis
-                                                        dataKey="year"
-                                                        stroke="#888888"
-                                                        fontSize={12}
-                                                        tickLine={false}
-                                                        axisLine={false}
-                                                    />
-                                                    <YAxis
-                                                        stroke="#888888"
-                                                        fontSize={12}
-                                                        tickLine={false}
-                                                        axisLine={false}
-                                                        tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
-                                                        domain={["auto", "auto"]}
-                                                    />
-                                                    <RechartsTooltip
-                                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                                        formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
-                                                    />
-                                                    <Legend />
-                                                    {validItems.map((item) => (
-                                                        <Bar key={item.name} dataKey={item.name} fill={item.color} />
-                                                    ))}
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
                                 <Card key={`drawdowns-${calcKey}`}>
                                     <CardHeader className="flex flex-row items-center justify-between">
                                         <div>
@@ -2185,18 +2142,59 @@ export function AnalysisSection() {
                                     </CardContent>
                                 </Card>
 
+                                <Card key={`annual-${calcKey}`}>
+                                    <CardHeader className="flex flex-row items-center justify-between">
+                                        <div>
+                                            <CardTitle>Annual Returns</CardTitle>
+                                            <CardDescription>Year-over-year performance.</CardDescription>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => downloadCSV(annualComparisonData, "annual-returns")}
+                                        >
+                                            <Download className="h-4 w-4" />
+                                        </Button>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="h-[300px] w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={annualComparisonData}>
+                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                                    <XAxis
+                                                        dataKey="year"
+                                                        stroke="#888888"
+                                                        fontSize={12}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                    />
+                                                    <YAxis
+                                                        stroke="#888888"
+                                                        fontSize={12}
+                                                        tickLine={false}
+                                                        axisLine={false}
+                                                        tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                                                        domain={["auto", "auto"]}
+                                                    />
+                                                    <RechartsTooltip
+                                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
+                                                        formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
+                                                    />
+                                                    <Legend />
+                                                    {validItems.map((item) => (
+                                                        <Bar key={item.name} dataKey={item.name} fill={item.color} />
+                                                    ))}
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
                                 <TimeToRecoveryChart
                                     key={`recovery-${calcKey}`}
                                     portfolio={primaryResult}
                                     items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
                                 />
-
-                                <RiskReturnScatterChart
-                                    key={`risk-return-${calcKey}`}
-                                    items={slicedItems.map((i) => ({ name: i.name, color: i.color, result: i.result }))}
-                                />
-
-
 
                                 {(() => {
                                     const portfoliosList = validItems
@@ -2246,19 +2244,6 @@ export function AnalysisSection() {
                         ) : (
                             primaryResult && (
                                 <div className="space-y-6">
-                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} currency={currency} />
-                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} cpiMap={cpiMap} currency={currency} />
-                                    <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
-                                    <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
-                                    <DrawdownChart
-                                        key={`single-dd-${calcKey}`}
-                                        portfolios={[{
-                                            name: slicedItems[0]?.name || "Current Portfolio",
-                                            portfolio: primaryResult,
-                                            color: COLORS[0]
-                                        }]}
-                                    />
-                                    <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
                                     <RiskReturnScatterChart
                                         key={`single-risk-return-${calcKey}`}
                                         items={[{
@@ -2267,6 +2252,19 @@ export function AnalysisSection() {
                                             result: primaryResult
                                         }]}
                                     />
+                                    <PortfolioChart key={`single-growth-${calcKey}`} portfolio={primaryResult} currency={currency} />
+                                    <InflationImpactChart key={`single-inflation-${calcKey}`} portfolio={primaryResult} cpiMap={cpiMap} currency={currency} />
+                                    <RollingReturnsChart key={`single-rolling-${calcKey}`} portfolio={primaryResult} />
+                                    <DrawdownChart
+                                        key={`single-dd-${calcKey}`}
+                                        portfolios={[{
+                                            name: slicedItems[0]?.name || "Current Portfolio",
+                                            portfolio: primaryResult,
+                                            color: COLORS[0]
+                                        }]}
+                                    />
+                                    <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
+                                    <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />
                                     {(() => {
                                         const assetList = Object.entries(weights)
                                             .filter(([_, w]) => w > 0)
@@ -2293,116 +2291,6 @@ export function AnalysisSection() {
 
 
                     <TabsContent value="simulations" className="space-y-6 mt-6">
-                        {(primaryResult || validItems.length > 0) && (
-                            <Card key={`beta-${calcKey}`}>
-                                <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                    <div className="flex items-center gap-4">
-                                        <div>
-                                            <CardTitle>Rolling Beta</CardTitle>
-                                            <CardDescription>Systematic risk relative to {validItems.find(item => makeKey(item) === betaBenchmark)?.name || (betaBenchmark?.startsWith('asset:') ? betaBenchmark.replace('asset:', '') : 'benchmark')}.</CardDescription>
-                                        </div>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => downloadCSV(rollingBetaData, "rolling-beta")}
-                                        >
-                                            <Download className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-muted-foreground whitespace-nowrap">Benchmark:</span>
-                                            <Select
-                                                value={betaBenchmark || ""}
-                                                onValueChange={setBetaBenchmark}
-                                            >
-                                                <SelectTrigger className="w-[200px] h-9">
-                                                    <SelectValue placeholder="Select benchmark" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectGroup>
-                                                        <SelectLabel>Current Comparison</SelectLabel>
-                                                        {validItems.map(item => (
-                                                            <SelectItem key={makeKey(item)} value={makeKey(item)}>
-                                                                {item.name}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectGroup>
-                                                    <SelectGroup>
-                                                        <SelectLabel>All Assets</SelectLabel>
-                                                        {assets.map(asset => (
-                                                            <SelectItem key={`asset:${asset}`} value={`asset:${asset}`}>
-                                                                {asset}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectGroup>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-muted-foreground whitespace-nowrap">Window (Yrs):</span>
-                                            <Input
-                                                type="number"
-                                                value={rollingBetaYears}
-                                                onChange={(e) => {
-                                                    const val = Number(e.target.value);
-                                                    if (val > 0) setRollingBetaYears(val);
-                                                }}
-                                                className="w-[80px] h-9"
-                                                min={1}
-                                                max={10}
-                                            />
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="h-[300px] w-full">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <LineChart data={rollingBetaData}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                                                <XAxis
-                                                    dataKey="date"
-                                                    stroke="#888888"
-                                                    fontSize={12}
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                    minTickGap={30}
-                                                    tickFormatter={(value) => new Date(value).getFullYear().toString()}
-                                                />
-                                                <YAxis
-                                                    stroke="#888888"
-                                                    fontSize={12}
-                                                    tickLine={false}
-                                                    axisLine={false}
-                                                    domain={['auto', 'auto']}
-                                                    tickFormatter={(v) => v.toFixed(1)}
-                                                />
-                                                <RechartsTooltip
-                                                    contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                                    labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: "numeric", month: "long" })}
-                                                    formatter={(value: number, name: string) => [value.toFixed(2), name]}
-                                                />
-                                                <Legend />
-                                                <ReferenceLine y={1} stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3" label={{ position: 'right', value: 'Market Beta (1.0)', fill: '#ef4444', fontSize: 10 }} />
-                                                {validItems
-                                                    .filter(item => makeKey(item) !== betaBenchmark)
-                                                    .map((item) => (
-                                                        <Line
-                                                            key={item.name}
-                                                            type="monotone"
-                                                            dataKey={item.name}
-                                                            name={item.name}
-                                                            stroke={item.color}
-                                                            strokeWidth={2}
-                                                            dot={false}
-                                                        />
-                                                    ))}
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
                         {(() => {
                             const targetKey = (validItems.length > 1 && simSelectedKey && validItems.find(i => makeKey(i) === simSelectedKey))
                                 ? simSelectedKey

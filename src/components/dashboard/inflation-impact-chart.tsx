@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
     CartesianGrid,
     Line,
@@ -12,7 +13,7 @@ import {
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
 
 type InflationImpactChartProps = {
@@ -22,6 +23,8 @@ type InflationImpactChartProps = {
 };
 
 export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" }: InflationImpactChartProps) {
+    const [isOpen, setIsOpen] = useState(false);
+
     if (!portfolio) return null;
 
     const isMonetary = !!(portfolio.portValues && portfolio.dates && portfolio.portValues.length === portfolio.dates.length);
@@ -51,7 +54,8 @@ export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" 
         return { date, nominal, real };
     });
 
-    const downloadCSV = () => {
+    const downloadCSV = (e: React.MouseEvent) => {
+        e.stopPropagation();
         const csv = [
             ["Date", "Nominal", "Real"],
             ...data.map((row) => [row.date, row.nominal.toFixed(6), row.real.toFixed(6)]),
@@ -74,17 +78,24 @@ export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" 
 
     return (
         <Card className="col-span-4">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <div>
-                    <CardTitle>Inflation Impact</CardTitle>
-                    <CardDescription>
-                        Nominal vs inflation-adjusted growth ({currency} CPI).
-                    </CardDescription>
+            <CardHeader 
+                className="flex flex-row items-center justify-between space-y-0 pb-2 cursor-pointer select-none hover:bg-muted/50 transition-colors rounded-t-lg"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <div className="flex items-center gap-2">
+                    {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                    <div>
+                        <CardTitle>Inflation Impact</CardTitle>
+                        <CardDescription>
+                            Nominal vs inflation-adjusted growth ({currency} CPI).
+                        </CardDescription>
+                    </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={downloadCSV}>
                     <Download className="h-4 w-4" />
                 </Button>
             </CardHeader>
+            {isOpen && (
             <CardContent className="pl-2">
                 <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -129,6 +140,7 @@ export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" 
                     </ResponsiveContainer>
                 </div>
             </CardContent>
+            )}
         </Card>
     );
 }
