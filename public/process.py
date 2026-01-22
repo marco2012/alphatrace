@@ -57,6 +57,7 @@ TER_MAPPING = {
     "dbmf": 0.0075,
     "dgeix": 0.0026,
     "dfemx": 0.0036,
+    "degc": 0.0026,
     "cash": 0.0010,
     "eur_government_bonds_10y": 0.0015,
     "ntsg": 0.0025,
@@ -356,6 +357,44 @@ def get_monthly_yf_data(ticker, start_date="1970-01-01"):
     except Exception as e:
         logger.error(f"Error downloading {ticker}: {e}")
         return pd.Series(dtype='float64')
+
+def get_degc_portfolio(start_date="1999-01-01"):
+    """
+    Dimensional Global Core Equity (DEGC) Proxy:
+    50% DFUSX (US Core)
+    30% DFIVX (Intl Value)
+    20% DFISX (Intl Small)
+    """
+    logger.info("Calculating Dimensional Global Core Equity (DEGC) portfolio...")
+    
+    funds = {
+        "DFUSX": 0.50,
+        "DFIVX": 0.30,
+        "DFISX": 0.20
+    }
+    
+    data_frames = []
+    for ticker in funds.keys():
+        series = get_monthly_yf_data(ticker, start_date=start_date)
+        if series.empty:
+            logger.error(f"Missing data for {ticker}")
+            return pd.Series(dtype='float64')
+        # Normalize to 1.0 at start
+        series = series / series.iloc[0]
+        data_frames.append(series.rename(ticker))
+        
+    combined = pd.concat(data_frames, axis=1).dropna()
+    
+    # Calculate weighted returns
+    # Portfolio Value = sum(weight * norm_price)
+    port_val = (combined['DFUSX'] * funds['DFUSX'] + 
+                combined['DFIVX'] * funds['DFIVX'] + 
+                combined['DFISX'] * funds['DFISX'])
+    
+    # Normalize to 100
+    port_val = (port_val / port_val.iloc[0]) * 100
+    
+    return port_val.rename('degc_usd')
 
 def get_ntsg_portfolio(start_date="1999-01-01"):
     """
@@ -907,6 +946,36 @@ def process_files():
     logger.info("Fetching additional YFinance assets...")
     for name, ticker in YF_ASSETS.items():
         series = get_monthly_yf_data(ticker)
+        
+        # Backfill DGEIX with World ACWI IMI
+        if name == 'dgeix_usd' and not series.empty:
+            try:
+                proxy_path = os.path.join(source_dir, "world_acwi_imi.xlsx")
+                if os.path.exists(proxy_path):
+                    logger.info("  Backfilling DGEIX with World ACWI IMI...")
+                    pdf = pd.read_excel(proxy_path, skiprows=5).iloc[:, [0, 1]]
+                    pdf.columns = ['Date', 'Value']
+                    pdf['Date'] = pd.to_datetime(pdf['Date'], errors='coerce')
+                    pdf.set_index('Date', inplace=True)
+                    # Resample to monthly end
+                    p_series = pdf['Value'].resample('ME').last().ffill()
+                    
+                    start_date = series.first_valid_index()
+                    if start_date:
+                        # Calculate returns
+                        p_rets = p_series.pct_change().dropna()
+                        p_rets = p_rets[p_rets.index < start_date]
+                        
+                        d_rets = series.pct_change().dropna()
+                        
+                        # Combine
+                        combined_rets = pd.concat([p_rets, d_rets])
+                        
+                        # Reconstruct Series (Base 100)
+                        series = 100 * (1 + combined_rets).cumprod()
+            except Exception as e:
+                logger.error(f"Error backfilling DGEIX: {e}")
+
         if series.empty: continue
         
         # Apply TER if mapping exists
@@ -951,6 +1020,18 @@ def process_files():
         df_ntsg = df_ntsg.iloc[0] * (1 + adj_rets).cumprod()
         logger.info(f"  Applied TER of {ter*100:.2f}% to ntsg")
         combined = combined.join(df_ntsg, how='outer')
+
+    # 4.5 Add DEGC Portfolio
+    df_degc = get_degc_portfolio()
+    if not df_degc.empty:
+        ter = TER_MAPPING['degc']
+        monthly_ter = ter / 12
+        rets = df_degc.pct_change()
+        adj_rets = rets - monthly_ter
+        adj_rets.iloc[0] = 0
+        df_degc = df_degc.iloc[0] * (1 + adj_rets).cumprod()
+        logger.info(f"  Applied TER of {ter*100:.2f}% to degc")
+        combined = combined.join(df_degc, how='outer')
 
     # 6. Add EUR Government Bonds 10y
     df_bonds = get_eur_bonds_10y_portfolio()
@@ -1082,6 +1163,7 @@ def process_files():
                     'cash_usd', 'cash_eur',
                     'dbmf_usd', 'dbmf_eur',
                     'ntsg_usd', 'ntsg_eur',
+                    'degc_usd', 'degc_eur',
                     'dgeix_usd', 'dgeix_eur',
                     'dfemx_usd', 'dfemx_eur']
     for col in norm_targets:
@@ -1116,6 +1198,7 @@ def process_files():
         "dbmf": "DBMF (Managed Futures)",
         "dgeix": "DFA Global Equity (DGEIX)",
         "dfemx": "DFA Emerging Markets",
+        "degc": "Dimensional Global Core Equity (DEGC)",
         "ntsg": "WisdomTree Global Efficient Core (NTSG)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
         "cash": "CASH",

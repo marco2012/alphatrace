@@ -38,6 +38,8 @@ export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "Bloomberg Roll Select Commodity (EUR)": "alternatives",
     "UBS CMCI Composite Commodity (USD)": "alternatives",
     "UBS CMCI Composite Commodity (EUR)": "alternatives",
+    "Dimensional Global Core Equity (DEGC) (USD)": "stocks",
+    "Dimensional Global Core Equity (DEGC) (EUR)": "stocks",
 };
 
 export const IT_ANNUAL_CPI: Record<number, number> = {
@@ -70,6 +72,7 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "S&P 500 Total Return": 0.0007,
     "Nasdaq Total Return": 0.0030,
     "DGEIX (DFA Global Equity)": 0.0026,
+    "Dimensional Global Core Equity (DEGC)": 0.0026,
     "DBMF (Managed Futures)": 0.0075,
     "NTSG (WisdomTree Global Efficient Core)": 0.0025,
     "EUR Government Bonds 10y": 0.0015,
@@ -99,6 +102,7 @@ export const ASSET_CAPE_MAPPING: Record<string, number> = {
     "S&P 500 Total Return": 39.9,
     "Nasdaq Total Return": 42.5,
     "DGEIX (DFA Global Equity)": 24.8,
+    "Dimensional Global Core Equity (DEGC)": 24.8,
     "MSCI Emerging Market": 18.9,
     "MSCI Emerging Markets IMI": 18.9,
     "Japan": 24.5,
