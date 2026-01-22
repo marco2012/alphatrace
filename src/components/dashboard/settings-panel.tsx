@@ -77,38 +77,35 @@ def generate_backtest_data(output_file='imgp_dbi_base100.csv'):
     },
     dfaGlobal: {
         title: "DFA Funds",
-        description: "Data for DGEIX (US Core Equity I) and DFEMX (Emerging Markets). Calculated using public/code/dgex.py.",
+        description: "Data for DGEIX (US Core Equity I), DFEMX (Emerging Markets), and DEGC (Dimensional Global Core Equity). DEGC is a weighted proxy (50% US, 30% Intl Value, 20% Intl Small) calculated using public/code/degc.py.",
         url: "https://finance.yahoo.com/quote/DGEIX/",
         url2: "https://finance.yahoo.com/quote/DFEMX/",
+        url3: "https://finance.yahoo.com/quote/DFUSX/",
         code: `import yfinance as yf
 import pandas as pd
 from datetime import datetime
 
-def download_scaled_proxy():
-    fund_ticker = "DGEIX"      
-    currency_ticker = "EURUSD=X"
-    start_date = "1990-01-01"
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
-    # auto_adjust=True gets the Total Return (dividends reinvested)
-    fund_data = yf.download(fund_ticker, start=start_date, end=current_date, interval="1mo", auto_adjust=True)
-    curr_data = yf.download(currency_ticker, start=start_date, end=current_date, interval="1mo", auto_adjust=False)
-
-    df_fund = fund_data[['Close']].dropna()
-    df_fund.columns = ['Price_USD']
-    df_curr = curr_data[['Close']].resample('M').last().dropna()
-    df_curr.columns = ['USD_per_EUR']
-
-    df_fund.index = df_fund.index.to_period('M').to_timestamp('M')
-    df_curr.index = df_curr.index.to_period('M').to_timestamp('M')
-
-    merged = pd.merge(df_fund, df_curr, left_index=True, right_index=True, how='inner')
-    merged['Price_EUR'] = merged['Price_USD'] / merged['USD_per_EUR']
-
-    merged['Scaled_USD'] = (merged['Price_USD'] / merged['Price_USD'].iloc[0]) * 100
-    merged['Scaled_EUR'] = (merged['Price_EUR'] / merged['Price_EUR'].iloc[0]) * 100
+def calculate_dfa_proxies():
+    # 1. DEGC Calculation (Dimensional Global Core Equity)
+    # Weights: 50% US Core, 30% Intl Value, 20% Intl Small
+    funds = {"DFUSX": 0.50, "DFIVX": 0.30, "DFISX": 0.20}
+    start_date = "1999-01-01"
     
-    return merged[['Scaled_USD', 'Scaled_EUR']]`
+    data = yf.download(list(funds.keys()), start=start_date, interval="1mo", auto_adjust=True)
+    prices = data['Close']
+    
+    # Normalize and Weight
+    norm_funds = prices / prices.iloc[0]
+    degc_usd = (norm_funds['DFUSX'] * 0.50 + 
+                norm_funds['DFIVX'] * 0.30 + 
+                norm_funds['DFISX'] * 0.20) * 100
+
+    # 2. DGEIX / DFEMX Scaling
+    # Simple monthly total return scaling
+    fund_data = yf.download("DGEIX", start="1990-01-01", interval="1mo", auto_adjust=True)
+    scaled_usd = (fund_data['Close'] / fund_data['Close'].iloc[0]) * 100
+    
+    return degc_usd, scaled_usd`
     },
     ntsg: {
         title: "WisdomTree Global Efficient Core (NTSG)",
@@ -180,10 +177,25 @@ results['90_60_EUR'] = results['90_60_USD'] / data['fx']`
         ]
     },
     cash: {
-        title: "Cash",
-        description: "Calculated using market benchmark rates.",
-        url: "https://fred.stlouisfed.org/series/IR3TIB01EZM156N",
-        url2: "https://fred.stlouisfed.org/series/DTB3"
+        title: "Xtrackers II EUR Overnight Rate Swap (XEON)",
+        description: "Backtest for the XEON ETF. Synthetic history (1999-2007) using EONIA/€STR+8.5bps minus 0.10% fees, spliced with actual ETF data (2007-present).",
+        url: "https://etf.dws.com/en-gb/LU0290358497-eur-overnight-rate-swap-ucits-etf-1c/",
+        url2: "https://fred.stlouisfed.org/series/ECBESTRVOLWGTTRMDMNRT",
+        code: `def get_xeon_portfolio(start_date="1999-01-04"):
+    # 1. EUR Synthetic (1999-2007): EONIA/€STR+8.5bps
+    # Method: Compound daily returns from FRED rates
+    daily_rates = rates.resample('D').ffill()
+    daily_ret = (daily_rates['Rate'] / 100 - 0.0010) / 360
+    synthetic_eur = 100 * (1 + daily_ret).cumprod()
+
+    # 2. Actual ETF (2007-Present): XEON.DE
+    etf_data = yf.download("XEON.DE", auto_adjust=True)
+    
+    # 3. Splicing at ETF inception
+    splice_date = etf_data.index[0]
+    scale = etf_data.loc[splice_date] / synthetic_eur.loc[splice_date]
+    xeon_eur = pd.concat([synthetic_eur[:splice_date] * scale, etf_data[splice_date:]])
+    return xeon_eur`
     },
     commodities: {
         title: "Commodities",
@@ -465,6 +477,11 @@ export function SettingsPanel() {
                                     <a href={DATA_SOURCES.dfaGlobal.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
                                         {DATA_SOURCES.dfaGlobal.url2}
                                     </a>
+                                    {DATA_SOURCES.dfaGlobal.url3 && (
+                                        <a href={DATA_SOURCES.dfaGlobal.url3} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
+                                            {DATA_SOURCES.dfaGlobal.url3}
+                                        </a>
+                                    )}
                                 </div>
                                 <div className="space-y-1">
                                     <p className="text-[10px] uppercase font-bold text-muted-foreground">Proxy Calculation Logic:</p>
@@ -543,6 +560,10 @@ export function SettingsPanel() {
                                     <a href={DATA_SOURCES.cash.url2} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline break-all">
                                         {DATA_SOURCES.cash.url2}
                                     </a>
+                                </div>
+                                <div className="space-y-1 mt-3">
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground">XEON Backtest Logic:</p>
+                                    <CodeBlock code={DATA_SOURCES.cash.code!} />
                                 </div>
                             </AccordionContent>
                         </AccordionItem>

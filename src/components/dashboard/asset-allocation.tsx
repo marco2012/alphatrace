@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle2, Scale, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Badge } from "@/components/ui/badge";
+import { ASSET_EXTERNAL_LINKS } from "@/lib/constants";
 import {
     Table,
     TableBody,
@@ -156,7 +157,25 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                         {category}
                                                     </Badge>
                                                 </div>
-                                                <span>{asset}</span>
+                                                <div className="flex items-center gap-1.5 group">
+                                                    <span className="truncate">{asset}</span>
+                                                    {(() => {
+                                                        const baseName = asset.replace(/ \((USD|EUR)\)$/, "");
+                                                        const link = ASSET_EXTERNAL_LINKS[asset] || ASSET_EXTERNAL_LINKS[baseName];
+                                                        if (!link) return null;
+                                                        return (
+                                                            <a
+                                                                href={link}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-muted-foreground/40 hover:text-blue-500 transition-colors"
+                                                                title="View ETF details"
+                                                            >
+                                                                <Info className="w-3.5 h-3.5" />
+                                                            </a>
+                                                        );
+                                                    })()}
+                                                </div>
                                                 {(() => {
                                                     const firstValidDates = (norm as any)?.firstValidDates || {};
                                                     const lastValidDates = (norm as any)?.lastValidDates || {};

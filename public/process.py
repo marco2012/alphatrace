@@ -58,7 +58,7 @@ TER_MAPPING = {
     "dgeix": 0.0026,
     "dfemx": 0.0036,
     "degc": 0.0026,
-    "cash": 0.0010,
+    "xeon": 0.0010,
     "eur_government_bonds_10y": 0.0015,
     "ntsg": 0.0025,
     "gold": 0.0012,
@@ -544,39 +544,66 @@ def get_eur_bonds_10y_portfolio(start_date="1980-01-01"):
         
     return history_eur.rename('eur_government_bonds_10y_eur')
 
-def get_cash_portfolio(start_date="1999-01-04"):
-    """Backtests the CASH portfolio (Euribor for EUR, T-Bill for USD)."""
-    logger.info("Calculating CASH portfolio (Local Market rates)...")
-    credit_spread = 0.0050 # 50 bps
+def get_xeon_portfolio(start_date="1999-01-04"):
+    """
+    Backtests LU0290358497 (XEON) in EUR and USD.
+    EUR Synthetic (1999-2007): EONIA/€STR+8.5bps minus 0.10% fees.
+    EUR Actual (2007-Present): XEON.DE Adjusted Close.
+    """
+    logger.info("Calculating Xtrackers II EUR Overnight Rate Swap (XEON) portfolio...")
     
-    # 1. EUR Cash (Euribor 3M + spread) spliced with ETF
-    eur_rates = get_fred_series_raw("IR3TIB01EZM156N", "Rate")
-    if not eur_rates.empty:
-        eur_rates = eur_rates.resample('D').ffill()
-        daily_ret_eur = (eur_rates['Rate'] / 100 + credit_spread) / 360
-        nav_eur = 100 * (1 + daily_ret_eur.fillna(0)).cumprod()
-        # Splicing with ERNE.AS
-        try:
-            etf = yf.download("ERNE.AS", start="2013-11-01", auto_adjust=True, progress=False)['Close']
-            if isinstance(etf, pd.DataFrame): etf = etf.iloc[:, 0]
-            splice_date = etf.first_valid_index()
-            if splice_date:
-                ratio = etf.loc[splice_date] / nav_eur.loc[splice_date]
-                nav_eur = (nav_eur * ratio).combine_first(etf)
-        except: pass
-        cash_eur = nav_eur.resample('ME').last()
+    # 1. Fetch EUR Rates
+    # IRSTCI01EZM156N: Euro Area Interbank Rate (EONIA proxy)
+    # ECBESTRVOLWGTTRMDMNRT: Euro Short-Term Rate (€STR)
+    eonia_hist = get_fred_series_raw("IRSTCI01EZM156N", "Rate")
+    estr_curr = get_fred_series_raw("ECBESTRVOLWGTTRMDMNRT", "Rate")
     
-    # 2. USD Cash (3M T-Bill + spread)
-    usd_rates = get_fred_series_raw("DTB3", "Rate")
-    if not usd_rates.empty:
-        usd_rates = usd_rates.resample('D').ffill()
-        daily_ret_usd = (usd_rates['Rate'] / 100 + credit_spread) / 360
-        nav_usd = 100 * (1 + daily_ret_usd.fillna(0)).cumprod()
-        cash_usd = nav_usd.resample('ME').last()
-        
+    if eonia_hist.empty or estr_curr.empty:
+        logger.warning("Failed to fetch XEON reference rates.")
+        return pd.DataFrame()
+
+    # Adjust €STR to match EONIA methodology (€STR + 8.5 bps fixed spread)
+    estr_curr['Rate'] = estr_curr['Rate'] + 0.085
+    rates = eonia_hist.loc[:'2019-09-30'].combine_first(estr_curr).ffill()
+    
+    # 2. Calculate Synthetic EUR NAV
+    daily_rates = rates.resample('D').ffill().loc[start_date:]
+    TER = 0.0010  # 0.10% Expense Ratio
+    daily_rates['Daily_Ret'] = (daily_rates['Rate'] / 100 - TER) / 360
+    synthetic_eur = 100 * (1 + daily_rates['Daily_Ret'].fillna(0)).cumprod()
+
+    # 3. Splice with Actual ETF Data (XEON.DE)
+    xeon_eur = synthetic_eur
+    try:
+        etf_ticker = "XEON.DE"
+        etf_data = yf.download(etf_ticker, start="2007-01-01", progress=False, auto_adjust=True)
+        if not etf_data.empty:
+            if isinstance(etf_data.columns, pd.MultiIndex):
+                etf_close = etf_data['Close'].iloc[:, 0]
+            else:
+                etf_close = etf_data['Close']
+            
+            splice_date = etf_close.first_valid_index()
+            if splice_date and splice_date in synthetic_eur.index:
+                scale_factor = etf_close.loc[splice_date] / synthetic_eur.loc[splice_date]
+                synthetic_scaled = synthetic_eur.loc[:splice_date] * scale_factor
+                xeon_eur = pd.concat([synthetic_scaled[:-1], etf_close.loc[splice_date:]])
+    except Exception as e:
+        logger.error(f"Error fetching XEON ETF data: {e}")
+
+    # 4. Fetch USD Exchange Rate for unhedged USD version
+    fx_rates = get_fred_series_raw("DEXUSEU", "Rate")
+    if not fx_rates.empty:
+        aligned_fx = fx_rates['Rate'].reindex(xeon_eur.index).ffill()
+        xeon_usd = xeon_eur * aligned_fx
+    else:
+        xeon_usd = pd.Series(dtype=float)
+
     res = pd.DataFrame()
-    if 'cash_eur' in locals(): res['cash_eur'] = cash_eur
-    if 'cash_usd' in locals(): res['cash_usd'] = cash_usd
+    res['xeon_eur'] = xeon_eur.resample('ME').last()
+    if not xeon_usd.empty:
+        res['xeon_usd'] = xeon_usd.resample('ME').last()
+        
     return res
 
 def get_dbmf_portfolio():
@@ -936,12 +963,6 @@ def process_files():
     combined = pd.concat(all_data, axis=1, join='outer')
     combined.sort_index(inplace=True)
     
-    # 1. Coletti Portfolio
-    portfolio_assets = ['switzerland', 'pacific', 'japan', 'uk', 'world']
-    available_portfolio_assets = [a for a in portfolio_assets if a in combined.columns]
-    if len(available_portfolio_assets) == 5:
-        combined['coletti_eq_usd'] = combined[available_portfolio_assets].mul(0.2).sum(axis=1, min_count=5)
-    
     # 2. Add Additional YFinance Assets
     logger.info("Fetching additional YFinance assets...")
     for name, ticker in YF_ASSETS.items():
@@ -1072,18 +1093,11 @@ def process_files():
         except Exception as e:
             logger.error(f"Error processing gold.csv: {e}")
 
-    # 7. Add CASH Portfolio
-    df_cash = get_cash_portfolio()
-    if not df_cash.empty:
-        ter = TER_MAPPING['cash']
-        monthly_ter = ter / 12
-        for col in df_cash.columns:
-            rets = df_cash[col].pct_change()
-            adj_rets = rets - monthly_ter
-            adj_rets.iloc[0] = 0
-            df_cash[col] = df_cash[col].iloc[0] * (1 + adj_rets).cumprod()
-            logger.info(f"  Applied TER of {ter*100:.2f}% to {col}")
-        combined = combined.join(df_cash, how='outer')
+    # 7. Add XEON Portfolio
+    df_xeon = get_xeon_portfolio()
+    if not df_xeon.empty:
+        # Note: TER is already included in get_xeon_portfolio logic
+        combined = combined.join(df_xeon, how='outer')
 
     # 8. Add Enhanced Commodity Portfolio
     df_comm_enh = get_enhanced_commodity_portfolio()
@@ -1149,7 +1163,7 @@ def process_files():
         
         logger.info("Calculating cross-currency columns...")
         for col in list(combined.columns):
-            if col in ['cash_usd', 'cash_eur']: continue # Skip local cash versions
+            if col in ['xeon_usd', 'xeon_eur']: continue # Skip local versions
             if col.endswith('_usd'):
                 combined[col.replace('_usd', '_eur')] = combined[col] / fx_rates
             elif col.endswith('_eur'):
@@ -1158,9 +1172,8 @@ def process_files():
                 combined[f"{col}_eur"] = combined[col] / fx_rates
     except Exception as e: logger.warning(f"Warning FX: {e}")
 
-    norm_targets = ['coletti_eq_usd', 'coletti_eq_eur', 
-                    'eur_government_bonds_10y_usd', 'eur_government_bonds_10y_eur',
-                    'cash_usd', 'cash_eur',
+    norm_targets = ['eur_government_bonds_10y_usd', 'eur_government_bonds_10y_eur',
+                    'xeon_usd', 'xeon_eur',
                     'dbmf_usd', 'dbmf_eur',
                     'ntsg_usd', 'ntsg_eur',
                     'degc_usd', 'degc_eur',
@@ -1190,18 +1203,17 @@ def process_files():
         "world_small_cap_value": "MSCI World Small Cap Value",
         "world_value": "MSCI World Value",
         "emerging_market_imi": "MSCI Emerging Markets IMI",
-        "coletti_eq": "Coletti Equity",
         "gold": "Gold",
         "sp500_tr": "S&P 500 Total Return",
         "brk_b": "Berkshire Hathaway",
         "nasdaq_tr": "Nasdaq Total Return",
-        "dbmf": "DBMF (Managed Futures)",
+        "dbmf": "Managed Futures (DBMFE)",
         "dgeix": "DFA Global Equity (DGEIX)",
         "dfemx": "DFA Emerging Markets",
         "degc": "Dimensional Global Core Equity (DEGC)",
         "ntsg": "WisdomTree Global Efficient Core (NTSG)",
         "eur_government_bonds_10y": "EUR Government Bonds 10y",
-        "cash": "CASH",
+        "xeon": "Xtrackers II EUR Overnight Rate Swap (XEON)",
         "commodity": "Commodities (BCOM)",
         "commodity_enhanced": "WisdomTree Enhanced Commodity",
         "lg_commodity": "L&G Multi-Strategy Enhanced Commodities",

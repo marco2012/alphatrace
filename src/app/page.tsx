@@ -195,9 +195,9 @@ export default function Home() {
                               <TableHead>Name</TableHead>
                               <TableHead className="hidden text-center sm:table-cell">Stocks</TableHead>
                               <TableHead className="hidden text-center sm:table-cell">Bonds</TableHead>
-                              <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
                               <TableHead className="hidden text-center sm:table-cell">Gold</TableHead>
                               <TableHead className="hidden text-center sm:table-cell">Alts</TableHead>
+                              <TableHead className="hidden text-center sm:table-cell">Cash</TableHead>
                               <TableHead className="hidden sm:table-cell text-right pr-10">TER (%)</TableHead>
                               <TableHead className="hidden md:table-cell pl-10">Date</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
@@ -253,14 +253,14 @@ export default function Home() {
                                 <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.bonds }}>
                                   {getCategoryPercentage(p.weights, 'bonds')}%
                                 </TableCell>
-                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.cash }}>
-                                  {getCategoryPercentage(p.weights, 'cash')}%
-                                </TableCell>
                                 <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.gold }}>
                                   {getCategoryPercentage(p.weights, 'gold')}%
                                 </TableCell>
                                 <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.alternatives }}>
                                   {getCategoryPercentage(p.weights, 'alternatives')}%
+                                </TableCell>
+                                <TableCell className="hidden text-center text-sm sm:table-cell" style={{ color: CATEGORY_COLORS.cash }}>
+                                  {getCategoryPercentage(p.weights, 'cash')}%
                                 </TableCell>
                                 <TableCell className="hidden sm:table-cell text-right font-mono text-sm pr-10">
                                   {(getPortfolioTER(p.weights) * 100).toFixed(2)}%
