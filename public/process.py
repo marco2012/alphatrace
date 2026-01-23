@@ -510,7 +510,7 @@ def get_eur_bonds_10y_portfolio(start_date="1980-01-01"):
     """Backtests the EUR Government Bonds 10y portfolio."""
     logger.info("Calculating EUR Government Bonds 10y portfolio...")
     etf_ticker = "SXRQ.DE"
-    duration = 8.2
+    duration = 7.45
     
     # 1. Synthetic Bond (Yield-Derived)
     yields = get_fred_series_raw("IRLTLT01DEM156N", "Yield")
