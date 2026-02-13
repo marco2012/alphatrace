@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from "
 import * as XLSX from "xlsx";
 import {
     DEFAULT_WEIGHTS,
+    ASSET_NAME_MAPPING,
     getAssetCategory,
     toMonthStr,
     normalizeAndInterpolate,
@@ -89,6 +90,50 @@ export interface SavedPortfolio {
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
+
+/**
+ * Resolves an asset name to its canonical version if it's a known alias.
+ * Also handles currency suffixes.
+ */
+const migrateAssetWeights = (weights: Record<string, number>, availableColumns: string[]): Record<string, number> => {
+    const migrated: Record<string, number> = {};
+    const columnSet = new Set(availableColumns);
+
+    Object.entries(weights).forEach(([asset, weight]) => {
+        if (weight === 0) return;
+
+        // 1. Direct match
+        if (columnSet.has(asset)) {
+            migrated[asset] = weight;
+            return;
+        }
+
+        // 2. Try alias resolution
+        const currencyMatch = asset.match(/\((EUR|USD)\)$/);
+        const currencySuffix = currencyMatch ? ` ${currencyMatch[0]}` : "";
+        const baseName = asset.replace(/\s*\((USD|EUR)\)$/i, "").trim();
+
+        const mappedBase = ASSET_NAME_MAPPING[baseName];
+        if (mappedBase) {
+            const mappedName = `${mappedBase}${currencySuffix}`;
+            if (columnSet.has(mappedName)) {
+                migrated[mappedName] = weight;
+                return;
+            }
+            
+            // Try without suffix if it doesn't match
+            if (columnSet.has(mappedBase)) {
+                migrated[mappedBase] = weight;
+                return;
+            }
+        }
+
+        // 3. Last resort: just keep it
+        migrated[asset] = weight;
+    });
+
+    return migrated;
+};
 
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const [rows, setRows] = useState<any[]>([]);
@@ -187,7 +232,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
                 // Initialize weights
                 const cols = Object.keys(normalized[0] || {}).filter(k => k.toLowerCase() !== "date");
-                const w: Record<string, number> = {};
+                let w: Record<string, number> = {};
                 for (const c of cols) w[c] = 0;
 
                 // Check for share param
@@ -197,14 +242,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     if (shareData) {
                         try {
                             const decoded = JSON.parse(atob(shareData));
-                            Object.keys(decoded).forEach(k => {
-                                // Simple case-insensitive match or exact match depending on data quality
-                                // The keys in w are exactly from the excel header.
+                            // Apply migration to shared weights
+                            const migratedShared = migrateAssetWeights(decoded, cols);
+                            Object.keys(migratedShared).forEach(k => {
                                 if (Object.prototype.hasOwnProperty.call(w, k)) {
-                                    w[k] = Number(decoded[k]);
+                                    w[k] = Number(migratedShared[k]);
                                 }
                             });
-                            // toast.success("Shared portfolio loaded!"); // Cannot use toast here easily without extra deps or duplicate import
                         } catch (e) {
                             console.error("Invalid share data", e);
                         }
@@ -323,7 +367,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         if (!rows.length) return [];
         const rawCols = Object.keys(rows[0]).filter(k => k.toLowerCase() !== "date");
         const filtered = rawCols.filter(c => c.endsWith(`(${currency})`));
-        const CATEGORY_ORDER = ["stocks", "bonds", "cash", "gold"];
+        const CATEGORY_ORDER = ["stocks", "bonds", "cash", "gold", "alternatives"];
         return filtered.sort((a, b) => {
             const ca = getAssetCategory(a), cb = getAssetCategory(b);
             const ia = CATEGORY_ORDER.indexOf(ca), ib = CATEGORY_ORDER.indexOf(cb);
@@ -560,7 +604,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     setCurrencyState("EUR");
                 }
             }
-            setWeights(p.weights);
+
+            // Migrate weights to canonical names
+            const availableCols = rows.length > 0 ? Object.keys(rows[0]).filter(k => k.toLowerCase() !== "date") : [];
+            const migratedWeights = migrateAssetWeights(p.weights, availableCols);
+
+            setWeights(migratedWeights);
             setActivePortfolioId(p.id);
             setActivePortfolioName(p.name);
         }

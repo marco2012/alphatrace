@@ -11,6 +11,9 @@ import { AnnualReturnsChart } from "@/components/dashboard/annual-returns-chart"
 import { DrawdownChart } from "@/components/dashboard/drawdown-chart";
 import { RollingReturnsChart } from "@/components/dashboard/rolling-returns-chart";
 import { TimeToRecoveryChart } from "@/components/dashboard/recovery-chart";
+import { getAssetSourceType } from "@/lib/finance";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export function SingleAssetAnalysis() {
     const { columns, computeAssetPortfolio } = usePortfolio();
@@ -24,6 +27,8 @@ export function SingleAssetAnalysis() {
         return computeAssetPortfolio(currentAsset);
     }, [currentAsset, computeAssetPortfolio]);
 
+    const currentSourceType = currentAsset ? getAssetSourceType(currentAsset) : null;
+
     return (
         <div className="space-y-6">
             <Card>
@@ -35,13 +40,31 @@ export function SingleAssetAnalysis() {
                     <div className="flex flex-col gap-2">
                         <Label>Asset</Label>
                         <Select value={currentAsset} onValueChange={setSelectedAsset}>
-                            <SelectTrigger className="w-full md:w-[300px]">
+                            <SelectTrigger className="w-full md:w-[400px]">
                                 <SelectValue placeholder="Select an asset" />
                             </SelectTrigger>
                             <SelectContent>
-                                {columns.map(c => (
-                                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                                ))}
+                                {columns.map(c => {
+                                    const st = getAssetSourceType(c);
+                                    return (
+                                        <SelectItem key={c} value={c}>
+                                            <div className="flex items-center gap-2">
+                                                <span>{c}</span>
+                                                <Badge 
+                                                    variant="outline" 
+                                                    className={cn(
+                                                        "text-[8px] uppercase px-1 py-0 border-[0.5px] font-normal",
+                                                        st === "live" 
+                                                            ? "text-indigo-600 border-indigo-200" 
+                                                            : "text-slate-500 border-slate-200"
+                                                    )}
+                                                >
+                                                    {st === "live" ? "API" : "File"}
+                                                </Badge>
+                                            </div>
+                                        </SelectItem>
+                                    );
+                                })}
                             </SelectContent>
                         </Select>
                     </div>
@@ -50,7 +73,20 @@ export function SingleAssetAnalysis() {
 
             {result && (
                 <>
-                    <h2 className="text-xl font-semibold tracking-tight">Performance: {currentAsset}</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-xl font-semibold tracking-tight">Performance: {currentAsset}</h2>
+                        <Badge 
+                            variant="outline" 
+                            className={cn(
+                                "text-[10px] uppercase font-semibold",
+                                currentSourceType === "live" 
+                                    ? "text-indigo-600 border-indigo-200 bg-indigo-50/30" 
+                                    : "text-slate-500 border-slate-200 bg-slate-50/30"
+                            )}
+                        >
+                            {currentSourceType === "live" ? "Live API Data" : "Manual File Data"}
+                        </Badge>
+                    </div>
                     <MetricsCards portfolio={result} />
                     <PortfolioChart portfolio={result} />
 

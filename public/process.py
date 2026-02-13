@@ -1207,7 +1207,7 @@ def process_files():
         "sp500_tr": "S&P 500 Total Return",
         "brk_b": "Berkshire Hathaway",
         "nasdaq_tr": "Nasdaq Total Return",
-        "dbmf": "Managed Futures (DBMFE)",
+        "dbmf": "DBMF (Managed Futures)",
         "dgeix": "DFA Global Equity (DGEIX)",
         "dfemx": "DFA Emerging Markets",
         "degc": "Dimensional Global Core Equity (DEGC)",

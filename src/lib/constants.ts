@@ -18,6 +18,17 @@ export const DEFAULT_WEIGHTS: Record<string, number> = {
     "MSCI World Sector Neutral Quality": 0.00,
 };
 
+/**
+ * Maps legacy or variant asset names to the current canonical names used in the data files.
+ * This ensures that saved portfolios continue to work even if asset names are updated in process.py.
+ */
+export const ASSET_NAME_MAPPING: Record<string, string> = {
+    "Managed Futures (DBMFE)": "DBMF (Managed Futures)",
+    "iMGP DBi Managed Futures Fund": "DBMF (Managed Futures)",
+    "DFA Global Equity (DGEIX)": "DGEIX (DFA Global Equity)",
+    "WisdomTree Global Efficient Core (NTSG)": "NTSG (WisdomTree Global Efficient Core)",
+};
+
 export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "MSCI World Minimum Volatility (USD)": "stocks",
     "MSCI World Momentum": "stocks",
@@ -27,6 +38,8 @@ export const ASSET_CATEGORY_OVERRIDES: Record<string, string> = {
     "Xtrackers II EUR Overnight Rate Swap (XEON)": "cash",
     "Gold spot price": "gold",
     "iMGP DBi Managed Futures Fund": "alternatives",
+    "Managed Futures (DBMFE)": "alternatives",
+    "DBMF (Managed Futures)": "alternatives",
     "MSCI World Minimum Volatility (EUR)": "stocks",
     "Commodities (BCOM) (USD)": "alternatives",
     "Commodities (BCOM) (EUR)": "alternatives",
@@ -62,6 +75,7 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "US Small Cap Value": 0.0030,
     "MSCI World": 0.0020,
     "MSCI World ACWI": 0.0020,
+    "MSCI World ACWI IMI": 0.0017,
     "MSCI World IMI": 0.0017,
     "MSCI World Minimum Volatility": 0.0030,
     "MSCI World Momentum": 0.0025,
@@ -71,9 +85,12 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "Gold": 0.0012,
     "S&P 500 Total Return": 0.0007,
     "Nasdaq Total Return": 0.0030,
+    "DFA Global Equity (DGEIX)": 0.0026,
     "DGEIX (DFA Global Equity)": 0.0026,
     "Dimensional Global Core Equity (DEGC)": 0.0026,
+    "Managed Futures (DBMFE)": 0.0075,
     "DBMF (Managed Futures)": 0.0075,
+    "WisdomTree Global Efficient Core (NTSG)": 0.0025,
     "NTSG (WisdomTree Global Efficient Core)": 0.0025,
     "EUR Government Bonds 10y": 0.0015,
     "Xtrackers II EUR Overnight Rate Swap (XEON)": 0.0010,
@@ -81,6 +98,7 @@ export const ASSET_TER_MAPPING: Record<string, number> = {
     "Pacific": 0.0020,
     "Switzerland": 0.0020,
     "UK": 0.0033,
+    "MSCI Emerging Markets IMI": 0.0018,
     "MSCI Emerging Market": 0.0018,
     "Commodities (BCOM)": 0.0030,
     "WisdomTree Enhanced Commodity": 0.0070,
@@ -101,6 +119,7 @@ export const ASSET_CAPE_MAPPING: Record<string, number> = {
     "MSCI World Value": 19.2,
     "S&P 500 Total Return": 39.9,
     "Nasdaq Total Return": 42.5,
+    "DFA Global Equity (DGEIX)": 24.8,
     "DGEIX (DFA Global Equity)": 24.8,
     "Dimensional Global Core Equity (DEGC)": 24.8,
     "MSCI Emerging Market": 18.9,
@@ -110,6 +129,7 @@ export const ASSET_CAPE_MAPPING: Record<string, number> = {
     "Switzerland": 20.5,
     "UK": 16.2,
     "DFA Emerging Markets": 18.5,
+    "WisdomTree Global Efficient Core (NTSG)": 25.8,
     "NTSG (WisdomTree Global Efficient Core)": 25.8,
     "MSCI World Sector Neutral Quality": 32.5,
     "MSCI World Minimum Volatility (USD)": 22.1,
@@ -137,6 +157,7 @@ export const ASSET_EXTERNAL_LINKS: Record<string, string> = {
     "S&P 500 Total Return": "https://www.ishares.com/uk/individual/en/products/253743/ishares-sp-500-b-ucits-etf-acc-fund",
     "Berkshire Hathaway": "https://finance.yahoo.com/quote/BRK-B/",
     "Nasdaq Total Return": "https://finance.yahoo.com/quote/QQQ/",
+    "Managed Futures (DBMFE)": "https://www2.imgp.com/imgp-dbi-managed-futures-fund",
     "DBMF (Managed Futures)": "https://www2.imgp.com/imgp-dbi-managed-futures-fund",
     "iMGP DBi Managed Futures Fund": "https://www2.imgp.com/imgp-dbi-managed-futures-fund",
     "DFA Global Equity (DGEIX)": "https://www.dimensional.com/us-en/funds/dgeix/global-equity-portfolio-i",

@@ -4,9 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info } from "lucide-react";
+import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info, Zap, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getAssetCategory, getAssetTER } from "@/lib/finance";
+import { getAssetCategory, getAssetTER, getAssetSourceType } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Badge } from "@/components/ui/badge";
 import { ASSET_EXTERNAL_LINKS } from "@/lib/constants";
@@ -136,6 +136,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                 const weight = weights[asset] ?? 0;
                                 const percent = formatPercent(weight);
                                 const category = getAssetCategory(asset);
+                                const sourceType = getAssetSourceType(asset);
 
                                 return (
                                     <TableRow
@@ -146,15 +147,41 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                         )}
                                     >
                                         <TableCell className="hidden sm:table-cell py-2 pl-6">
-                                            <Badge className={cn("font-medium text-xs uppercase rounded-md border-0", getCategoryBadgeClass(category))}>
-                                                {category}
-                                            </Badge>
+                                            <div className="flex items-center gap-2">
+                                                <Badge className={cn("font-medium text-[10px] h-5 uppercase rounded-md border-0 shrink-0", getCategoryBadgeClass(category))}>
+                                                    {category}
+                                                </Badge>
+                                                <Badge 
+                                                    variant="outline" 
+                                                    className={cn(
+                                                        "text-[9px] h-4 items-center gap-0.5 uppercase px-1.5 py-0 border-0 rounded-full font-bold tracking-tight shrink-0",
+                                                        sourceType === "live" 
+                                                            ? "text-indigo-600 bg-indigo-100/50 dark:bg-indigo-500/20 dark:text-indigo-300" 
+                                                            : "text-slate-500 bg-slate-100/50 dark:bg-slate-500/20 dark:text-slate-400"
+                                                    )}
+                                                >
+                                                    {sourceType === "live" ? <Zap className="w-2.5 h-2.5 fill-current" /> : <FileText className="w-2.5 h-2.5" />}
+                                                    {sourceType === "live" ? "API" : "FILE"}
+                                                </Badge>
+                                            </div>
                                         </TableCell>
                                         <TableCell className="font-medium py-2 text-foreground">
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-2 sm:hidden mb-1">
                                                     <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0", getCategoryBadgeClass(category))}>
                                                         {category}
+                                                    </Badge>
+                                                    <Badge 
+                                                        variant="outline" 
+                                                        className={cn(
+                                                            "text-[8px] items-center gap-0.5 leading-tight uppercase px-1.5 py-0 border-0 rounded-full font-bold",
+                                                            sourceType === "live" 
+                                                                ? "text-indigo-600 bg-indigo-100/50 dark:text-indigo-400" 
+                                                                : "text-slate-500 bg-slate-100/50"
+                                                        )}
+                                                    >
+                                                        {sourceType === "live" ? <Zap className="w-2 h-2 fill-current" /> : <FileText className="w-2 h-2" />}
+                                                        {sourceType === "live" ? "API" : "FILE"}
                                                     </Badge>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 group">

@@ -37,6 +37,29 @@ export function getAssetCategory(name: string): string {
     return "stocks";
 }
 
+/**
+ * Determines if an asset is fetched live during process.py execution 
+ * or if it relies on manual files in the source folder.
+ */
+export function getAssetSourceType(name: string): "live" | "manual" {
+    const n = (name || "").toLowerCase();
+    
+    // Live assets (Calculated or fetched via API in process.py)
+    const liveKeywords = [
+        "dbmf", "managed futures", "ntsg", "efficient core", 
+        "degc", "dimensional global", "xeon", "overnight rate",
+        "government bonds 10y", "s&p 500", "nasdaq", "berkshire",
+        "commodity", "dgeix", "dfa emerging", "brk-b"
+    ];
+
+    if (liveKeywords.some(kw => n.includes(kw))) {
+        return "live";
+    }
+
+    // Default to manual for MSCI index files and Gold CSV
+    return "manual";
+}
+
 export const toMonthStr = (d: string | number | Date): string => {
     if (typeof d === 'string' && /^\d{4}-\d{1,2}(?:-\d{1,2})?/.test(d)) {
         const parts = d.split('-');

@@ -39,7 +39,7 @@ export default function Home() {
       const cat = getAssetCategory(asset) || "other";
       byCat[cat] = (byCat[cat] || 0) + (v ?? 0);
     }
-    const order = ["stocks", "bonds", "cash", "gold", "other"];
+    const order = ["stocks", "bonds", "cash", "gold", "alternatives", "other"];
     return order
       .filter((k) => byCat[k] != null)
       .map((k) => `${k.toUpperCase()}: ${Math.round((byCat[k] / total) * 100)}%`)
