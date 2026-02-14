@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getAssetCategory } from "@/lib/finance";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, GripVertical } from "lucide-react";
 
 type PortfolioCompositionItem = {
     id: string;
@@ -16,10 +16,13 @@ type PortfolioCompositionItem = {
 
 interface PortfolioCompositionCardsProps {
     items: PortfolioCompositionItem[];
+    onReorder?: (sourceId: string, targetId: string) => void;
 }
 
-export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsProps) {
+export function PortfolioCompositionCards({ items, onReorder }: PortfolioCompositionCardsProps) {
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+    const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
 
     const portfolioItems = useMemo(() => {
         return items.filter(item => item.weights && Object.keys(item.weights).length > 0);
@@ -53,6 +56,53 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
         setTimeout(() => setCopiedId(null), 2000);
     };
 
+    const handleDragStart = (e: React.DragEvent, id: string) => {
+        setDraggedItemId(id);
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+        
+        // Create a transparent drag image
+        const img = new Image();
+        img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+        e.dataTransfer.setDragImage(img, 0, 0);
+    };
+
+    const handleDragOver = (e: React.DragEvent, id: string) => {
+        e.preventDefault();
+        if (draggedItemId && draggedItemId !== id) {
+            e.dataTransfer.dropEffect = "move";
+            if (dragOverItemId !== id) {
+                setDragOverItemId(id);
+            }
+        }
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        // Only clear if we are actually leaving the card container
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX;
+        const y = e.clientY;
+        
+        if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+            setDragOverItemId(null);
+        }
+    };
+
+    const handleDrop = (e: React.DragEvent, targetId: string) => {
+        e.preventDefault();
+        const sourceId = e.dataTransfer.getData("text/plain");
+        if (sourceId && sourceId !== targetId && onReorder) {
+            onReorder(sourceId, targetId);
+        }
+        setDraggedItemId(null);
+        setDragOverItemId(null);
+    };
+
+    const handleDragEnd = () => {
+        setDraggedItemId(null);
+        setDragOverItemId(null);
+    };
+
     return (
         <Card>
             <CardHeader>
@@ -81,15 +131,39 @@ export function PortfolioCompositionCards({ items }: PortfolioCompositionCardsPr
                             return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
                         });
 
+                        const isDragging = draggedItemId === item.id;
+                        const isDragOver = dragOverItemId === item.id;
+
                         return (
-                            <Card key={item.id} className="border-2" style={{ borderColor: item.color }}>
+                            <Card 
+                                key={item.id} 
+                                className={`border-2 transition-all duration-200 relative ${
+                                    isDragging 
+                                        ? "opacity-40 scale-95 border-dashed" 
+                                        : isDragOver
+                                            ? "border-primary ring-2 ring-primary/20 scale-[1.02] z-10"
+                                            : "opacity-100"
+                                }`}
+                                style={{ borderColor: !isDragOver ? item.color : undefined }}
+                                onDragOver={(e) => handleDragOver(e, item.id)}
+                                onDragLeave={handleDragLeave}
+                                onDrop={(e) => handleDrop(e, item.id)}
+                            >
                                 <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <div 
+                                            className="cursor-grab active:cursor-grabbing p-1 -ml-2 text-muted-foreground hover:text-foreground transition-colors"
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, item.id)}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <GripVertical className="h-4 w-4" />
+                                        </div>
                                         <span
                                             className="w-3 h-3 rounded-full flex-shrink-0"
                                             style={{ backgroundColor: item.color }}
                                         />
-                                        <CardTitle className="text-base">{item.name}</CardTitle>
+                                        <CardTitle className="text-base truncate">{item.name}</CardTitle>
                                     </div>
                                     <Button
                                         variant="ghost"

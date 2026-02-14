@@ -1376,6 +1376,20 @@ export function AnalysisSection() {
         setSelectedForAdd([]);
     };
 
+    const handleReorder = (sourceId: string, targetId: string) => {
+        setSelectedItems(prev => {
+            const newItems = [...prev];
+            const sourceIdx = newItems.findIndex(i => i.id === sourceId && i.type === "portfolio");
+            const targetIdx = newItems.findIndex(i => i.id === targetId && i.type === "portfolio");
+
+            if (sourceIdx !== -1 && targetIdx !== -1) {
+                const [removed] = newItems.splice(sourceIdx, 1);
+                newItems.splice(targetIdx, 0, removed);
+            }
+            return newItems;
+        });
+    };
+
     if (isLoading) {
         return (
             <div className="flex h-48 items-center justify-center">
@@ -1999,6 +2013,7 @@ export function AnalysisSection() {
                                 };
                             })
                         }
+                        onReorder={handleReorder}
                     />
                 )}
 
