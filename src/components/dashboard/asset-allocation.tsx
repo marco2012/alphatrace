@@ -1,8 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info, Zap, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -76,42 +75,45 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
 
     return (
         <Card className="flex flex-col">
-            <CardHeader className="pb-3 border-b shrink-0 px-6">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
-                    <div>
+            <CardHeader className="pb-3 border-b shrink-0 px-4 sm:px-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
                         <CardTitle>Asset Allocation</CardTitle>
-                        <CardDescription className="flex flex-col gap-1">
-                            <span>{portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights using manual inputs"}</span>
+                        <CardDescription className="flex flex-col gap-1 truncate">
+                            <span className="truncate">{portfolioName ? `Editing: ${portfolioName}` : "Adjust portfolio weights manually"}</span>
                         </CardDescription>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center flex-wrap gap-2 w-full sm:w-auto justify-between sm:justify-end">
                         <div className={cn(
-                            "flex items-center gap-2 font-bold text-sm mr-2",
+                            "flex items-center gap-1.5 font-bold text-sm",
                             isValid ? "text-green-500" : "text-amber-500"
                         )}>
-                            {isValid ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                            {totalPercent}% Total
+                            {isValid ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                            <span className="whitespace-nowrap">{totalPercent}% Total</span>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={handleReset}
-                            disabled={totalWeight === 0}
-                            title="Reset to 0%"
-                            className="text-muted-foreground hover:text-destructive"
-                        >
-                            <RotateCcw className="w-4 h-4" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={normalize}
-                            disabled={totalWeight === 0 || isValid}
-                            title="Normalize to 100%"
-                        >
-                            <Scale className="w-4 h-4 mr-2" />
-                            Normalize
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleReset}
+                                disabled={totalWeight === 0}
+                                title="Reset to 0%"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            >
+                                <RotateCcw className="w-4 h-4" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={normalize}
+                                disabled={totalWeight === 0 || isValid}
+                                title="Normalize to 100%"
+                                className="h-8 px-2 text-xs"
+                            >
+                                <Scale className="w-3.5 h-3.5 mr-1.5" />
+                                Normalize
+                            </Button>
+                        </div>
                     </div>
                 </div>
             </CardHeader>
@@ -121,9 +123,9 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                         <TableHeader className="bg-card shadow-sm">
                             <TableRow>
                                 <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
-                                <TableHead className="w-[55%] sm:w-[35%]">Asset</TableHead>
+                                <TableHead className="w-[50%] sm:w-[35%] pl-4 sm:pl-2">Asset</TableHead>
                                 <TableHead className="text-right w-[15%] sm:w-[10%] px-1 sm:px-4">TER</TableHead>
-                                <TableHead className="text-right w-[30%] pr-2 sm:pr-6">Allocation</TableHead>
+                                <TableHead className="text-right w-[35%] sm:w-[30%] pr-4 sm:pr-6">Allocation</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -151,12 +153,12 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                 <Badge className={cn("font-medium text-[10px] h-5 uppercase rounded-md border-0 shrink-0", getCategoryBadgeClass(category))}>
                                                     {category}
                                                 </Badge>
-                                                <Badge 
-                                                    variant="outline" 
+                                                <Badge
+                                                    variant="outline"
                                                     className={cn(
                                                         "text-[9px] h-4 items-center gap-0.5 uppercase px-1.5 py-0 border-0 rounded-full font-bold tracking-tight shrink-0",
-                                                        sourceType === "live" 
-                                                            ? "text-indigo-600 bg-indigo-100/50 dark:bg-indigo-500/20 dark:text-indigo-300" 
+                                                        sourceType === "live"
+                                                            ? "text-indigo-600 bg-indigo-100/50 dark:bg-indigo-500/20 dark:text-indigo-300"
                                                             : "text-slate-500 bg-slate-100/50 dark:bg-slate-500/20 dark:text-slate-400"
                                                     )}
                                                 >
@@ -165,18 +167,18 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                 </Badge>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="font-medium py-2 text-foreground">
-                                            <div className="flex flex-col">
+                                        <TableCell className="font-medium py-2 pl-4 sm:pl-2 text-foreground max-w-0">
+                                            <div className="flex flex-col min-w-0">
                                                 <div className="flex items-center gap-2 sm:hidden mb-1">
-                                                    <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0", getCategoryBadgeClass(category))}>
+                                                    <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0 shrink-0", getCategoryBadgeClass(category))}>
                                                         {category}
                                                     </Badge>
-                                                    <Badge 
-                                                        variant="outline" 
+                                                    <Badge
+                                                        variant="outline"
                                                         className={cn(
-                                                            "text-[8px] items-center gap-0.5 leading-tight uppercase px-1.5 py-0 border-0 rounded-full font-bold",
-                                                            sourceType === "live" 
-                                                                ? "text-indigo-600 bg-indigo-100/50 dark:text-indigo-400" 
+                                                            "text-[8px] items-center gap-0.5 leading-tight uppercase px-1.5 py-0 border-0 rounded-full font-bold shrink-0",
+                                                            sourceType === "live"
+                                                                ? "text-indigo-600 bg-indigo-100/50 dark:text-indigo-400"
                                                                 : "text-slate-500 bg-slate-100/50"
                                                         )}
                                                     >
@@ -184,7 +186,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                         {sourceType === "live" ? "API" : "FILE"}
                                                     </Badge>
                                                 </div>
-                                                <div className="flex items-center gap-1.5 group">
+                                                <div className="flex items-center gap-1.5 group min-w-0">
                                                     <span className="truncate">{asset}</span>
                                                     {(() => {
                                                         const baseName = asset.replace(/ \((USD|EUR)\)$/, "");
@@ -195,7 +197,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                                 href={link}
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
-                                                                className="text-muted-foreground/40 hover:text-blue-500 transition-colors"
+                                                                className="text-muted-foreground/40 hover:text-blue-500 transition-colors shrink-0"
                                                                 title="View ETF details"
                                                             >
                                                                 <Info className="w-3.5 h-3.5" />
@@ -209,29 +211,29 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                     const start = firstValidDates[asset];
                                                     const end = lastValidDates[asset];
                                                     return start && end ? (
-                                                        <span className="text-[10px] text-muted-foreground font-normal">
+                                                        <span className="text-[10px] text-muted-foreground font-normal truncate">
                                                             {formatDate(start)} - {formatDate(end)}
                                                         </span>
                                                     ) : null;
                                                 })()}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="text-right py-2 px-1 sm:px-4 text-muted-foreground font-mono text-xs">
+                                        <TableCell className="text-right py-2 px-1 sm:px-4 text-muted-foreground font-mono text-[10px] sm:text-xs">
                                             {(getAssetTER(asset) * 100).toFixed(2)}%
                                         </TableCell>
-                                        <TableCell className="text-right py-2 pr-2 sm:pr-6">
-                                            <div className="flex items-center justify-end gap-2">
+                                        <TableCell className="text-right py-2 pr-4 sm:pr-6">
+                                            <div className="flex items-center justify-end gap-1 sm:gap-2">
                                                 <Input
                                                     type="number"
                                                     value={percent}
                                                     onChange={(e) => handleInputChange(asset, e.target.value)}
                                                     onFocus={(e) => e.target.select()}
-                                                    className="h-8 w-16 text-right font-medium"
+                                                    className="h-8 w-12 sm:w-16 text-right font-medium px-1 sm:px-3 text-xs sm:text-sm"
                                                     min={0}
                                                     max={100}
                                                     step={5}
                                                 />
-                                                <span className="text-muted-foreground w-4 text-left">%</span>
+                                                <span className="text-muted-foreground w-3 sm:w-4 text-left text-xs sm:text-sm">%</span>
                                             </div>
                                         </TableCell>
                                     </TableRow>

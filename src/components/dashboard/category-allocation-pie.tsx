@@ -76,21 +76,22 @@ export function CategoryAllocationPie({ weights }: { weights: Record<string, num
     }, [weights]);
 
     return (
-        <Card className="flex flex-col h-full">
-            <CardHeader>
+        <Card className="flex flex-col h-full min-w-0">
+            <CardHeader className="px-4 sm:px-6">
                 <CardTitle>Category Breakdown</CardTitle>
                 <CardDescription>Percent of portfolio by asset class.</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 flex items-center justify-center">
+            <CardContent className="flex-1 flex items-center justify-center p-2 sm:p-6">
                 {data.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No allocation yet.</div>
+                    <div className="text-sm text-muted-foreground py-10">No allocation yet.</div>
                 ) : (
                     <ChartContainer
                         config={chartConfig}
-                        className="mx-auto aspect-square max-h-[340px] [&_.recharts-text]:fill-background"
+                        className="mx-auto aspect-square w-full max-w-[300px] sm:max-w-none max-h-[280px] sm:max-h-[340px] [&_.recharts-text]:fill-background"
                     >
                         <PieChart>
                             <ChartTooltip
+                                cursor={false}
                                 content={(
                                     <ChartTooltipContent
                                         hideLabel
@@ -99,19 +100,31 @@ export function CategoryAllocationPie({ weights }: { weights: Record<string, num
                                     />
                                 )}
                             />
-                            <Pie data={data} dataKey="value" nameKey="category" stroke="none">
+                            <Pie 
+                                data={data} 
+                                dataKey="value" 
+                                nameKey="category" 
+                                stroke="none"
+                                innerRadius="0%"
+                                outerRadius="100%"
+                                paddingAngle={0}
+                            >
                                 <LabelList
                                     dataKey="value"
-                                    className="fill-background"
+                                    className="fill-background font-medium"
                                     stroke="none"
-                                    fontSize={12}
+                                    fontSize={10}
+                                    position="inside"
                                     formatter={(value: any, entry?: any) => {
-                                        // entry.payload contains the full data object
-                                        if (!entry || !entry.payload) return `${Math.round(Number(value))}%`;
+                                        if (!entry || !entry.payload) return "";
+                                        const val = Number(value);
+                                        if (val < 8) return ""; // Hide labels for very small slices
 
                                         const category = entry.payload.category;
                                         const label = (chartConfig as any)[category]?.label ?? titleCase(category);
-                                        return `${label} (${Math.round(Number(value))}%)`;
+                                        // On small slices, maybe only show percentage
+                                        if (val < 15) return `${Math.round(val)}%`;
+                                        return `${label} (${Math.round(val)}%)`;
                                     }}
                                 />
                             </Pie>
