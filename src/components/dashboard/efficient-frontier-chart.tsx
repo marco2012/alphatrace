@@ -21,7 +21,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info } from "lucide-react";
+import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -301,6 +301,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
     const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
 
+    const [isInteractiveExpanded, setIsInteractiveExpanded] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
@@ -802,61 +803,71 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             <CardContent className="pt-2">
                 {points.length > 0 && activeAssets.length > 0 && (
                     <div className="mb-6">
-                        <div className="mb-3 flex items-center justify-between px-2">
+                        <div 
+                            className="mb-3 flex items-center justify-between px-2 cursor-pointer hover:bg-muted/50 rounded-md py-1 transition-colors"
+                            onClick={() => setIsInteractiveExpanded(!isInteractiveExpanded)}
+                        >
                             <div className="flex items-center gap-2">
                                 <div className="h-2 w-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
                                 <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Interactive Portfolio Locator</div>
+                                {isInteractiveExpanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
                             </div>
-                            <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={normalizeWeights} className="h-7 text-[10px] px-2 font-medium">
-                                    Normalize Weights
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={resetWeights} className="h-7 text-[10px] px-2 text-muted-foreground hover:text-foreground">
-                                    <RotateCcw className="h-3 w-3 mr-1" />
-                                    Reset
-                                </Button>
-                            </div>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 px-2">
-                            {activeAssets.map(asset => {
-                                const value = (interactiveWeights[asset] || 0) * 100;
-                                return (
-                                    <div key={asset} className="rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/30">
-                                        <div className="mb-2 flex items-center justify-between">
-                                            <div className="text-[11px] font-medium truncate text-muted-foreground pr-2" title={asset}>{asset}</div>
-                                            <div className="text-xs font-bold text-primary tabular-nums">{Math.round(value)}%</div>
-                                        </div>
-                                        <Slider
-                                            value={[value]}
-                                            onValueChange={(vals) => handleWeightChange(asset, vals[0])}
-                                            max={100}
-                                            step={1}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        {interactivePoint && (
-                            <div className="mt-4 mx-2 rounded-lg bg-orange-50/50 dark:bg-orange-950/10 border border-orange-100 dark:border-orange-900/30 p-3 text-sm">
-                                <div className="flex flex-wrap items-center justify-between gap-4">
-                                    <div className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest">Interactive Result</div>
-                                    <div className="flex gap-6">
-                                        <div className="flex flex-col">
-                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Exp. Return</span>
-                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.ret.toFixed(2)}%</span>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Annual Risk</span>
-                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.vol.toFixed(2)}%</span>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Sharpe Ratio</span>
-                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.sharpe.toFixed(2)}</span>
-                                        </div>
-                                    </div>
+                            {isInteractiveExpanded && (
+                                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <Button variant="outline" size="sm" onClick={normalizeWeights} className="h-7 text-[10px] px-2 font-medium">
+                                        Normalize Weights
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={resetWeights} className="h-7 text-[10px] px-2 text-muted-foreground hover:text-foreground">
+                                        <RotateCcw className="h-3 w-3 mr-1" />
+                                        Reset
+                                    </Button>
                                 </div>
-                            </div>
+                            )}
+                        </div>
+                        {isInteractiveExpanded && (
+                            <>
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 px-2">
+                                    {activeAssets.map(asset => {
+                                        const value = (interactiveWeights[asset] || 0) * 100;
+                                        return (
+                                            <div key={asset} className="rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/30">
+                                                <div className="mb-2 flex items-center justify-between">
+                                                    <div className="text-[11px] font-medium truncate text-muted-foreground pr-2" title={asset}>{asset}</div>
+                                                    <div className="text-xs font-bold text-primary tabular-nums">{Math.round(value)}%</div>
+                                                </div>
+                                                <Slider
+                                                    value={[value]}
+                                                    onValueChange={(vals) => handleWeightChange(asset, vals[0])}
+                                                    max={100}
+                                                    step={1}
+                                                    className="w-full"
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                {interactivePoint && (
+                                    <div className="mt-4 mx-2 rounded-lg bg-orange-50/50 dark:bg-orange-950/10 border border-orange-100 dark:border-orange-900/30 p-3 text-sm">
+                                        <div className="flex flex-wrap items-center justify-between gap-4">
+                                            <div className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest">Interactive Result</div>
+                                            <div className="flex gap-6">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Exp. Return</span>
+                                                    <span className="text-sm font-bold tabular-nums">{interactivePoint.ret.toFixed(2)}%</span>
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Annual Risk</span>
+                                                    <span className="text-sm font-bold tabular-nums">{interactivePoint.vol.toFixed(2)}%</span>
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Sharpe Ratio</span>
+                                                    <span className="text-sm font-bold tabular-nums">{interactivePoint.sharpe.toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 )}
@@ -1095,16 +1106,17 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     </div>
                                     <div className="space-y-1.5 pt-3 border-t border-border/40">
                                         <span className="text-[9px] text-muted-foreground font-bold uppercase block tracking-tighter">Allocation Strategy</span>
-                                        {Object.entries(sim.composition)
-                                            .sort(([, a], [, b]) => b - a)
-                                            .slice(0, 3)
-                                            .filter(([, w]) => w > 0.01)
-                                            .map(([asset, weight]) => (
-                                                <div key={asset} className="flex justify-between text-[10px] items-center">
-                                                    <span className="truncate pr-2 text-muted-foreground font-medium">{asset}</span>
-                                                    <span className="font-mono bg-background px-1 rounded border border-border/50">{(weight * 100).toFixed(0)}%</span>
-                                                </div>
-                                            ))}
+                                        <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1 custom-scrollbar">
+                                            {Object.entries(sim.composition)
+                                                .sort(([, a], [, b]) => b - a)
+                                                .filter(([, w]) => w > 0.0001)
+                                                .map(([asset, weight]) => (
+                                                    <div key={asset} className="flex justify-between text-[10px] items-center">
+                                                        <span className="truncate pr-2 text-muted-foreground font-medium" title={asset}>{asset}</span>
+                                                        <span className="font-mono bg-background px-1 rounded border border-border/50">{(weight * 100).toFixed(0)}%</span>
+                                                    </div>
+                                                ))}
+                                        </div>
                                     </div>
                                 </div>
                             ))}
