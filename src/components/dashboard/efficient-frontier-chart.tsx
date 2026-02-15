@@ -10,6 +10,7 @@ import {
     Tooltip,
     XAxis,
     YAxis,
+    ZAxis,
 } from "recharts";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,26 +21,36 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Download, RotateCcw, Save, Settings, X } from "lucide-react";
+import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type FrontierPoint = {
     vol: number;
     ret: number;
+    x: number;
+    y: number;
     sharpe: number;
     weights: Record<string, number>;
     composition: Record<string, number>;
     label: string;
 };
 
-function getRollingStats(weights: number[], assetRets: number[][], years: number = 10, rf: number = 0.02) {
+function getStrategyStats(
+    weights: number[],
+    assetRets: number[][],
+    years: number = 10,
+    rf: number = 0.02,
+    mode: "lump_sum" | "recurring" | "hybrid" = "lump_sum",
+    initialInvestment: number = 100000,
+    monthlyInvestment: number = 1000,
+    rolling: boolean = true
+) {
     if (!assetRets || assetRets.length === 0 || !assetRets[0]) return null;
     const nPeriods = assetRets[0].length;
     const nAssets = weights.length;
     const window = years * 12;
-
-    if (nPeriods < window) return null;
 
     const portRets = new Float64Array(nPeriods);
     for (let t = 0; t < nPeriods; t++) {
@@ -50,49 +61,70 @@ function getRollingStats(weights: number[], assetRets: number[][], years: number
         portRets[t] = r;
     }
 
-    const prices = new Float64Array(nPeriods + 1);
-    prices[0] = 1;
-    for (let t = 0; t < nPeriods; t++) {
-        prices[t + 1] = prices[t] * (1 + portRets[t]);
-    }
+    const calculateCagr = (retsSlice: Float64Array | number[]) => {
+        if (mode === "lump_sum") {
+            let growth = 1;
+            for (let t = 0; t < retsSlice.length; t++) growth *= (1 + retsSlice[t]);
+            const yrs = retsSlice.length / 12;
+            if (yrs <= 0) return 0;
+            return Math.pow(growth, 1 / yrs) - 1;
+        } else {
+            const init = mode === "recurring" ? 0 : initialInvestment;
+            const monthly = monthlyInvestment;
+            let totalValue = init;
+            for (let t = 0; t < retsSlice.length; t++) {
+                totalValue = totalValue * (1 + retsSlice[t]) + monthly;
+            }
+            const totalInvested = init + monthly * retsSlice.length;
+            const yrs = retsSlice.length / 12;
+            if (yrs <= 0 || totalInvested <= 0) return 0;
+            return Math.pow(totalValue / totalInvested, 1 / yrs) - 1;
+        }
+    };
 
-    let sumCagr = 0;
-    let count = 0;
-
-    for (let i = 0; i <= nPeriods - window; i++) {
-        const valStart = prices[i];
-        const valEnd = prices[i + window];
-        // handle div by zero just in case, though prices[0]=1 and prices are usually > 0
-        if (valStart <= 0) continue;
-        const cagr = Math.pow(valEnd / valStart, 1 / years) - 1;
-        sumCagr += cagr;
-        count++;
-    }
-    const avgCagr = count > 0 ? sumCagr / count : 0;
-
-    let sumVol = 0;
+    let avgCagr = 0;
+    let avgVol = 0;
     const sqrt12 = Math.sqrt(12);
 
-    for (let i = 0; i <= nPeriods - window; i++) {
-        let m = 0;
-        for (let j = 0; j < window; j++) {
-            m += portRets[i + j];
-        }
-        m /= window;
+    if (rolling) {
+        if (nPeriods < window) return null;
+        let sumCagr = 0;
+        let sumVol = 0;
+        let count = 0;
 
+        for (let i = 0; i <= nPeriods - window; i++) {
+            const retsSlice = portRets.subarray(i, i + window);
+            sumCagr += calculateCagr(retsSlice);
+
+            let m = 0;
+            for (let j = 0; j < window; j++) m += retsSlice[j];
+            m /= window;
+            let s = 0;
+            for (let j = 0; j < window; j++) {
+                const d = retsSlice[j] - m;
+                s += d * d;
+            }
+            s /= (window - 1);
+            sumVol += Math.sqrt(s) * sqrt12;
+            count++;
+        }
+        avgCagr = count > 0 ? sumCagr / count : 0;
+        avgVol = count > 0 ? sumVol / count : 0;
+    } else {
+        avgCagr = calculateCagr(portRets);
+        let m = 0;
+        for (let j = 0; j < nPeriods; j++) m += portRets[j];
+        m /= nPeriods;
         let s = 0;
-        for (let j = 0; j < window; j++) {
-            const d = portRets[i + j] - m;
+        for (let j = 0; j < nPeriods; j++) {
+            const d = portRets[j] - m;
             s += d * d;
         }
-        s /= (window - 1);
-        const vol = Math.sqrt(s) * sqrt12;
-        sumVol += vol;
+        s /= (nPeriods - 1);
+        avgVol = Math.sqrt(Math.max(s, 0)) * sqrt12;
     }
-    const avgVol = count > 0 ? sumVol / count : 0;
 
     const sharpe = avgVol > 0 ? (avgCagr - rf) / avgVol : 0;
-
     return { annualReturn: avgCagr, annualVol: avgVol, sharpe };
 }
 
@@ -143,7 +175,6 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
     const p = payload[0]?.payload as FrontierPoint;
     if (!p) return null;
 
-    // Determine correct label if matching a special point
     let displayLabel = p.label;
     const matchHighlight = highlights.find((h: FrontierPoint) => isSamePoint(h, p));
     if (matchHighlight) displayLabel = matchHighlight.label;
@@ -161,14 +192,12 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
 
     const groupedAssets: Record<string, { name: string; weight: number }[]> = {};
     Object.entries(p.composition || {}).forEach(([asset, weight]) => {
-        if (weight < 0.001) return; // Hide negligible weights
+        if (weight < 0.001) return; 
         const cat = getAssetCategory(asset);
         if (!groupedAssets[cat]) groupedAssets[cat] = [];
         groupedAssets[cat].push({ name: asset, weight });
     });
 
-    // Sort categories (custom order if desired, or alphabetical)
-    // Preferred order: Stocks, Bonds, Gold, Alts, Cash
     const catOrder = ["stocks", "bonds", "gold", "alternatives", "cash"];
     const categories = Object.keys(groupedAssets).sort((a, b) => {
         const ia = catOrder.indexOf(a);
@@ -254,22 +283,24 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
         </div>
     );
 });
+CustomTooltip.displayName = "CustomTooltip";
 
 export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf = 0.02 }: EfficientFrontierChartProps) {
     const [points, setPoints] = useState<FrontierPoint[]>([]);
     const [frontier, setFrontier] = useState<FrontierPoint[]>([]);
     const [highlights, setHighlights] = useState<FrontierPoint[]>([]);
     const [currentPoint, setCurrentPoint] = useState<FrontierPoint | null>(null);
+    const [topSimulations, setTopSimulations] = useState<FrontierPoint[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [focusedSeries, setFocusedSeries] = useState<string | null>(null);
     const [useRollingStats, setUseRollingStats] = useState(true);
+    const [simCount, setSimCount] = useState(2000);
     const [constraints, setConstraints] = useState<Record<string, number>>({});
 
-    const { saveCustomPortfolio } = usePortfolio();
+    const { saveCustomPortfolio, investmentMode, initialInvestment, monthlyInvestment } = usePortfolio();
 
     const [interactiveWeights, setInteractiveWeights] = useState<Record<string, number>>({});
 
-    // Track mobile view for responsive legend
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
@@ -282,29 +313,20 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // Controlled tooltip state
     const [tooltipState, setTooltipState] = useState<{ active: boolean; payload: any[]; coordinate: { x: number; y: number } | undefined }>({
         active: false,
         payload: [],
         coordinate: undefined,
     });
 
-    const handlePointClick = useCallback((data: any, index: number, e: React.MouseEvent) => {
-        // Recharts might pass different args depending on version/component, but usually props+event
-        // However, for Scatter, data is the payload.
-        // We need to construct the state.
-        // We can get coordinate from the event or the data if it has cx/cy.
+    const handlePointClick = useCallback((data: any, _index: number, e: React.MouseEvent) => {
+        const { cx, cy, x, y } = data;
 
-        // Actually, Recharts onClick on Scatter passes: (props, event)
-        // props contains 'payload' (our data item), 'cx', 'cy' (coordinates)
-        const { payload, cx, cy, x, y } = data;
-
-        // Prevent bubbling if needed, though Recharts handles it.
         if (e && e.stopPropagation) e.stopPropagation();
 
         setTooltipState({
             active: true,
-            payload: [data], // Tooltip expects an array of entries usually, but we check payload[0].payload in custom tooltip
+            payload: [data], 
             coordinate: { x: cx ?? x, y: cy ?? y },
         });
     }, []);
@@ -362,9 +384,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setFrontier([]);
         setHighlights([]);
         setCurrentPoint(null);
+        setTopSimulations([]);
         setInteractiveWeights({});
         setFocusedSeries(null);
-        // We don't reset constraints here to persist them across date changes
     }, [norm, weights, startDate, endDate, rf, useRollingStats]);
 
     useEffect(() => {
@@ -384,7 +406,6 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         setIsLoading(true);
         setFocusedSeries(null);
 
-        // Defer to allow UI update
         setTimeout(() => {
             try {
                 const buildWeightsMap = (wVec: number[]) => {
@@ -396,24 +417,28 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const statsToPoint = (label: string, wVec: number[]) => {
                     let vol, ret, sharpe;
 
-                    if (useRollingStats) {
-                        const stats = getRollingStats(wVec, assetRets, 10, rf);
-                        if (!stats) {
-                            // Fallback
-                            const st = portfolioStats(wVec, means, cov);
-                            vol = st.annualVol;
-                            ret = st.annualReturn;
-                            sharpe = vol > 0 ? (ret - rf) / vol : 0;
-                        } else {
-                            vol = stats.annualVol;
-                            ret = stats.annualReturn;
-                            sharpe = stats.sharpe;
-                        }
-                    } else {
+                    const stats = getStrategyStats(
+                        wVec,
+                        assetRets,
+                        10,
+                        rf,
+                        investmentMode,
+                        initialInvestment,
+                        monthlyInvestment,
+                        useRollingStats
+                    );
+
+                    if (!stats) {
+                        // This branch usually shouldn't be hit if useRollingStats is true but nPeriods < window
+                        // or if useRollingStats is false (but we updated getStrategyStats to handle rolling=false)
                         const st = portfolioStats(wVec, means, cov);
                         vol = st.annualVol;
                         ret = st.annualReturn;
                         sharpe = vol > 0 ? (ret - rf) / vol : 0;
+                    } else {
+                        vol = stats.annualVol;
+                        ret = stats.annualReturn;
+                        sharpe = stats.sharpe;
                     }
 
                     const wMap = buildWeightsMap(wVec);
@@ -421,6 +446,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         label,
                         vol: vol * 100,
                         ret: ret * 100,
+                        x: vol * 100,
+                        y: ret * 100,
+                        z: 20,
                         sharpe,
                         weights: wMap,
                         composition: wMap,
@@ -430,28 +458,25 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const wRaw = activeAssets.map((a) => weights[a] ?? 0);
                 const wSum = wRaw.reduce((a, b) => a + b, 0) || 1;
                 const wCur = wRaw.map((w) => w / wSum);
-                const curPoint = statsToPoint("Original Portfolio", wCur);
+                const curPoint = { ...statsToPoint("Original Portfolio", wCur), z: 100 };
                 setCurrentPoint(curPoint);
 
-                const SIMS = 2000;
                 const sims: FrontierPoint[] = [];
                 const maxConstraints = activeAssets.map(a => (constraints[a] ?? 100) / 100);
 
-                for (let i = 0; i < SIMS; i++) {
+                for (let i = 0; i < simCount; i++) {
                     let w: number[] = [];
                     let valid = false;
                     let attempts = 0;
 
-                    // Rejection sampling for constraints
                     while (!valid && attempts < 100) {
                         const rands = new Array(activeAssets.length).fill(0).map(() => Math.random());
                         const s = rands.reduce((a, b) => a + b, 0) || 1;
                         w = rands.map((x) => x / s);
 
-                        // Check constraints
                         valid = true;
                         for (let j = 0; j < w.length; j++) {
-                            if (w[j] > maxConstraints[j] + 0.0001) { // tolerance
+                            if (w[j] > maxConstraints[j] + 0.0001) { 
                                 valid = false;
                                 break;
                             }
@@ -465,36 +490,39 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 }
 
                 if (sims.length === 0) {
-                    // Fallback if constraints are too tight
                     console.warn("No valid portfolios found with current constraints.");
                 }
 
-                const sorted = [...sims].sort((a, b) => a.vol - b.vol);
+                const sorted = [...sims].sort((a, b) => a.x - b.x);
                 const fr: FrontierPoint[] = [];
                 let best = -Infinity;
                 for (const p of sorted) {
-                    if (p.ret > best) {
-                        fr.push({ ...p, label: "Efficient Frontier" });
-                        best = p.ret;
+                    if (p.y > best) {
+                        fr.push({ ...p, label: "Efficient Frontier", z: 30 });
+                        best = p.y;
                     }
                 }
 
-                const bestCagr = sims.reduce((best, p) => (p.ret > best.ret ? p : best), sims[0]);
+                const bestCagr = sims.reduce((best, p) => (p.y > best.y ? p : best), sims[0]);
                 const bestSharpe = sims.reduce((best, p) => (p.sharpe > best.sharpe ? p : best), sims[0]);
-                const minRisk = sims.reduce((best, p) => (p.vol < best.vol ? p : best), sims[0]);
+                const minRisk = sims.reduce((best, p) => (p.x < best.x ? p : best), sims[0]);
 
-                // Limit points for rendering performance, but keep enough density
-                const displaySims = sims.length > 500
-                    ? sims.sort(() => 0.5 - Math.random()).slice(0, 500)
+                const betterSims = sims.filter(p => p.y > curPoint.y && p.x < curPoint.x)
+                    .sort((a, b) => b.y - a.y)
+                    .slice(0, 3);
+                setTopSimulations(betterSims);
+
+                const displaySims = sims.length > 1000
+                    ? sims.sort(() => 0.5 - Math.random()).slice(0, 1000)
                     : sims;
 
                 setPoints(displaySims);
                 setFrontier(fr);
 
                 const newHighlights = [];
-                if (bestCagr) newHighlights.push({ ...bestCagr, label: "Highest CAGR" });
-                if (bestSharpe) newHighlights.push({ ...bestSharpe, label: "Highest Sharpe" });
-                if (minRisk) newHighlights.push({ ...minRisk, label: "Lowest Risk" });
+                if (bestCagr) newHighlights.push({ ...bestCagr, label: "Highest CAGR", z: 80 });
+                if (bestSharpe) newHighlights.push({ ...bestSharpe, label: "Highest Sharpe", z: 80 });
+                if (minRisk) newHighlights.push({ ...minRisk, label: "Lowest Risk", z: 80 });
 
                 setHighlights(newHighlights);
             } finally {
@@ -514,23 +542,26 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         const normalized = wVec.map(w => w / sum);
         let vol, ret, sharpe;
 
-        if (useRollingStats) {
-            const stats = getRollingStats(normalized, assetRets, 10, rf);
-            if (!stats) {
-                const st = portfolioStats(normalized, means, cov);
-                vol = st.annualVol;
-                ret = st.annualReturn;
-                sharpe = vol > 0 ? (ret - rf) / vol : 0;
-            } else {
-                vol = stats.annualVol;
-                ret = stats.annualReturn;
-                sharpe = stats.sharpe;
-            }
-        } else {
+        const stats = getStrategyStats(
+            normalized,
+            assetRets,
+            10,
+            rf,
+            investmentMode,
+            initialInvestment,
+            monthlyInvestment,
+            useRollingStats
+        );
+
+        if (!stats) {
             const st = portfolioStats(normalized, means, cov);
             vol = st.annualVol;
             ret = st.annualReturn;
             sharpe = vol > 0 ? (ret - rf) / vol : 0;
+        } else {
+            vol = stats.annualVol;
+            ret = stats.annualReturn;
+            sharpe = stats.sharpe;
         }
 
         const weightsObj = activeAssets.reduce((acc, asset, i) => {
@@ -542,11 +573,14 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             label: "Interactive",
             vol: vol * 100,
             ret: ret * 100,
+            x: vol * 100,
+            y: ret * 100,
+            z: 90,
             sharpe,
             weights: weightsObj,
             composition: weightsObj,
         };
-    }, [means, cov, activeAssets, rf, useRollingStats, assetRets]);
+    }, [means, cov, activeAssets, rf, useRollingStats, assetRets, investmentMode, initialInvestment, monthlyInvestment]);
 
     const interactivePoint = useMemo(() =>
         calculateInteractivePoint(interactiveWeights),
@@ -574,7 +608,6 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             const sum = entries.reduce((a, b) => a + b[1], 0);
             if (sum === 0) return prev;
 
-            // Largest Remainder Method to ensure integer percentages summing to 100
             const raw = entries.map(([asset, w]) => ({
                 asset,
                 val: (w / sum) * 100
@@ -585,7 +618,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 val: Math.floor(item.val)
             }));
 
-            let currentSum = rounded.reduce((a, b) => a + b.val, 0);
+            const currentSum = rounded.reduce((a, b) => a + b.val, 0);
             const diff = 100 - currentSum;
 
             if (diff > 0) {
@@ -614,17 +647,16 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         if (currentPoint) allPoints.push(currentPoint);
         if (interactivePoint) allPoints.push(interactivePoint);
 
-        const vols = allPoints.map(p => p.vol);
-        const rets = allPoints.map(p => p.ret);
+        const vols = allPoints.map(p => p.x);
+        const rets = allPoints.map(p => p.y);
 
         const minVol = Math.min(...vols);
         const maxVol = Math.max(...vols);
         const minRet = Math.min(...rets);
         const maxRet = Math.max(...rets);
 
-        // Add some padding
-        const xPad = (maxVol - minVol) * 0.1;
-        const yPad = (maxRet - minRet) * 0.1;
+        const xPad = (maxVol - minVol) * 0.1 || 1;
+        const yPad = (maxRet - minRet) * 0.1 || 1;
 
         return {
             xDomain: [Math.max(0, minVol - xPad), maxVol + xPad] as [number, number],
@@ -640,7 +672,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const downloadCSV = () => {
         const csv = [
             ["Label", "Volatility (%)", "CAGR/Return (%)", "Sharpe"],
-            ...points.map((p) => [p.label, p.vol.toFixed(4), p.ret.toFixed(4), p.sharpe.toFixed(6)]),
+            ...points.map((p) => [p.label, p.x.toFixed(4), p.y.toFixed(4), p.sharpe.toFixed(6)]),
         ]
             .map((row) => row.join(","))
             .join("\n");
@@ -657,104 +689,142 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     };
 
     return (
-        <Card className="col-span-4">
+        <Card className="col-span-4 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
-                    <CardTitle>Efficient Frontier</CardTitle>
+                    <CardTitle className="text-xl font-bold">Efficient Frontier</CardTitle>
                     <CardDescription>
-                        Risk/return trade-off from simulated portfolios ({assetCount} assets).
+                        Explore the risk/return spectrum through random simulation ({assetCount} assets).
                     </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                     <Popover>
                         <PopoverTrigger asChild>
-                            <Button variant="outline" size="sm">
-                                <Settings className="h-4 w-4 mr-2" />
-                                Constraints
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                                <Settings className="h-3.5 w-3.5" />
+                                Simulation
                             </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80">
-                            <div className="grid gap-4">
-                                <div className="space-y-2">
-                                    <h4 className="font-medium leading-none">Simulation Constraints</h4>
-                                    <p className="text-sm text-muted-foreground">
-                                        Set maximum weight % for each asset in the simulation.
+                        <PopoverContent className="w-80 p-4" align="end">
+                            <div className="grid gap-5">
+                                <div className="space-y-1">
+                                    <h4 className="font-semibold leading-none">Simulation Parameters</h4>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Customize the Monte Carlo engine and asset limits.
                                     </p>
                                 </div>
-                                <div className="grid gap-2 max-h-[300px] overflow-y-auto pr-2">
-                                    {activeAssets.map((asset) => (
-                                        <div key={asset} className="grid grid-cols-3 items-center gap-4">
-                                            <Label htmlFor={`constraint-${asset}`} className="col-span-2 text-xs truncate" title={asset}>
-                                                {asset}
-                                            </Label>
-                                            <Input
-                                                id={`constraint-${asset}`}
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                className="h-8"
-                                                value={constraints[asset] ?? 100}
-                                                onChange={(e) => {
-                                                    const val = parseFloat(e.target.value);
-                                                    setConstraints(prev => ({
-                                                        ...prev,
-                                                        [asset]: isNaN(val) ? 100 : Math.max(0, Math.min(100, val))
-                                                    }));
-                                                }}
-                                            />
-                                        </div>
-                                    ))}
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <Label htmlFor="sim-count" className="text-xs font-medium">Sample Size</Label>
+                                        <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{simCount} sims</span>
+                                    </div>
+                                    <Slider
+                                        id="sim-count"
+                                        min={500}
+                                        max={10000}
+                                        step={500}
+                                        value={[simCount]}
+                                        onValueChange={(vals) => setSimCount(vals[0])}
+                                        className="py-1"
+                                    />
                                 </div>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="w-full"
-                                    onClick={() => setConstraints({})}
-                                >
-                                    Reset All
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    className="w-full"
-                                    onClick={compute}
-                                >
-                                    Recompute
-                                </Button>
+                                <div className="space-y-3 border-t pt-3">
+                                    <div className="flex items-center gap-1.5">
+                                        <Label className="text-xs font-semibold">Asset Constraints (%)</Label>
+                                        <TooltipProvider>
+                                            <UITooltip>
+                                                <TooltipTrigger>
+                                                    <Info className="h-3 w-3 text-muted-foreground" />
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-[200px] text-[10px]">
+                                                    Maximum weight allowed for each asset in simulations.
+                                                </TooltipContent>
+                                            </UITooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                    <div className="grid gap-2.5 max-h-[180px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {activeAssets.map((asset) => (
+                                            <div key={asset} className="flex items-center gap-3">
+                                                <Label htmlFor={`constraint-${asset}`} className="text-[10px] flex-1 truncate text-muted-foreground" title={asset}>
+                                                    {asset}
+                                                </Label>
+                                                <div className="flex items-center gap-1 w-16 shrink-0">
+                                                    <Input
+                                                        id={`constraint-${asset}`}
+                                                        type="number"
+                                                        min="0"
+                                                        max="100"
+                                                        className="h-7 text-[10px] px-1.5"
+                                                        value={constraints[asset] ?? 100}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value);
+                                                            setConstraints(prev => ({
+                                                                ...prev,
+                                                                [asset]: isNaN(val) ? 100 : Math.max(0, Math.min(100, val))
+                                                            }));
+                                                        }}
+                                                    />
+                                                    <span className="text-[9px] text-muted-foreground">%</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 border-t pt-3">
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="flex-1 text-[11px] h-8"
+                                        onClick={() => setConstraints({})}
+                                    >
+                                        Reset Limits
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="flex-1 text-[11px] h-8 shadow-sm"
+                                        onClick={compute}
+                                    >
+                                        Run Simulation
+                                    </Button>
+                                </div>
                             </div>
                         </PopoverContent>
                     </Popover>
-                    <div className="flex items-center space-x-2 mr-2">
-                        <Switch id="rolling-stats" checked={useRollingStats} onCheckedChange={setUseRollingStats} />
-                        <Label htmlFor="rolling-stats" className="text-xs whitespace-nowrap">Use 10y Rolling</Label>
+                    <div className="flex items-center space-x-2 mr-2 bg-muted/50 px-2 py-1 rounded-md border border-border/50">
+                        <Switch id="rolling-stats" checked={useRollingStats} onCheckedChange={setUseRollingStats} className="scale-75 origin-right" />
+                        <Label htmlFor="rolling-stats" className="text-[10px] font-medium whitespace-nowrap cursor-pointer">10y Rolling</Label>
                     </div>
-                    <Button variant="outline" size="sm" onClick={downloadCSV} disabled={points.length === 0}>
-                        <Download className="h-4 w-4" />
+                    <Button variant="outline" size="sm" onClick={downloadCSV} disabled={points.length === 0} className="h-8 w-8 p-0">
+                        <Download className="h-3.5 w-3.5" />
                     </Button>
                 </div>
             </CardHeader>
-            <CardContent className="pl-2">
+            <CardContent className="pt-2">
                 {points.length > 0 && activeAssets.length > 0 && (
-                    <div className="mb-4 pr-2">
-                        <div className="mb-3 flex items-center justify-between">
-                            <div className="text-sm font-medium">Interactive Portfolio Locator</div>
+                    <div className="mb-6">
+                        <div className="mb-3 flex items-center justify-between px-2">
+                            <div className="flex items-center gap-2">
+                                <div className="h-2 w-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]" />
+                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Interactive Portfolio Locator</div>
+                            </div>
                             <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={normalizeWeights}>
-                                    Normalize to 100%
+                                <Button variant="outline" size="sm" onClick={normalizeWeights} className="h-7 text-[10px] px-2 font-medium">
+                                    Normalize Weights
                                 </Button>
-                                <Button variant="outline" size="sm" onClick={resetWeights}>
-                                    <RotateCcw className="h-4 w-4 mr-1" />
+                                <Button variant="ghost" size="sm" onClick={resetWeights} className="h-7 text-[10px] px-2 text-muted-foreground hover:text-foreground">
+                                    <RotateCcw className="h-3 w-3 mr-1" />
                                     Reset
                                 </Button>
                             </div>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 px-2">
                             {activeAssets.map(asset => {
                                 const value = (interactiveWeights[asset] || 0) * 100;
                                 return (
-                                    <div key={asset} className="rounded-md border p-3">
+                                    <div key={asset} className="rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/30">
                                         <div className="mb-2 flex items-center justify-between">
-                                            <div className="text-sm font-medium truncate">{asset}</div>
-                                            <div className="text-sm font-bold text-primary ml-2">{Math.round(value)}%</div>
+                                            <div className="text-[11px] font-medium truncate text-muted-foreground pr-2" title={asset}>{asset}</div>
+                                            <div className="text-xs font-bold text-primary tabular-nums">{Math.round(value)}%</div>
                                         </div>
                                         <Slider
                                             value={[value]}
@@ -768,47 +838,69 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                             })}
                         </div>
                         {interactivePoint && (
-                            <div className="mt-3 rounded-md bg-muted p-3 text-sm">
-                                <div className="font-medium mb-1">Current Interactive Portfolio:</div>
-                                <div className="grid grid-cols-3 gap-2 text-muted-foreground">
-                                    <div>Return: <span className="font-medium text-foreground">{interactivePoint.ret.toFixed(2)}%</span></div>
-                                    <div>Risk: <span className="font-medium text-foreground">{interactivePoint.vol.toFixed(2)}%</span></div>
-                                    <div>Sharpe: <span className="font-medium text-foreground">{interactivePoint.sharpe.toFixed(2)}</span></div>
+                            <div className="mt-4 mx-2 rounded-lg bg-orange-50/50 dark:bg-orange-950/10 border border-orange-100 dark:border-orange-900/30 p-3 text-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-4">
+                                    <div className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-widest">Interactive Result</div>
+                                    <div className="flex gap-6">
+                                        <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Exp. Return</span>
+                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.ret.toFixed(2)}%</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Annual Risk</span>
+                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.vol.toFixed(2)}%</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted-foreground uppercase tracking-tighter">Sharpe Ratio</span>
+                                            <span className="text-sm font-bold tabular-nums">{interactivePoint.sharpe.toFixed(2)}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                <div className="h-[350px] w-full">
+                <div className="h-[400px] w-full mt-2 border rounded-xl bg-muted/5 p-2 relative">
                     {points.length === 0 || !currentPoint ? (
                         <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
                             {isLoading ? (
                                 <>
-                                    <Spinner size="lg" />
-                                    <div>Computing efficient frontier...</div>
+                                    <Spinner size="lg" className="text-primary" />
+                                    <div className="text-sm font-medium animate-pulse uppercase tracking-widest">Generating Frontier...</div>
                                 </>
                             ) : (
                                 <>
-                                    <div>Click Compute to generate the efficient frontier.</div>
-                                    <Button onClick={compute} disabled={!canCompute} size="lg">
-                                        Compute
-                                    </Button>
+                                    <div className="text-center max-w-[280px]">
+                                        <div className="mb-4 flex justify-center">
+                                            <div className="rounded-full bg-muted p-4">
+                                                <TrendingUp className="h-8 w-8 text-muted-foreground/50" />
+                                            </div>
+                                        </div>
+                                        <p className="text-sm mb-6 leading-relaxed">Ready to simulate thousands of portfolios to find the efficient frontier.</p>
+                                        <Button onClick={compute} disabled={!canCompute} size="lg" className="w-full shadow-lg">
+                                            Initialize Simulation
+                                        </Button>
+                                    </div>
                                 </>
                             )}
                         </div>
                     ) : (
                         <div className="relative h-full w-full">
                             {isLoading && (
-                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <Spinner size="sm" />
-                                        <span>Recomputing...</span>
+                                <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-[1px] rounded-lg">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <Spinner size="md" className="text-primary" />
+                                        <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary">Recomputing...</span>
                                     </div>
                                 </div>
                             )}
                             <ResponsiveContainer width="100%" height="100%">
-                                <ScatterChart style={{ outline: 'none' }} onClick={() => closeTooltip()}>
+                                <ScatterChart 
+                                    margin={{ top: 20, right: 30, bottom: 30, left: 30 }}
+                                    style={{ outline: 'none' }} 
+                                    onClick={() => closeTooltip()}
+                                >
                                     <defs>
                                         <style>{`
                                             .recharts-surface:focus { outline: none !important; }
@@ -816,37 +908,38 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             path:focus { outline: none !important; }
                                         `}</style>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted-foreground))" opacity={0.1} />
                                     <XAxis
                                         type="number"
-                                        dataKey="vol"
-                                        stroke="#888888"
-                                        fontSize={12}
+                                        dataKey="x"
+                                        stroke="hsl(var(--muted-foreground))"
+                                        fontSize={11}
                                         tickLine={false}
                                         axisLine={false}
                                         tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
-                                        name="Volatility"
-                                        label={{ value: "Risk (Annualized Volatility)", position: "insideBottom", offset: -5 }}
+                                        name="Risk"
+                                        label={{ value: "Risk (Annualized Volatility)", position: "insideBottom", offset: -15, fontSize: 10, fontWeight: 500, fill: "hsl(var(--muted-foreground))" }}
                                         domain={xDomain}
+                                        allowDataOverflow
                                     />
                                     <YAxis
                                         type="number"
-                                        dataKey="ret"
-                                        stroke="#888888"
-                                        fontSize={12}
+                                        dataKey="y"
+                                        stroke="hsl(var(--muted-foreground))"
+                                        fontSize={11}
                                         tickLine={false}
                                         axisLine={false}
                                         tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
                                         name="Return"
-                                        label={{ value: "CAGR / Annual Return", angle: -90, position: "insideLeft" }}
+                                        label={{ value: "Expected Return (CAGR)", angle: -90, position: "insideLeft", offset: 10, fontSize: 10, fontWeight: 500, fill: "hsl(var(--muted-foreground))" }}
                                         domain={yDomain}
+                                        allowDataOverflow
                                     />
+                                    <ZAxis type="number" range={[20, 120]} />
                                     <Tooltip
                                         active={tooltipState.active}
                                         position={{ x: 0, y: 0 }}
                                         cursor={false}
-                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", color: "hsl(var(--card-foreground))" }}
-                                        itemStyle={{ color: "hsl(var(--foreground))" }}
                                         content={
                                             <CustomTooltip
                                                 active={tooltipState.active}
@@ -864,17 +957,24 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         align={isMobile ? "center" : "right"}
                                         verticalAlign={isMobile ? "bottom" : "middle"}
                                         onClick={handleLegendClick}
+                                        iconType="circle"
+                                        iconSize={8}
                                         wrapperStyle={{
                                             cursor: 'pointer',
                                             userSelect: 'none',
-                                            paddingLeft: isMobile ? '0' : '20px',
-                                            paddingTop: isMobile ? '10px' : '0'
+                                            paddingLeft: isMobile ? '0' : '30px',
+                                            paddingTop: isMobile ? '10px' : '0',
+                                            fontSize: '10px',
+                                            fontWeight: 500,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em'
                                         }}
                                     />
                                     <Scatter
                                         name="Simulated"
                                         data={points}
-                                        fill="#94a3b8"
+                                        fill="hsl(var(--muted-foreground))"
+                                        opacity={0.3}
                                         legendType="none"
                                         hide={focusedSeries !== null}
                                         onClick={handlePointClick}
@@ -882,14 +982,15 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     <Scatter
                                         name="Frontier"
                                         data={frontier}
-                                        fill="#3b82f6"
+                                        fill="hsl(var(--primary))"
+                                        line={{ stroke: 'hsl(var(--primary))', strokeWidth: 2, strokeDasharray: '4 4' }}
                                         legendType="none"
                                         hide={focusedSeries !== null}
                                         onClick={handlePointClick}
                                     />
                                     {interactivePoint && (
                                         <Scatter
-                                            name={`Interactive (${interactivePoint.ret.toFixed(2)}%)`}
+                                            name={`Locator (${interactivePoint.ret.toFixed(1)}%)`}
                                             data={[interactivePoint]}
                                             fill="#f97316"
                                             shape="circle"
@@ -899,41 +1000,42 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         />
                                     )}
                                     <Scatter
-                                        name={`Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
+                                        name={`Current Portfolio (${currentPoint.ret.toFixed(1)}%)`}
                                         data={[currentPoint]}
                                         fill="#ef4444"
                                         shape="diamond"
-                                        hide={focusedSeries !== null && focusedSeries !== `Original Portfolio (${currentPoint.ret.toFixed(2)}%)`}
+                                        z={100}
+                                        hide={focusedSeries !== null && focusedSeries !== `Current Portfolio (${currentPoint.ret.toFixed(1)}%)`}
                                         onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
                                             const p = highlights.find((h) => h.label === "Highest CAGR");
-                                            return p ? `Highest CAGR (${p.ret.toFixed(2)}%)` : "Highest CAGR";
+                                            return p ? `Max CAGR (${p.ret.toFixed(1)}%)` : "Max CAGR";
                                         })()}
                                         data={highlights.filter((p) => p.label === "Highest CAGR")}
                                         fill="#22c55e"
-                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest CAGR") ? `Highest CAGR (${highlights.find((h) => h.label === "Highest CAGR")!.ret.toFixed(2)}%)` : "Highest CAGR")}
+                                        hide={focusedSeries !== null && !focusedSeries.includes("Max CAGR")}
                                         onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
                                             const p = highlights.find((h) => h.label === "Highest Sharpe");
-                                            return p ? `Highest Sharpe (${p.ret.toFixed(2)}%)` : "Highest Sharpe";
+                                            return p ? `Max Sharpe (${p.ret.toFixed(1)}%)` : "Max Sharpe";
                                         })()}
                                         data={highlights.filter((p) => p.label === "Highest Sharpe")}
                                         fill="#a855f7"
-                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Highest Sharpe") ? `Highest Sharpe (${highlights.find((h) => h.label === "Highest Sharpe")!.ret.toFixed(2)}%)` : "Highest Sharpe")}
+                                        hide={focusedSeries !== null && !focusedSeries.includes("Max Sharpe")}
                                         onClick={handlePointClick}
                                     />
                                     <Scatter
                                         name={(() => {
                                             const p = highlights.find((h) => h.label === "Lowest Risk");
-                                            return p ? `Lowest Risk (${p.ret.toFixed(2)}%)` : "Lowest Risk";
+                                            return p ? `Min Risk (${p.ret.toFixed(1)}%)` : "Min Risk";
                                         })()}
                                         data={highlights.filter((p) => p.label === "Lowest Risk")}
                                         fill="#f59e0b"
-                                        hide={focusedSeries !== null && focusedSeries !== (highlights.find((h) => h.label === "Lowest Risk") ? `Lowest Risk (${highlights.find((h) => h.label === "Lowest Risk")!.ret.toFixed(2)}%)` : "Lowest Risk")}
+                                        hide={focusedSeries !== null && !focusedSeries.includes("Min Risk")}
                                         onClick={handlePointClick}
                                     />
                                 </ScatterChart>
@@ -941,6 +1043,74 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         </div>
                     )}
                 </div>
+
+                {topSimulations.length > 0 && (
+                    <div className="mt-8 px-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                        <div className="mb-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-green-100 dark:bg-green-900/30 p-1.5 rounded-md">
+                                    <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                </div>
+                                <div className="flex flex-col">
+                                    <h4 className="text-sm font-bold">Optimized Simulation Candidates</h4>
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Better performance than current allocation</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-3">
+                            {topSimulations.map((sim, idx) => (
+                                <div key={idx} className="relative rounded-xl border border-border/60 bg-gradient-to-br from-card to-muted/20 p-4 transition-all hover:shadow-md hover:border-primary/20 group">
+                                    <div className="absolute -right-2 -top-2 p-3 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+                                        <ShieldCheck className="h-16 w-16 text-primary rotate-12" />
+                                    </div>
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-[10px] font-black h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+                                                {idx + 1}
+                                            </div>
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Proposal</span>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="h-7 w-7 p-0 rounded-full bg-background/50 backdrop-blur-sm shadow-sm"
+                                            onClick={() => {
+                                                const name = prompt("Enter a name for this optimized portfolio:", `Optimized Candidate ${idx + 1}`);
+                                                if (name) saveCustomPortfolio(name, sim.weights);
+                                            }}
+                                            title="Save Candidate"
+                                        >
+                                            <Save className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">CAGR</span>
+                                            <span className="text-base font-black text-green-600 dark:text-green-400 tabular-nums">+{sim.ret.toFixed(2)}%</span>
+                                        </div>
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">Risk</span>
+                                            <span className="text-base font-black text-blue-600 dark:text-blue-400 tabular-nums">{sim.vol.toFixed(2)}%</span>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1.5 pt-3 border-t border-border/40">
+                                        <span className="text-[9px] text-muted-foreground font-bold uppercase block tracking-tighter">Allocation Strategy</span>
+                                        {Object.entries(sim.composition)
+                                            .sort(([, a], [, b]) => b - a)
+                                            .slice(0, 3)
+                                            .filter(([, w]) => w > 0.01)
+                                            .map(([asset, weight]) => (
+                                                <div key={asset} className="flex justify-between text-[10px] items-center">
+                                                    <span className="truncate pr-2 text-muted-foreground font-medium">{asset}</span>
+                                                    <span className="font-mono bg-background px-1 rounded border border-border/50">{(weight * 100).toFixed(0)}%</span>
+                                                </div>
+                                            ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
