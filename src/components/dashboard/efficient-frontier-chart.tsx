@@ -35,6 +35,7 @@ type FrontierPoint = {
     weights: Record<string, number>;
     composition: Record<string, number>;
     label: string;
+    z: number;
 };
 
 function getStrategyStats(
