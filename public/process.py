@@ -47,7 +47,7 @@ TER_MAPPING = {
     "world_acwi": 0.0020,
     "world_acwi_imi": 0.0017,
     "world_imi": 0.0017,
-    "world_min_vol": 0.0030,
+    "world_min_vol": 0.0025,
     "world_momentum": 0.0025,
     "world_quality": 0.0025,
     "world_small_cap_value": 0.0039,
