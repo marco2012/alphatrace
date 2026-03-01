@@ -777,10 +777,22 @@ export function AnalysisSection() {
                 const sortino10YValue = ddValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / ddValue : 0;
 
                 const sortinoValue = sortino(r.portRets, riskFreeRate);
-                const maxDD = r.drawdowns.reduce((min, d) => Math.min(min, d.value), 0);
+
+                let actualDrawdowns = r.drawdowns;
+                if ((investmentMode === "recurring" || investmentMode === "hybrid") && r.portValues && r.dates.length === r.portValues.length) {
+                    let maxSF = -Infinity;
+                    actualDrawdowns = [];
+                    for (let i = 0; i < r.dates.length; i++) {
+                        const v = r.portValues[i];
+                        if (v > maxSF) maxSF = v;
+                        actualDrawdowns.push({ date: r.dates[i], value: maxSF > 0 ? v / maxSF - 1 : 0 });
+                    }
+                }
+
+                const maxDD = actualDrawdowns.reduce((min, d) => Math.min(min, d.value), 0);
                 const avgRolling5YearCAGRValue = averageRolling5YearCAGR(r);
                 const calmarValue = calmar(cagrValue, maxDD);
-                const ulcerIndexValue = ulcerIndex(r.drawdowns);
+                const ulcerIndexValue = ulcerIndex(actualDrawdowns);
 
                 const recoveries = timeToRecoverFromIndex(r.idxMap);
                 const recoveryMonthsValue = recoveries.reduce((mx, rec) => Math.max(mx, rec.months || 0), 0);
@@ -1064,11 +1076,19 @@ export function AnalysisSection() {
         const ddMaps: Record<string, Record<string, number>> = {};
         for (const item of validItems) {
             if (!item.result) continue;
-            // For drawdowns, we generally use the "Strategy Drawdown" (TWR) which is what 'drawdownsFromIndex' calculates on idxMap.
-            // idxMap is already Time-Weighted Index for Recurring/Hybrid in computeRecurringPortfolio.
-            // So this remains consistent with "Strategy Risk".
-            // If we wanted "Money Drawdown" (loss of capital), we'd need a different logic, but TWR is standard.
-            ddMaps[item.name] = item.result.drawdowns.reduce((acc, d) => {
+
+            let actualDrawdowns = item.result.drawdowns;
+            if ((investmentMode === "recurring" || investmentMode === "hybrid") && item.result.portValues && item.result.dates.length === item.result.portValues.length) {
+                let maxSF = -Infinity;
+                actualDrawdowns = [];
+                for (let i = 0; i < item.result.dates.length; i++) {
+                    const v = item.result.portValues[i];
+                    if (v > maxSF) maxSF = v;
+                    actualDrawdowns.push({ date: item.result.dates[i], value: maxSF > 0 ? v / maxSF - 1 : 0 });
+                }
+            }
+
+            ddMaps[item.name] = actualDrawdowns.reduce((acc, d) => {
                 acc[d.date] = d.value * 100;
                 return acc;
             }, {} as Record<string, number>);
@@ -1143,13 +1163,13 @@ export function AnalysisSection() {
             }
 
             const idsToAdd = savedPortfolios.map(p => p.id);
-            
+
             // Check if we should remove 'current' before adding
             let currentSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
             // If currentSelected was empty (meaning only 'current' was there), it's now empty, which is what we want.
             // But wait, the original logic preserved 'baseSelected' which EXCLUDED current.
             // So if 'current' was there, it's gone.
-            
+
             // The original logic was: const baseSelected = selectedItems.filter(item => !(item.type === "portfolio" && item.id === "current"));
             // This already removed "current". So if "current" was the only item, baseSelected is empty.
             // And then it adds to baseSelected.
@@ -1167,10 +1187,10 @@ export function AnalysisSection() {
             // If `selectedItems` was `[{id: "current"}]`, `baseSelected` is `[]`.
             // Then we add items. `setSelectedItems` gets the new list. "current" is gone.
             // So "Add All" works as requested implicitly. I don't need to change it.
-            
+
             // However, the second part of `handleAddItem` (adding specific `selectedForAdd` items) needs change.
             // Let's modify that part.
-            
+
             const itemsToAdd = idsToAdd
                 .map(id => {
                     const p = savedPortfolios.find(sp => sp.id === id);
@@ -1249,7 +1269,7 @@ export function AnalysisSection() {
         const isCurrentlySelected = selectedForAdd.includes(id);
         if (!isCurrentlySelected) {
             let newItem: AnalysisItem | null = null;
-            
+
             // Check if we should remove 'current' before adding
             let currentItems = [...selectedItems];
             if (currentItems.length === 1 && currentItems[0].id === "current") {
@@ -1298,7 +1318,7 @@ export function AnalysisSection() {
                 if (index > -1) {
                     const newItems = [...selectedItems];
                     newItems.splice(index, 1);
-                    
+
                     // Restore Current Portfolio if list becomes empty
                     if (newItems.length === 0) {
                         newItems.push({
@@ -1309,7 +1329,7 @@ export function AnalysisSection() {
                             result: null
                         });
                     }
-                    
+
                     setSelectedItems(newItems);
                 }
             }
@@ -1345,7 +1365,7 @@ export function AnalysisSection() {
         const newItems = [...selectedItems];
         const removed = newItems[index];
         newItems.splice(index, 1);
-        
+
         // Restore Current Portfolio if list becomes empty
         if (newItems.length === 0) {
             newItems.push({
@@ -1356,7 +1376,7 @@ export function AnalysisSection() {
                 result: null
             });
         }
-        
+
         setSelectedItems(newItems);
         if (removed) {
             setSelectedForAdd(prev => prev.filter(id => id !== removed.id));
@@ -2364,6 +2384,7 @@ export function AnalysisSection() {
                                             portfolio: primaryResult,
                                             color: COLORS[0]
                                         }]}
+                                        mode={investmentMode}
                                     />
                                     <AnnualReturnsChart key={`single-annual-${calcKey}`} portfolio={primaryResult} />
                                     <TimeToRecoveryChart key={`single-recovery-${calcKey}`} portfolio={primaryResult} />

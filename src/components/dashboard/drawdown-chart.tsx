@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import { PortfolioResult } from "@/lib/finance";
+import { PortfolioResult, InvestmentMode } from "@/lib/finance";
 import { useMemo } from "react";
 
 interface DrawdownChartProps {
@@ -22,41 +22,58 @@ interface DrawdownChartProps {
         portfolio: PortfolioResult;
         color: string;
     }>;
+    mode?: InvestmentMode;
 }
 
-export function DrawdownChart({ portfolios }: DrawdownChartProps) {
+export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
     if (!portfolios.length) return null;
+
+    // Calculate actual drawdowns based on mode
+    const getDrawdowns = (portfolio: PortfolioResult) => {
+        if ((mode === "recurring" || mode === "hybrid") && portfolio.portValues && portfolio.dates.length === portfolio.portValues.length) {
+            let maxSF = -Infinity;
+            const actualDrawdowns: { date: string; value: number }[] = [];
+            for (let i = 0; i < portfolio.dates.length; i++) {
+                const v = portfolio.portValues[i];
+                if (v > maxSF) maxSF = v;
+                actualDrawdowns.push({ date: portfolio.dates[i], value: maxSF > 0 ? v / maxSF - 1 : 0 });
+            }
+            return actualDrawdowns;
+        }
+        return portfolio.drawdowns;
+    };
 
     // Transform data for the chart
     const data = useMemo(() => {
         // Get all unique dates from all portfolios
         const allDates = new Set<string>();
         portfolios.forEach(({ portfolio }) => {
-            portfolio.drawdowns.forEach(d => allDates.add(d.date));
+            getDrawdowns(portfolio).forEach(d => allDates.add(d.date));
         });
 
         // Create data points for each date
         return Array.from(allDates).map(date => {
             const point: any = { date };
             portfolios.forEach(({ portfolio, name }) => {
-                const drawdown = portfolio.drawdowns.find(d => d.date === date);
+                const drawdown = getDrawdowns(portfolio).find(d => d.date === date);
                 point[name] = drawdown ? drawdown.value * 100 : null;
             });
             return point as Record<string, any>;
         }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) as Array<Record<string, any>>;
-    }, [portfolios]);
+    }, [portfolios, mode]);
 
     // Calculate max drawdown for each portfolio
     const maxDrawdowns = useMemo(() => {
         return portfolios.map(({ portfolio, name }) => {
-            const maxDD = Math.min(...portfolio.drawdowns.map(d => d.value));
+            const drawdowns = getDrawdowns(portfolio);
+            const maxDD = Math.min(...drawdowns.map(d => d.value));
             return {
                 name,
                 value: maxDD * 100, // Convert to percentage
                 color: portfolios.find(p => p.name === name)?.color || '#888888'
             };
         });
-    }, [portfolios]);
+    }, [portfolios, mode]);
 
     const downloadCSV = () => {
         const headers = ['Date', ...portfolios.map(p => p.name)];
