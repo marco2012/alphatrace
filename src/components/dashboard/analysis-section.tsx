@@ -159,6 +159,7 @@ export function AnalysisSection() {
         columns: assets,
         computeCustomPortfolio,
         computeAssetPortfolio,
+        saveCustomPortfolio,
         riskFreeRate,
         norm,
         investmentMode,
@@ -325,12 +326,25 @@ export function AnalysisSection() {
 
                 if (items && Array.isArray(items)) {
                     // Reconstruct items
-                    // Note: We don't check savedPortfolios here because we want to faithfully reproduce the shared view
-                    // even if the user doesn't have those portfolios saved.
-                    const restoredItems = items.map((item: any) => ({
-                        ...item,
-                        result: null
-                    }));
+                    // We also want to save the new portfolios if they are not already saved
+                    const restoredItems = items.map((item: any) => {
+                        if (item.type === "portfolio" && item.id !== "current" && (item.weights || item.id)) {
+                            // Check if this portfolio already exists
+                            const exists = savedPortfolios.some(p => p.id === item.id);
+
+                            // Let's use weights if available, otherwise it might be a predefined one
+                            const itemWeightsToSave = item.weights;
+                            if (!exists && itemWeightsToSave) {
+                                // Save it locally to make it persistent
+                                saveCustomPortfolio(item.name || "Imported Portfolio", itemWeightsToSave, item.id);
+                            }
+                        }
+
+                        return {
+                            ...item,
+                            result: null
+                        };
+                    });
                     setSelectedItems(restoredItems);
                 }
 
@@ -356,7 +370,7 @@ export function AnalysisSection() {
                 console.error("Failed to parse share URL", e);
             }
         }
-    }, [searchParams, pathname, router, setStartDate, setEndDate, setInitialInvestment, setMonthlyInvestment, setInvestmentMode, setRebalance]);
+    }, [searchParams, pathname, router, setStartDate, setEndDate, setInitialInvestment, setMonthlyInvestment, setInvestmentMode, setRebalance, saveCustomPortfolio, savedPortfolios]);
 
     const handleShare = () => {
         const payload = {

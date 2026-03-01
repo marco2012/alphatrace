@@ -65,7 +65,7 @@ interface PortfolioContextType {
     activePortfolioId: string | null;
     activePortfolioName: string | null;
     savePortfolio: (name: string) => void;
-    saveCustomPortfolio: (name: string, weights: Record<string, number>) => void;
+    saveCustomPortfolio: (name: string, weights: Record<string, number>, id?: string) => void;
     deletePortfolio: (id: string) => void;
     loadPortfolio: (id: string) => void;
     duplicatePortfolio: (id: string) => SavedPortfolio | null;
@@ -120,7 +120,7 @@ const migrateAssetWeights = (weights: Record<string, number>, availableColumns: 
                 migrated[mappedName] = weight;
                 return;
             }
-            
+
             // Try without suffix if it doesn't match
             if (columnSet.has(mappedBase)) {
                 migrated[mappedBase] = weight;
@@ -548,13 +548,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         setActivePortfolioName(newPortfolio.name);
     };
 
-    const saveCustomPortfolio = (name: string, customWeights: Record<string, number>) => {
+    const saveCustomPortfolio = (name: string, customWeights: Record<string, number>, id?: string) => {
         const trimmed = (name || "").trim();
         if (!trimmed) return;
 
         const now = new Date().toISOString();
         const newPortfolio: SavedPortfolio = {
-            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
             name: trimmed,
             weights: { ...customWeights },
             date: now,
@@ -564,7 +564,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
         localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
-        
+
         // Optionally switch to it? For now, just save it.
         // If we want to switch:
         // setWeights(customWeights);
