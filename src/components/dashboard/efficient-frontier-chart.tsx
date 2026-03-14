@@ -25,6 +25,7 @@ import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info, 
 import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type FrontierPoint = {
     vol: number;
@@ -36,6 +37,15 @@ type FrontierPoint = {
     composition: Record<string, number>;
     label: string;
     z: number;
+    /**
+     * Max drawdown over the historical backtest period (0–1, positive number).
+     */
+    maxDrawdown?: number;
+    /**
+     * 5th and 95th percentile 10y CAGRs from rolling-window history (0–1).
+     */
+    p5Cagr?: number;
+    p95Cagr?: number;
 };
 
 function getStrategyStats(
@@ -86,6 +96,7 @@ function getStrategyStats(
     let avgCagr = 0;
     let avgVol = 0;
     const sqrt12 = Math.sqrt(12);
+    const cagrSamples: number[] = [];
 
     if (rolling) {
         if (nPeriods < window) return null;
@@ -95,7 +106,9 @@ function getStrategyStats(
 
         for (let i = 0; i <= nPeriods - window; i++) {
             const retsSlice = portRets.subarray(i, i + window);
-            sumCagr += calculateCagr(retsSlice);
+            const c = calculateCagr(retsSlice);
+            sumCagr += c;
+            cagrSamples.push(c);
 
             let m = 0;
             for (let j = 0; j < window; j++) m += retsSlice[j];
@@ -113,6 +126,7 @@ function getStrategyStats(
         avgVol = count > 0 ? sumVol / count : 0;
     } else {
         avgCagr = calculateCagr(portRets);
+        cagrSamples.push(avgCagr);
         let m = 0;
         for (let j = 0; j < nPeriods; j++) m += portRets[j];
         m /= nPeriods;
@@ -126,7 +140,38 @@ function getStrategyStats(
     }
 
     const sharpe = avgVol > 0 ? (avgCagr - rf) / avgVol : 0;
-    return { annualReturn: avgCagr, annualVol: avgVol, sharpe };
+
+    // Max drawdown over full history
+    let peak = 1;
+    let value = 1;
+    let maxDrawdown = 0;
+    for (let t = 0; t < nPeriods; t++) {
+        value *= (1 + portRets[t]);
+        if (value > peak) peak = value;
+        const dd = peak > 0 ? (value / peak) - 1 : 0;
+        if (dd < maxDrawdown) maxDrawdown = dd;
+    }
+
+    // Percentiles from 10y CAGR samples
+    let p5Cagr = avgCagr;
+    let p95Cagr = avgCagr;
+    if (cagrSamples.length > 0) {
+        const sorted = [...cagrSamples].sort((a, b) => a - b);
+        const n = sorted.length;
+        const idx5 = Math.max(0, Math.min(n - 1, Math.floor(0.05 * n)));
+        const idx95 = Math.max(0, Math.min(n - 1, Math.floor(0.95 * n)));
+        p5Cagr = sorted[idx5];
+        p95Cagr = sorted[idx95];
+    }
+
+    return {
+        annualReturn: avgCagr,
+        annualVol: avgVol,
+        sharpe,
+        maxDrawdown: Math.abs(maxDrawdown),
+        p5Cagr,
+        p95Cagr,
+    };
 }
 
 type EfficientFrontierChartProps = {
@@ -171,7 +216,7 @@ function isSamePoint(p1: FrontierPoint, p2: FrontierPoint) {
     return Math.abs(p1.vol - p2.vol) < 0.0001 && Math.abs(p1.ret - p2.ret) < 0.0001;
 }
 
-const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interactivePoint, saveCustomPortfolio, onClose }: any) => {
+const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interactivePoint, onRequestSave, onClose }: any) => {
     if (!active || !payload?.length) return null;
     const p = payload[0]?.payload as FrontierPoint;
     if (!p) return null;
@@ -225,10 +270,7 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
                             className="h-6 w-6 p-0"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const name = prompt("Enter a name for this portfolio:", displayLabel);
-                                if (name) {
-                                    saveCustomPortfolio(name, p.weights);
-                                }
+                                onRequestSave?.(displayLabel, p.weights);
                             }}
                             title="Save Portfolio"
                         >
@@ -262,6 +304,12 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
                         <span className="font-medium text-foreground">{p.sharpe.toFixed(2)}</span>
                     </div>
                 </div>
+                {matchHighlight && currentPoint && (
+                    <div className="mt-2 pt-2 border-t border-border/50 flex justify-between gap-3 text-[10px] text-muted-foreground">
+                        <span className="uppercase tracking-wider font-medium">Current portfolio</span>
+                        <span className="tabular-nums">10y CAGR {currentPoint.ret.toFixed(2)}% · Risk {currentPoint.vol.toFixed(2)}%</span>
+                    </div>
+                )}
             </div>
             <div className="space-y-3 text-xs">
                 {categories.map(cat => (
@@ -320,6 +368,24 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         payload: [],
         coordinate: undefined,
     });
+
+    const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+    const [saveDialogName, setSaveDialogName] = useState("");
+    const [saveDialogWeights, setSaveDialogWeights] = useState<Record<string, number>>({});
+
+    const openSaveDialog = useCallback((defaultName: string, weights: Record<string, number>) => {
+        setSaveDialogName(defaultName);
+        setSaveDialogWeights(weights);
+        setSaveDialogOpen(true);
+    }, []);
+
+    const handleSaveDialogConfirm = useCallback(() => {
+        const name = saveDialogName.trim();
+        if (name) {
+            saveCustomPortfolio(name, saveDialogWeights);
+            setSaveDialogOpen(false);
+        }
+    }, [saveDialogName, saveDialogWeights, saveCustomPortfolio]);
 
     const handlePointClick = useCallback((data: any, _index: number, e: React.MouseEvent) => {
         const { cx, cy, x, y } = data;
@@ -418,6 +484,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
                 const statsToPoint = (label: string, wVec: number[]) => {
                     let vol, ret, sharpe;
+                    let maxDrawdown: number | undefined;
+                    let p5Cagr: number | undefined;
+                    let p95Cagr: number | undefined;
 
                     const stats = getStrategyStats(
                         wVec,
@@ -441,6 +510,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         vol = stats.annualVol;
                         ret = stats.annualReturn;
                         sharpe = stats.sharpe;
+                        maxDrawdown = stats.maxDrawdown;
+                        p5Cagr = stats.p5Cagr;
+                        p95Cagr = stats.p95Cagr;
                     }
 
                     const wMap = buildWeightsMap(wVec);
@@ -454,6 +526,9 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         sharpe,
                         weights: wMap,
                         composition: wMap,
+                        maxDrawdown,
+                        p5Cagr,
+                        p95Cagr,
                     };
                 };
 
@@ -500,7 +575,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 let best = -Infinity;
                 for (const p of sorted) {
                     if (p.y > best) {
-                        fr.push({ ...p, label: "Efficient Frontier", z: 30 });
+                        fr.push({ ...p, label: "Monte Carlo Simulation", z: 30 });
                         best = p.y;
                     }
                 }
@@ -694,7 +769,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
         <Card className="col-span-4 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <div>
-                    <CardTitle className="text-xl font-bold">Efficient Frontier</CardTitle>
+                    <CardTitle className="text-xl font-bold">Monte Carlo Simulation</CardTitle>
                     <CardDescription>
                         Explore the risk/return spectrum through random simulation ({assetCount} assets).
                     </CardDescription>
@@ -723,7 +798,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     <Slider
                                         id="sim-count"
                                         min={500}
-                                        max={10000}
+                                        max={15000}
                                         step={500}
                                         value={[simCount]}
                                         onValueChange={(vals) => setSimCount(vals[0])}
@@ -889,7 +964,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                                 <TrendingUp className="h-8 w-8 text-muted-foreground/50" />
                                             </div>
                                         </div>
-                                        <p className="text-sm mb-6 leading-relaxed">Ready to simulate thousands of portfolios to find the efficient frontier.</p>
+                                        <p className="text-sm mb-6 leading-relaxed">Ready to run a Monte Carlo simulation of portfolio risk and return.</p>
                                         <Button onClick={compute} disabled={!canCompute} size="lg" className="w-full shadow-lg">
                                             Initialize Simulation
                                         </Button>
@@ -959,7 +1034,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                                 highlights={highlights}
                                                 currentPoint={currentPoint}
                                                 interactivePoint={interactivePoint}
-                                                saveCustomPortfolio={saveCustomPortfolio}
+                                                onRequestSave={openSaveDialog}
                                                 onClose={closeTooltip}
                                             />
                                         }
@@ -1058,7 +1133,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
 
                 {topSimulations.length > 0 && (
                     <div className="mt-8 px-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        <div className="mb-4 flex items-center justify-between">
+                        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <div className="flex items-center gap-2">
                                 <div className="bg-green-100 dark:bg-green-900/30 p-1.5 rounded-md">
                                     <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
@@ -1068,6 +1143,11 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-medium">Better performance than current allocation</p>
                                 </div>
                             </div>
+                            {currentPoint && (
+                                <div className="text-[11px] text-muted-foreground bg-muted/50 px-3 py-2 rounded-md border border-border/50">
+                                    <span className="font-medium text-foreground">Current portfolio:</span> 10y CAGR {currentPoint.ret.toFixed(2)}% · Risk {currentPoint.vol.toFixed(2)}%
+                                </div>
+                            )}
                         </div>
                         <div className="grid gap-4 sm:grid-cols-3">
                             {topSimulations.map((sim, idx) => (
@@ -1086,10 +1166,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             size="sm"
                                             variant="secondary"
                                             className="h-7 w-7 p-0 rounded-full bg-background/50 backdrop-blur-sm shadow-sm"
-                                            onClick={() => {
-                                                const name = prompt("Enter a name for this optimized portfolio:", `Optimized Candidate ${idx + 1}`);
-                                                if (name) saveCustomPortfolio(name, sim.weights);
-                                            }}
+                                            onClick={() => openSaveDialog(`Optimized Candidate ${idx + 1}`, sim.weights)}
                                             title="Save Candidate"
                                         >
                                             <Save className="h-3.5 w-3.5" />
@@ -1104,10 +1181,29 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">Risk</span>
                                             <span className="text-base font-black text-blue-600 dark:text-blue-400 tabular-nums">{sim.vol.toFixed(2)}%</span>
                                         </div>
+                                        <div className="flex flex-col gap-0.5 col-span-2">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">Max Drawdown</span>
+                                                    <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+                                                        -{((sim.maxDrawdown ?? 0) * 100).toFixed(1)}%
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-col gap-0.5 text-right">
+                                                    <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">5th–95th Percentile CAGR</span>
+                                                    <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+                                                        {((sim.p5Cagr ?? sim.ret / 100) * 100).toFixed(2)}% – {((sim.p95Cagr ?? sim.ret / 100) * 100).toFixed(2)}%
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] text-muted-foreground/80 mt-1">
+                                                90% of historical 10y windows had CAGR in this range.
+                                            </span>
+                                        </div>
                                     </div>
                                     <div className="space-y-1.5 pt-3 border-t border-border/40">
                                         <span className="text-[9px] text-muted-foreground font-bold uppercase block tracking-tighter">Allocation Strategy</span>
-                                        <div className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1 custom-scrollbar">
+                                        <div className="space-y-1.5 pr-1">
                                             {Object.entries(sim.composition)
                                                 .sort(([, a], [, b]) => b - a)
                                                 .filter(([, w]) => w > 0.0001)
@@ -1124,6 +1220,44 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                         </div>
                     </div>
                 )}
+
+                {points.length > 0 && currentPoint && topSimulations.length === 0 && (
+                    <div className="mt-8 px-2 py-6 rounded-lg border border-dashed border-border/60 bg-muted/10 text-center">
+                        <p className="text-sm text-muted-foreground">
+                            No proposals with both <strong className="text-foreground">higher 10y CAGR</strong> and <strong className="text-foreground">lower risk</strong> than your current portfolio. Try increasing sample size or relaxing asset constraints and run again.
+                        </p>
+                    </div>
+                )}
+
+                <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+                    <DialogContent className="sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
+                        <DialogHeader>
+                            <DialogTitle>Save portfolio</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="save-portfolio-name">Name</Label>
+                                <Input
+                                    id="save-portfolio-name"
+                                    value={saveDialogName}
+                                    onChange={(e) => setSaveDialogName(e.target.value)}
+                                    placeholder="Portfolio name"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSaveDialogConfirm();
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button onClick={handleSaveDialogConfirm} disabled={!saveDialogName.trim()}>
+                                Save
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </CardContent>
         </Card>
     );

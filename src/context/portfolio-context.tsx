@@ -235,20 +235,88 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                 let w: Record<string, number> = {};
                 for (const c of cols) w[c] = 0;
 
-                // Check for share param
+                // Check for share param and auto-save shared portfolio
                 if (typeof window !== "undefined") {
                     const params = new URLSearchParams(window.location.search);
                     const shareData = params.get("share");
                     if (shareData) {
                         try {
                             const decoded = JSON.parse(atob(shareData));
-                            // Apply migration to shared weights
-                            const migratedShared = migrateAssetWeights(decoded, cols);
+
+                            // Support both legacy payloads (plain weights object) and
+                            // new payloads { n: name, w: weights }.
+                            let sharedName: string | null = null;
+                            let sharedWeights: Record<string, number> = {};
+
+                            if (decoded && typeof decoded === "object" && !Array.isArray(decoded) && (decoded as any).w) {
+                                sharedName = typeof (decoded as any).n === "string" ? (decoded as any).n : null;
+                                sharedWeights = (decoded as any).w as Record<string, number>;
+                            } else {
+                                sharedWeights = decoded as Record<string, number>;
+                            }
+
+                            // Apply migration to shared weights so they match current dataset columns
+                            const migratedShared = migrateAssetWeights(sharedWeights, cols);
+
+                            // Apply weights to current working portfolio
                             Object.keys(migratedShared).forEach(k => {
                                 if (Object.prototype.hasOwnProperty.call(w, k)) {
                                     w[k] = Number(migratedShared[k]);
                                 }
                             });
+
+                            // Also persist this shared portfolio to localStorage if it's not already there
+                            try {
+                                const raw = localStorage.getItem("alphatrace_portfolios");
+                                const existing: SavedPortfolio[] = raw ? JSON.parse(raw) : [];
+
+                                const normalizeWeights = (weights: Record<string, number>) =>
+                                    Object.entries(weights || {})
+                                        .map(([key, value]) => [key, Number(value)] as [string, number])
+                                        .filter(([, value]) => !Number.isNaN(value) && Math.abs(value) > 1e-6)
+                                        .sort((a, b) => a[0].localeCompare(b[0]));
+
+                                const weightsEqual = (a: Record<string, number>, b: Record<string, number>) => {
+                                    const na = normalizeWeights(a);
+                                    const nb = normalizeWeights(b);
+                                    if (na.length !== nb.length) return false;
+                                    return na.every(([asset, value], idx) => {
+                                        const [assetB, valueB] = nb[idx];
+                                        return asset === assetB && Math.abs(value - valueB) < 1e-6;
+                                    });
+                                };
+
+                                const baseName = sharedName || "Imported from URL";
+                                const baseNameLower = baseName.trim().toLowerCase();
+
+                                // If a portfolio with the same name already exists (any weights),
+                                // append " (imported)" to avoid silently overwriting it.
+                                const nameTaken = existing.some(p => p.name.trim().toLowerCase() === baseNameLower);
+                                const finalName = nameTaken ? `${baseName} (imported)` : baseName;
+                                const finalNameLower = finalName.trim().toLowerCase();
+
+                                // Avoid duplicates when the same URL is opened multiple times:
+                                // same final name AND same normalized weights.
+                                const alreadyExists = existing.some(p =>
+                                    p.name.trim().toLowerCase() === finalNameLower &&
+                                    weightsEqual(p.weights, migratedShared)
+                                );
+
+                                if (!alreadyExists) {
+                                    const newPortfolio: SavedPortfolio = {
+                                        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                                        name: finalName,
+                                        weights: { ...migratedShared },
+                                        date: new Date().toISOString(),
+                                        highlighted: false,
+                                    };
+
+                                    const updated = [...existing, newPortfolio];
+                                    localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+                                }
+                            } catch (e) {
+                                console.error("Failed to auto-save shared portfolio", e);
+                            }
                         } catch (e) {
                             console.error("Invalid share data", e);
                         }

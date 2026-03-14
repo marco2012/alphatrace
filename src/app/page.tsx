@@ -63,12 +63,18 @@ export default function Home() {
     }, 0);
   };
 
-  const getShareUrl = (weights: Record<string, number>) => {
+  const getShareUrl = (weights: Record<string, number>, name?: string | null) => {
     const active = Object.entries(weights).reduce((acc, [k, v]) => {
       if (v > 0) acc[k] = v;
       return acc;
     }, {} as Record<string, number>);
-    const data = btoa(JSON.stringify(active));
+
+    // Include portfolio name when available so the receiver can auto-save it with the same label.
+    const payload = name
+      ? { n: name, w: active }
+      : active;
+
+    const data = btoa(JSON.stringify(payload));
     const url = new URL(window.location.href);
     url.search = ""; // clear existing params
     url.searchParams.set("share", data);
@@ -283,7 +289,7 @@ export default function Home() {
                                       <span className="hidden sm:inline">Load</span>
                                     </Button>
                                     <Button className="w-full sm:w-auto" variant="secondary" size="sm" onClick={() => {
-                                      const url = getShareUrl(p.weights);
+                                      const url = getShareUrl(p.weights, p.name);
                                       navigator.clipboard.writeText(url);
                                       toast.success(`Link for '${p.name}' copied to clipboard!`, { duration: 1800 });
                                     }}>

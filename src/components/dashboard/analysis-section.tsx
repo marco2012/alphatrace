@@ -11,7 +11,6 @@ import { AnnualReturnsChart } from "@/components/dashboard/annual-returns-chart"
 import { DrawdownChart } from "@/components/dashboard/drawdown-chart";
 import { TimeToRecoveryChart } from "@/components/dashboard/recovery-chart";
 import { EfficientFrontierChart } from "@/components/dashboard/efficient-frontier-chart";
-import { MonteCarloChart } from "@/components/dashboard/monte-carlo-chart";
 import { CorrelationMatrix } from "@/components/dashboard/correlation-matrix";
 import { RiskReturnScatterChart } from "@/components/dashboard/risk-return-scatter-chart";
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
@@ -316,37 +315,47 @@ export function AnalysisSection() {
         return { start: itemStart, end: itemEnd };
     }, [norm, weights, savedPortfolios]);
 
-    // Handle Share URL on mount
+    // Handle Analysis-specific Share URL on mount (multi-item payload)
     useEffect(() => {
         const shareParam = searchParams.get("share");
         if (shareParam) {
             try {
                 const decoded = JSON.parse(atob(shareParam));
-                const { items, settings, config } = decoded;
-
-                if (items && Array.isArray(items)) {
-                    // Reconstruct items
-                    // We also want to save the new portfolios if they are not already saved
-                    const restoredItems = items.map((item: any) => {
-                        if (item.type === "portfolio" && item.id !== "current" && (item.weights || item.id)) {
-                            // Check if this portfolio already exists
-                            const exists = savedPortfolios.some(p => p.id === item.id);
-
-                            // Let's use weights if available, otherwise it might be a predefined one
-                            const itemWeightsToSave = item.weights;
-                            if (!exists && itemWeightsToSave) {
-                                // Save it locally to make it persistent
-                                saveCustomPortfolio(item.name || "Imported Portfolio", itemWeightsToSave, item.id);
-                            }
-                        }
-
-                        return {
-                            ...item,
-                            result: null
-                        };
-                    });
-                    setSelectedItems(restoredItems);
+                // Only handle complex analysis share payloads that contain items/settings/config.
+                // Simple single-portfolio share payloads (plain weights or { n, w }) are handled
+                // in the portfolio context instead.
+                if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
+                    return;
                 }
+
+                const { items, settings, config } = decoded as any;
+
+                // If there are no items array, this is not an analysis payload – bail out.
+                if (!items || !Array.isArray(items)) {
+                    return;
+                }
+
+                // Reconstruct items
+                // We also want to save the new portfolios if they are not already saved
+                const restoredItems = items.map((item: any) => {
+                    if (item.type === "portfolio" && item.id !== "current" && (item.weights || item.id)) {
+                        // Check if this portfolio already exists
+                        const exists = savedPortfolios.some(p => p.id === item.id);
+
+                        // Let's use weights if available, otherwise it might be a predefined one
+                        const itemWeightsToSave = item.weights;
+                        if (!exists && itemWeightsToSave) {
+                            // Save it locally to make it persistent
+                            saveCustomPortfolio(item.name || "Imported Portfolio", itemWeightsToSave, item.id);
+                        }
+                    }
+
+                    return {
+                        ...item,
+                        result: null
+                    };
+                });
+                setSelectedItems(restoredItems);
 
                 if (settings) {
                     if (settings.startDate) setStartDate(settings.startDate);
@@ -2051,13 +2060,7 @@ export function AnalysisSection() {
                     />
                 )}
 
-                <Tabs defaultValue="performance" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="performance">Performance</TabsTrigger>
-                        <TabsTrigger value="simulations">Simulations</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="performance" className="space-y-6 mt-6">
+                <div className="space-y-6 mt-6">
                         {validItems.length > 1 ? (
                             <>
                                 <RiskReturnScatterChart
@@ -2423,92 +2426,72 @@ export function AnalysisSection() {
                                 </div>
                             )
                         )}
-                    </TabsContent>
 
+                    {(() => {
+                        const targetKey = (validItems.length > 1 && simSelectedKey && validItems.find(i => makeKey(i) === simSelectedKey))
+                            ? simSelectedKey
+                            : (validItems.length > 0 ? makeKey(validItems[0]) : null);
 
+                        const simulationItem = validItems.find(i => makeKey(i) === targetKey);
 
-                    <TabsContent value="simulations" className="space-y-6 mt-6">
-                        {(() => {
-                            const targetKey = (validItems.length > 1 && simSelectedKey && validItems.find(i => makeKey(i) === simSelectedKey))
-                                ? simSelectedKey
-                                : (validItems.length > 0 ? makeKey(validItems[0]) : null);
+                        if (!simulationItem) {
+                            return null;
+                        }
 
-                            const simulationItem = validItems.find(i => makeKey(i) === targetKey);
-
-                            if (!simulationItem) {
-                                return (
-                                    <div className="flex h-48 items-center justify-center border rounded-lg bg-muted/10 border-dashed">
-                                        <p className="text-muted-foreground text-sm">No valid data available for simulations.</p>
-                                    </div>
-                                );
+                        let simWeights: Record<string, number> = {};
+                        if (simulationItem.type === "portfolio") {
+                            if (simulationItem.weights) {
+                                simWeights = simulationItem.weights;
+                            } else if (simulationItem.id === "current") {
+                                simWeights = weights;
+                            } else {
+                                const p = savedPortfolios.find(sp => sp.id === simulationItem.id);
+                                if (p) simWeights = p.weights;
                             }
+                        } else if (simulationItem.type === "asset") {
+                            simWeights = { [simulationItem.id]: 1 };
+                        }
 
-                            // Extract weights
-                            let simWeights: Record<string, number> = {};
-                            if (simulationItem.type === "portfolio") {
-                                if (simulationItem.weights) {
-                                    simWeights = simulationItem.weights;
-                                } else if (simulationItem.id === "current") {
-                                    simWeights = weights;
-                                } else {
-                                    const p = savedPortfolios.find(sp => sp.id === simulationItem.id);
-                                    if (p) simWeights = p.weights;
-                                }
-                            } else if (simulationItem.type === "asset") {
-                                simWeights = { [simulationItem.id]: 1 };
-                            }
-
-                            return (
-                                <div className="space-y-6">
-                                    {validItems.length > 1 && (
-                                        <div className="flex items-center justify-end">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm text-muted-foreground">Simulate for:</span>
-                                                <Select
-                                                    value={targetKey || ""}
-                                                    onValueChange={setSimSelectedKey}
-                                                >
-                                                    <SelectTrigger className="w-[200px] h-8">
-                                                        <SelectValue placeholder="Select portfolio" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {validItems.map(item => (
-                                                            <SelectItem key={makeKey(item)} value={makeKey(item)}>
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                                                                    {item.name}
-                                                                </div>
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                        return (
+                            <div className="space-y-6">
+                                {validItems.length > 1 && (
+                                    <div className="flex items-center justify-end">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-muted-foreground">Simulate for:</span>
+                                            <Select
+                                                value={targetKey || ""}
+                                                onValueChange={setSimSelectedKey}
+                                            >
+                                                <SelectTrigger className="w-[200px] h-8">
+                                                    <SelectValue placeholder="Select portfolio" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {validItems.map(item => (
+                                                        <SelectItem key={makeKey(item)} value={makeKey(item)}>
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                                                                {item.name}
+                                                            </div>
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
-                                    )}
+                                    </div>
+                                )}
 
-                                    <EfficientFrontierChart
-                                        key={`frontier-${targetKey}-${calcKey}`}
-                                        norm={norm}
-                                        weights={simWeights}
-                                        startDate={startDate}
-                                        endDate={endDate}
-                                        rf={riskFreeRate}
-                                    />
-                                    <MonteCarloChart
-                                        key={`monte-carlo-${targetKey}-${calcKey}`}
-                                        norm={norm}
-                                        weights={simWeights}
-                                        startDate={startDate}
-                                        endDate={endDate}
-                                        rf={riskFreeRate}
-                                        initialInvestment={initialInvestment}
-                                        currency={currency}
-                                    />
-                                </div>
-                            );
-                        })()}
-                    </TabsContent>
-                </Tabs>
+                                <EfficientFrontierChart
+                                    key={`frontier-${targetKey}-${calcKey}`}
+                                    norm={norm}
+                                    weights={simWeights}
+                                    startDate={startDate}
+                                    endDate={endDate}
+                                    rf={riskFreeRate}
+                                />
+                            </div>
+                        );
+                    })()}
+                </div>
                 {/* Debugging info can be hidden or removed in prod */}
                 {/* <div className="text-xs text-muted-foreground mt-2">
                 Debug: Common Range {slicedItems[0]?.result?.dates[0]} - {slicedItems[0]?.result?.dates[slicedItems[0].result.dates.length-1]}
