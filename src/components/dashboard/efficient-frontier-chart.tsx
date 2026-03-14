@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info, ChevronDown, ChevronUp } from "lucide-react";
-import { NormalizedData, getAssetCategory, pctChangeSeries } from "@/lib/finance";
+import { NormalizedData, getAssetCategory, pctChangeSeries, PortfolioResult, averageRolling10YearCAGR, averageRolling10YearVol } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -180,6 +180,8 @@ type EfficientFrontierChartProps = {
     startDate: string;
     endDate: string;
     rf?: number;
+    /** When provided and rolling stats are on, current portfolio point uses this for 10y CAGR/risk to match key metrics. */
+    currentPortfolioResult?: PortfolioResult | null;
 };
 
 function mean(xs: number[]) {
@@ -334,7 +336,7 @@ const CustomTooltip = memo(({ active, payload, highlights, currentPoint, interac
 });
 CustomTooltip.displayName = "CustomTooltip";
 
-export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf = 0.02 }: EfficientFrontierChartProps) {
+export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf = 0.02, currentPortfolioResult = null }: EfficientFrontierChartProps) {
     const [points, setPoints] = useState<FrontierPoint[]>([]);
     const [frontier, setFrontier] = useState<FrontierPoint[]>([]);
     const [highlights, setHighlights] = useState<FrontierPoint[]>([]);
@@ -535,7 +537,19 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                 const wRaw = activeAssets.map((a) => weights[a] ?? 0);
                 const wSum = wRaw.reduce((a, b) => a + b, 0) || 1;
                 const wCur = wRaw.map((w) => w / wSum);
-                const curPoint = { ...statsToPoint("Original Portfolio", wCur), z: 100 };
+                let curPoint: FrontierPoint = { ...statsToPoint("Original Portfolio", wCur), z: 100 };
+                if (useRollingStats && currentPortfolioResult) {
+                    const rollingCagr = averageRolling10YearCAGR(currentPortfolioResult);
+                    const rollingVol = averageRolling10YearVol(currentPortfolioResult);
+                    curPoint = {
+                        ...curPoint,
+                        ret: rollingCagr * 100,
+                        vol: rollingVol * 100,
+                        x: rollingVol * 100,
+                        y: rollingCagr * 100,
+                        sharpe: rollingVol > 0 ? (rollingCagr - rf) / rollingVol : curPoint.sharpe,
+                    };
+                }
                 setCurrentPoint(curPoint);
 
                 const sims: FrontierPoint[] = [];
@@ -720,7 +734,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
     const { xDomain, yDomain } = useMemo(() => {
         if (points.length === 0) return { xDomain: [0, 'auto'] as [number, 'auto'], yDomain: [0, 'auto'] as [number, 'auto'] };
 
-        const allPoints = [...points, ...highlights];
+        const allPoints = [...points, ...highlights, ...topSimulations];
         if (currentPoint) allPoints.push(currentPoint);
         if (interactivePoint) allPoints.push(interactivePoint);
 
@@ -739,7 +753,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
             xDomain: [Math.max(0, minVol - xPad), maxVol + xPad] as [number, number],
             yDomain: [minRet - yPad, maxRet + yPad] as [number, number]
         };
-    }, [points, highlights, currentPoint, interactivePoint]);
+    }, [points, highlights, currentPoint, interactivePoint, topSimulations]);
 
     const handleLegendClick = useCallback((e: any) => {
         const name = e.value;
@@ -1125,6 +1139,17 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                         hide={focusedSeries !== null && !focusedSeries.includes("Min Risk")}
                                         onClick={handlePointClick}
                                     />
+                                    {topSimulations.length > 0 && (
+                                        <Scatter
+                                            name="Candidates"
+                                            data={topSimulations.map((p, i) => ({ ...p, label: `Candidate ${i + 1}` }))}
+                                            fill="#14b8a6"
+                                            shape="square"
+                                            z={85}
+                                            hide={focusedSeries !== null && !focusedSeries.includes("Candidates")}
+                                            onClick={handlePointClick}
+                                        />
+                                    )}
                                 </ScatterChart>
                             </ResponsiveContainer>
                         </div>
@@ -1185,7 +1210,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex flex-col gap-0.5">
                                                     <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-tighter">Max Drawdown</span>
-                                                    <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+                                                    <span className="text-xs font-semibold tabular-nums text-red-500 dark:text-red-400">
                                                         -{((sim.maxDrawdown ?? 0) * 100).toFixed(1)}%
                                                     </span>
                                                 </div>

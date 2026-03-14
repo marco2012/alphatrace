@@ -2487,6 +2487,7 @@ export function AnalysisSection() {
                                     startDate={startDate}
                                     endDate={endDate}
                                     rf={riskFreeRate}
+                                    currentPortfolioResult={simulationItem?.result ?? null}
                                 />
                             </div>
                         );
