@@ -285,7 +285,7 @@ export function ComparisonAnalysis() {
             <div className="grid gap-6">
                 {/* Comparative Growth Chart */}
                 <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
                         <div>
                             <CardTitle>Growth Comparison</CardTitle>
                         </div>
@@ -294,9 +294,10 @@ export function ComparisonAnalysis() {
                         </Button>
                     </CardHeader>
                     <CardContent>
-                        <div className="h-[400px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={chartData}>
+                        <div className="overflow-x-auto">
+                            <div className="h-[300px] sm:h-[360px] md:h-[400px] w-full min-w-[620px] md:min-w-0">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={chartData}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                     <XAxis
                                         dataKey="date"
@@ -315,11 +316,20 @@ export function ComparisonAnalysis() {
                                         domain={['auto', 'auto']}
                                     />
                                     <RechartsTooltip
-                                        contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                        wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            color: 'hsl(var(--card-foreground))',
+                                            maxWidth: "min(80vw, 240px)",
+                                            maxHeight: "42vh",
+                                            overflowY: "auto",
+                                            fontSize: 12
+                                        }}
                                         labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                                         formatter={(value: number) => [value.toFixed(2), 'Index']}
                                     />
-                                    <Legend />
+                                    <Legend wrapperStyle={{ fontSize: 12 }} />
                                     {itemsWithResults.map((item) => (
                                         <Line
                                             key={item.name}
@@ -330,8 +340,9 @@ export function ComparisonAnalysis() {
                                             dot={false}
                                         />
                                     ))}
-                                </LineChart>
-                            </ResponsiveContainer>
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>

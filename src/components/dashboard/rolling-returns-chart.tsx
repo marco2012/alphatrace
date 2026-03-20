@@ -91,14 +91,14 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
 
     return (
         <Card className="col-span-4 lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <CardTitle>Rolling Returns</CardTitle>
                     <CardDescription>
                         Annualized return over {years}-year rolling periods{avgLabel ? ` (avg ${avgLabel}%)` : ""}.
                     </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Period (Years):</span>
                     <Input
                         type="number"
@@ -117,9 +117,10 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                 </div>
             </CardHeader>
             <CardContent className="pl-2">
-                <div className="h-[250px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data}>
+                <div className="overflow-x-auto">
+                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={data}>
                             <XAxis
                                 dataKey="date"
                                 stroke="#888888"
@@ -143,7 +144,14 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                             <ReferenceLine y={0} stroke="#ef4444" strokeWidth={2} />
                             <RechartsTooltip
-                                contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                contentStyle={{
+                                    backgroundColor: 'hsl(var(--card))',
+                                    borderColor: 'hsl(var(--border))',
+                                    color: 'hsl(var(--card-foreground))',
+                                    maxWidth: "min(80vw, 240px)",
+                                    fontSize: 12
+                                }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [`${value.toFixed(2)}%`, seriesLabel]}
                                 labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
@@ -156,8 +164,9 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 strokeWidth={2}
                                 dot={false}
                             />
-                        </LineChart>
-                    </ResponsiveContainer>
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </CardContent>
         </Card>

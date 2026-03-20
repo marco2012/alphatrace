@@ -102,7 +102,7 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
 
     return (
         <Card className="col-span-4 lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
                 <div>
                     <div>
                         <CardTitle>Drawdowns</CardTitle>
@@ -125,9 +125,10 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">
-                <div className="h-[250px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={data}>
+                <div className="overflow-x-auto">
+                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={data}>
                             <defs>
                                 <linearGradient id="colorDrawdown" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
@@ -155,7 +156,16 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
                             />
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                             <RechartsTooltip
-                                contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                contentStyle={{
+                                    backgroundColor: 'hsl(var(--card))',
+                                    borderColor: 'hsl(var(--border))',
+                                    color: 'hsl(var(--card-foreground))',
+                                    maxWidth: "min(80vw, 240px)",
+                                    maxHeight: "42vh",
+                                    overflowY: "auto",
+                                    fontSize: 12
+                                }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                 labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
@@ -186,8 +196,9 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
                                     name={name}
                                 />
                             ))}
-                        </AreaChart>
-                    </ResponsiveContainer>
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </CardContent>
         </Card>

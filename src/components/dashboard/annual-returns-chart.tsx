@@ -111,7 +111,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
 
     return (
         <Card className="col-span-4 lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
                 <div>
                     <div>
                         <CardTitle>Annual Returns {portfolioCAGR ? `(${(portfolioCAGR * 100).toFixed(2)}% CAGR)` : ''}</CardTitle>
@@ -125,9 +125,10 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">
-                <div className="h-[250px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={data}>
+                <div className="overflow-x-auto">
+                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data}>
                             <XAxis
                                 dataKey="year"
                                 stroke="#888888"
@@ -145,7 +146,14 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                             <RechartsTooltip
                                 cursor={{ fill: 'transparent' }}
-                                contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                contentStyle={{
+                                    backgroundColor: 'hsl(var(--card))',
+                                    borderColor: 'hsl(var(--border))',
+                                    color: 'hsl(var(--card-foreground))',
+                                    maxWidth: "min(80vw, 240px)",
+                                    fontSize: 12
+                                }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number) => [`${value.toFixed(2)}%`, "Return"]}
                             />
@@ -154,8 +162,9 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                                     <Cell key={`cell-${index}`} fill={entry.value >= 0 ? "#22c55e" : "#ef4444"} />
                                 ))}
                             </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </CardContent>
         </Card>

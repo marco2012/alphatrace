@@ -1721,7 +1721,7 @@ export function AnalysisSection() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead onClick={() => handleSort("name")} className="cursor-pointer hover:bg-muted/50 sticky left-0 bg-background z-20 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                            <TableHead onClick={() => handleSort("name")} className="cursor-pointer hover:bg-muted/50 md:sticky md:left-0 bg-background md:z-20 md:border-r md:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                                 <div className="flex items-center justify-between">
                                                     Strategy
                                                     {sortConfig?.key === "name" && (
@@ -1973,7 +1973,7 @@ export function AnalysisSection() {
                                     <TableBody>
                                         {metricsTableRows.map((row) => (
                                             <TableRow key={row.key}>
-                                                <TableCell className="font-medium py-2 sticky left-0 bg-background z-10 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                                <TableCell className="font-medium py-2 md:sticky md:left-0 bg-background md:z-10 md:border-r md:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                                                     <div className="flex flex-col">
                                                         <span className="whitespace-nowrap">{row.name}</span>
                                                         {(() => {

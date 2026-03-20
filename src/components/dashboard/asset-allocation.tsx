@@ -123,7 +123,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                         <TableHeader className="bg-card shadow-sm">
                             <TableRow>
                                 <TableHead className="hidden sm:table-cell w-[25%] pl-6">Category</TableHead>
-                                <TableHead className="w-[50%] sm:w-[35%] pl-4 sm:pl-2">Asset</TableHead>
+                                <TableHead className="w-[58%] sm:w-[35%] pl-4 sm:pl-2">Asset</TableHead>
                                 <TableHead className="text-right w-[15%] sm:w-[10%] px-1 sm:px-4">TER</TableHead>
                                 <TableHead className="text-right w-[35%] sm:w-[30%] pr-4 sm:pr-6">Allocation</TableHead>
                             </TableRow>
@@ -167,7 +167,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                 </Badge>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="font-medium py-2 pl-4 sm:pl-2 text-foreground max-w-0">
+                                        <TableCell className="font-medium py-2 pl-4 sm:pl-2 text-foreground">
                                             <div className="flex flex-col min-w-0">
                                                 <div className="flex items-center gap-2 sm:hidden mb-1">
                                                     <Badge className={cn("font-medium text-[9px] uppercase rounded-md border-0 px-1 py-0 shrink-0", getCategoryBadgeClass(category))}>
@@ -187,7 +187,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                     </Badge>
                                                 </div>
                                                 <div className="flex items-center gap-1.5 group min-w-0">
-                                                    <span className="truncate">{asset}</span>
+                                                    <span className="block break-words leading-tight sm:truncate">{asset}</span>
                                                     {(() => {
                                                         const baseName = asset.replace(/ \((USD|EUR)\)$/, "");
                                                         const link = ASSET_EXTERNAL_LINKS[asset] || ASSET_EXTERNAL_LINKS[baseName];
@@ -211,7 +211,7 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                                                     const start = firstValidDates[asset];
                                                     const end = lastValidDates[asset];
                                                     return start && end ? (
-                                                        <span className="text-[10px] text-muted-foreground font-normal truncate">
+                                                        <span className="text-[10px] text-muted-foreground font-normal break-words sm:truncate">
                                                             {formatDate(start)} - {formatDate(end)}
                                                         </span>
                                                     ) : null;

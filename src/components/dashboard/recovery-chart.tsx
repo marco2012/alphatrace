@@ -136,7 +136,7 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
 
     return (
         <Card className="col-span-4 lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
                 <div>
                     <CardTitle>Drawdown Recovery Time</CardTitle>
                     <CardDescription>
@@ -148,15 +148,16 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                 </Button>
             </CardHeader>
             <CardContent className="pl-2">
-                <div className="h-[250px] w-full">
+                <div className="h-[320px] sm:h-[280px] md:h-[250px] w-full overflow-x-auto">
                     {isComparison ? (
                         comparisonData.length === 0 ? (
                             <div className="flex h-full items-center justify-center text-muted-foreground">
                                 No items selected.
                             </div>
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={comparisonData}>
+                            <div className="w-full min-w-[560px] md:min-w-0 h-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={comparisonData}>
                                     <XAxis
                                         dataKey="year"
                                         stroke="#888888"
@@ -174,7 +175,16 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                     />
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                     <Tooltip
-                                        contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                        wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            color: 'hsl(var(--card-foreground))',
+                                            maxWidth: "min(80vw, 240px)",
+                                            maxHeight: "42vh",
+                                            overflowY: "auto",
+                                            fontSize: 12
+                                        }}
                                         itemStyle={{ color: 'hsl(var(--foreground))' }}
                                         formatter={(value: number, name: string) => [`${value} months`, name]}
                                     />
@@ -187,16 +197,18 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                             radius={[4, 4, 0, 0]}
                                         />
                                     ))}
-                                </BarChart>
-                            </ResponsiveContainer>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
                         )
                     ) : episodeData.length === 0 ? (
                         <div className="flex h-full items-center justify-center text-muted-foreground">
                             No major drawdowns detected.
                         </div>
                     ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={episodeData}>
+                        <div className="w-full min-w-[560px] md:min-w-0 h-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={episodeData}>
                                 <XAxis
                                     dataKey="start"
                                     stroke="#888888"
@@ -217,7 +229,16 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                 />
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                                 <Tooltip
-                                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--card-foreground))' }}
+                                    wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
+                                    contentStyle={{
+                                        backgroundColor: 'hsl(var(--card))',
+                                        borderColor: 'hsl(var(--border))',
+                                        color: 'hsl(var(--card-foreground))',
+                                        maxWidth: "min(80vw, 240px)",
+                                        maxHeight: "42vh",
+                                        overflowY: "auto",
+                                        fontSize: 12
+                                    }}
                                     itemStyle={{ color: 'hsl(var(--foreground))' }}
                                     formatter={(value: number, name: string, props: any) => {
                                         if (name === "recoveryTimeMonths") return [`${value} months`, "Recovery Time"];
@@ -226,8 +247,9 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                     labelFormatter={(label: any) => `Drawdown started: ${new Date(label).toLocaleDateString()}`}
                                 />
                                 <Bar dataKey="recoveryTimeMonths" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
                     )}
                 </div>
             </CardContent>
