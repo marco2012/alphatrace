@@ -1,7 +1,8 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, averageRolling10YearCAGR, calmar, ulcerIndex } from "@/lib/finance";
+import { cagr, cagrRecurring, annualVol, sharpe, sortino, PortfolioResult, averageRolling10YearCAGR, calmar, ulcerIndex, twrr, InvestmentMode } from "@/lib/finance";
+import { usePortfolio } from "@/context/portfolio-context";
 
 interface MetricsCardsProps {
     portfolio: PortfolioResult | null;
@@ -10,10 +11,20 @@ interface MetricsCardsProps {
 }
 
 export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) {
+    const { investmentMode } = usePortfolio();
+    const showTWRR = investmentMode === "recurring" || investmentMode === "hybrid";
+
     if (!portfolio) {
+        const skeletonLabels = [
+            "Cumulative Return", "CAGR",
+            ...(showTWRR ? ["TWRR"] : []),
+            "Volatility", "Sharpe Ratio", "Sortino Ratio",
+            "Max Drawdown", "Calmar Ratio", "Ulcer Index",
+            "Avg 10Y Rolling CAGR", "Portfolio CAPE"
+        ];
         return (
             <div className="grid gap-4 grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
-                {["Cumulative Return", "CAGR", "Volatility", "Sharpe Ratio", "Sortino Ratio", "Max Drawdown", "Calmar Ratio", "Ulcer Index", "Avg 10Y Rolling CAGR", "Portfolio CAPE"].map((label) => (
+                {skeletonLabels.map((label) => (
                     <Card key={label}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">{label}</CardTitle>
@@ -56,6 +67,8 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
 
     const avgRolling10YearCAGR = averageRolling10YearCAGR(portfolio);
     const sharpe10YValue = volValue !== 0 ? (avgRolling10YearCAGR - rf) / volValue : 0;
+    const years = portRets.length / 12;
+    const twrrValue = showTWRR ? twrr(portRets, years) : 0;
 
     const formatPercent = (v: number) => `${(v * 100).toFixed(2)}%`;
     const formatNumber = (v: number) => v.toFixed(2);
@@ -84,6 +97,19 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
                     <p className="text-xs text-muted-foreground">Compound Annual Growth Rate</p>
                 </CardContent>
             </Card>
+            {showTWRR && (
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">TWRR</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {formatPercent(twrrValue)}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Time-Weighted Rate of Return</p>
+                    </CardContent>
+                </Card>
+            )}
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Volatility</CardTitle>
