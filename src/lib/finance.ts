@@ -209,6 +209,36 @@ export function calmar(cagrValue: number, maxDDValue: number): number {
     return cagrValue / absMaxDD;
 }
 
+/**
+ * Annualized Time-Weighted Rate of Return.
+ * portRets must be cash-flow-neutral sub-period returns
+ * (as produced by computeRecurringPortfolio / computeHybridPortfolio).
+ */
+export function twrr(portRets: number[], years: number): number {
+    if (portRets.length === 0 || years <= 0) return 0;
+    const cumulative = portRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
+    return Math.pow(1 + cumulative, 1 / years) - 1;
+}
+
+/**
+ * Rolling N-year annualized TWRR series.
+ * Returns one data point per month once the rolling window is full.
+ */
+export function rollingTWRR(
+    dates: string[],
+    portRets: number[],
+    years: number
+): { date: string; value: number }[] {
+    const w = years * 12;
+    const out: { date: string; value: number }[] = [];
+    for (let i = w; i < portRets.length; i++) {
+        const windowRets = portRets.slice(i - w, i);
+        const cum = windowRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
+        out.push({ date: dates[i], value: Math.pow(1 + cum, 1 / years) - 1 });
+    }
+    return out;
+}
+
 export interface RecoveryInfo {
     date: string | null; // Drawdown start date
     recoveryDate: string;
