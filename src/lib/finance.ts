@@ -229,6 +229,7 @@ export function rollingTWRR(
     portRets: number[],
     years: number
 ): { date: string; value: number }[] {
+    if (dates.length !== portRets.length) return [];
     const w = years * 12;
     const out: { date: string; value: number }[] = [];
     for (let i = w; i < portRets.length; i++) {
