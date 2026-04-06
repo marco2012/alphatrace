@@ -77,9 +77,20 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
     const seriesLabel = avgLabel ? `${years}Y CAGR (avg ${avgLabel}%)` : `${years}Y CAGR`;
 
     const downloadCSV = () => {
+        const headers = ['Date', `${years}-Year Rolling CAGR (%)`];
+        if (showTWRR) {
+            headers.push(`${years}-Year Rolling TWRR (%)`);
+        }
+
         const csv = [
-            ['Date', `${years}-Year Rolling CAGR (%)`],
-            ...data.map(row => [row.date, row.value.toFixed(2)])
+            headers,
+            ...data.map(row => {
+                const rowData = [row.date, row.value.toFixed(2)];
+                if (showTWRR) {
+                    rowData.push(row.twrr != null ? row.twrr.toFixed(2) : "");
+                }
+                return rowData;
+            })
         ].map(row => row.join(',')).join('\n');
 
         const blob = new Blob([csv], { type: 'text/csv' });
