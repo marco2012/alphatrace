@@ -13,7 +13,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import { PortfolioResult } from "@/lib/finance";
+import { PortfolioResult, rollingTWRR } from "@/lib/finance";
+import { usePortfolio } from "@/context/portfolio-context";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
@@ -22,13 +23,13 @@ interface RollingReturnsChartProps {
 }
 
 export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
+    const { investmentMode } = usePortfolio();
+    const showTWRR = investmentMode === "recurring" || investmentMode === "hybrid";
     const [years, setYears] = useState(10);
 
     const data = useMemo(() => {
         if (!portfolio) return [];
 
-        // Always use idxMap (Time-Weighted Return) for rolling strategy comparison
-        // This ensures the metric reflects the strategy performance, independent of cashflow timing (MWR)
         const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
             date: d,
             value: portfolio.idxMap[d]
@@ -36,30 +37,33 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
         const dates = idxArray.map(x => x.date);
         const seriesValues = idxArray.map(x => x.value);
 
-        // Calculate Rolling CAGR
-        // years * 12 months
         const period = years * 12;
         if (seriesValues.length < period) return [];
 
-        const result = [];
+        // Rolling CAGR from idxMap
+        const cagrMap: Record<string, number> = {};
         for (let i = period; i < seriesValues.length; i++) {
-            const date = dates[i];
             const startVal = seriesValues[i - period];
             const endVal = seriesValues[i];
-
-            // CAGR = (EndValue / StartValue)^(1/n) - 1
-            let cagr = 0;
-            if (startVal > 0) {
-                cagr = Math.pow(endVal / startVal, 1 / years) - 1;
-            }
-
-            result.push({
-                date: date,
-                value: cagr * 100 // percent
-            });
+            cagrMap[dates[i]] = startVal > 0 ? (Math.pow(endVal / startVal, 1 / years) - 1) * 100 : 0;
         }
-        return result;
-    }, [portfolio, years]);
+
+        // Rolling TWRR from portRets (only for recurring/hybrid)
+        const twrrMap: Record<string, number> = {};
+        if (showTWRR && portfolio.portRets && portfolio.dates) {
+            const twrrPoints = rollingTWRR(portfolio.dates, portfolio.portRets, years);
+            for (const pt of twrrPoints) {
+                twrrMap[pt.date] = pt.value * 100;
+            }
+        }
+
+        // Merge by date — only dates that have a CAGR value
+        return Object.keys(cagrMap).sort().map(date => ({
+            date,
+            value: cagrMap[date],
+            twrr: twrrMap[date] ?? null,
+        }));
+    }, [portfolio, years, showTWRR]);
 
     const avgRollingReturn = useMemo(() => {
         if (data.length === 0) return null;
@@ -153,7 +157,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                     fontSize: 12
                                 }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
-                                formatter={(value: number) => [`${value.toFixed(2)}%`, seriesLabel]}
+                                formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
                                 labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Line
@@ -164,6 +168,17 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 strokeWidth={2}
                                 dot={false}
                             />
+                            {showTWRR && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="twrr"
+                                    name={`${years}Y TWRR`}
+                                    stroke="#2563eb"
+                                    strokeWidth={2}
+                                    dot={false}
+                                    connectNulls={false}
+                                />
+                            )}
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
