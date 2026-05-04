@@ -74,10 +74,10 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
     if (!portfolio) return null;
 
     const avgLabel = avgRollingReturn == null ? null : avgRollingReturn.toFixed(2);
-    const seriesLabel = avgLabel ? `${years}Y CAGR (avg ${avgLabel}%)` : `${years}Y CAGR`;
+    const seriesLabel = avgLabel ? `${years}Y TWR (avg ${avgLabel}%)` : `${years}Y TWR`;
 
     const downloadCSV = () => {
-        const headers = ['Date', `${years}-Year Rolling CAGR (%)`];
+        const headers = ['Date', `${years}-Year Rolling TWR (%)`];
         if (showTWRR) {
             headers.push(`${years}-Year Rolling TWRR (%)`);
         }

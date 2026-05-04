@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
-import { PortfolioResult, computeAnnualReturns, cagr, cagrRecurring } from "@/lib/finance";
+import { PortfolioResult, computeAnnualReturns, twrr } from "@/lib/finance";
 import { useMemo } from "react";
 
 interface AnnualReturnsChartProps {
@@ -83,13 +83,9 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
 
     if (!portfolio) return null;
 
-    const portfolioCAGR = useMemo(() => {
-        if (portfolio.portValues && portfolio.totalInvested && portfolio.portValues.length === portfolio.totalInvested.length) {
-            return cagrRecurring(portfolio.portValues, portfolio.totalInvested);
-        }
-        const values = Object.values(portfolio.idxMap);
-        if (values.length < 2) return 0;
-        return cagr(values.map((value, index) => ({ value })));
+    const portfolioTWR = useMemo(() => {
+        if (!portfolio.portRets.length) return 0;
+        return twrr(portfolio.portRets, portfolio.portRets.length / 12);
     }, [portfolio]);
 
     const downloadCSV = () => {
@@ -114,7 +110,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
             <CardHeader className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
                 <div>
                     <div>
-                        <CardTitle>Annual Returns {portfolioCAGR ? `(${(portfolioCAGR * 100).toFixed(2)}% CAGR)` : ''}</CardTitle>
+                        <CardTitle>Annual Returns {portfolioTWR ? `(${(portfolioTWR * 100).toFixed(2)}% TWR)` : ''}</CardTitle>
                         <CardDescription>
                             Year-over-year performance.
                         </CardDescription>

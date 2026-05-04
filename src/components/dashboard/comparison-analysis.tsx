@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Download } from "lucide-react";
-import { PortfolioResult, cagr, cagrRecurring, annualVol, sharpe, sortino, maxDrawdown, averageRolling10YearCAGR, calmar, ulcerIndex } from "@/lib/finance";
+import { PortfolioResult, annualVol, sharpe, sortino, maxDrawdown, averageRolling10YearCAGR, calmar, ulcerIndex, twrr } from "@/lib/finance";
 import {
     LineChart,
     Line,
@@ -51,14 +51,14 @@ const COLORS = [
 ];
 
 const METRIC_EXPLANATIONS = {
-    cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
+    cagrValue: "Time-Weighted Rate of Return (annualized). Eliminates the effect of external cash flows, making it comparable across portfolios and benchmarks regardless of investment mode. Equals CAGR for lump-sum portfolios.",
     volValue: "Annualized Volatility. A statistical measure of the dispersion of returns, representing the risk/variability of the investment.",
     sharpeValue: "Sharpe Ratio. Measures the performance of an investment compared to a risk-free asset, after adjusting for its risk.",
     sortinoValue: "Sortino Ratio. A variation of the Sharpe ratio that only considers downside volatility (negative returns).",
     maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
     calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
     ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
+    avgRolling10YearCAGRValue: "Average 10Y Rolling TWR. The average of all possible 10-year rolling Time-Weighted Returns.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period."
 };
 
@@ -374,7 +374,7 @@ export function ComparisonAnalysis() {
                                         <UITooltip delayDuration={0}>
                                             <UITooltipTrigger asChild>
                                                 <div className="flex items-center justify-end gap-1 cursor-pointer">
-                                                    CAGR
+                                                    TWRR
                                                     <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                 </div>
                                             </UITooltipTrigger>
@@ -465,7 +465,7 @@ export function ComparisonAnalysis() {
                                         <UITooltip delayDuration={0}>
                                             <UITooltipTrigger asChild>
                                                 <div className="flex items-center justify-end gap-1 cursor-pointer">
-                                                    Avg 10Y Rolling CAGR
+                                                    Avg 10Y Rolling TWR
                                                     <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                 </div>
                                             </UITooltipTrigger>
@@ -479,9 +479,8 @@ export function ComparisonAnalysis() {
                             <TableBody>
                                 {itemsWithResults.map((item) => {
                                     if (!item.result) return null;
-                                    const cagrVal = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
-                                        ? cagrRecurring(item.result.portValues, item.result.totalInvested)
-                                        : cagr(Object.keys(item.result.idxMap).sort().map(d => ({ value: item.result!.idxMap[d] })));
+                                    const years = item.result.portRets.length / 12;
+                                    const cagrVal = twrr(item.result.portRets, years);
                                     const volVal = annualVol(item.result.portRets);
                                     const sharpeVal = sharpe(item.result.portRets, 0.02); // assuming rf=2%
                                     const sortinoVal = sortino(item.result.portRets, 0.02);

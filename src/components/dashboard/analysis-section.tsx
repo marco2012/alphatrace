@@ -29,10 +29,12 @@ import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigge
 import {
     annualVol,
     averageRolling10YearCAGR,
+    averageRolling10YearMWR,
     averageRolling10YearVol,
+    averageRollingDownsideDev,
     averageRolling5YearCAGR,
-    cagr,
-    cagrRecurring,
+    rollingTWRRDistribution,
+    twrr,
     computeAnnualReturns,
     downsideDeviation,
     formatMonthsAsYearsAndMonths,
@@ -45,7 +47,8 @@ import {
     calmar,
     computeBeta,
     computeRollingBeta,
-    calculatePortfolioCAPE
+    calculatePortfolioCAPE,
+    mwr
 } from "@/lib/finance";
 
 import {
@@ -68,19 +71,24 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 const METRIC_EXPLANATIONS = {
-    cagrValue: "Compound Annual Growth Rate. The geometric progression ratio that provides a constant rate of return over the time period.",
+    cagrValue: "Time-Weighted Rate of Return (annualized). Eliminates the effect of external cash flows, making it comparable across portfolios and benchmarks regardless of investment mode. Equals CAGR for lump-sum portfolios.",
+    mwrValue: "Money-Weighted Return (annualized IRR). Includes contribution timing/size, so recurring and hybrid modes can differ materially from TWR.",
     volValue: "Annualized Volatility. A statistical measure of the dispersion of returns, representing the risk/variability of the investment.",
     sharpeValue: "Sharpe Ratio. Measures the performance of an investment compared to a risk-free asset, after adjusting for its risk.",
     sortinoValue: "Sortino Ratio. A variation of the Sharpe ratio that only considers downside volatility (negative returns).",
+    downsideVolValue: "Downside Volatility. Annualized standard deviation of returns below the risk-free threshold.",
     maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
     calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
     ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
+    positiveYearsPctValue: "Positive Years (%). Percentage of calendar years with positive annual returns.",
+    longestLosingStreakYearsValue: "Longest Losing Streak. Longest run of consecutive negative calendar years.",
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling CAGR. The average of all possible 10-year rolling Compound Annual Growth Rates.",
-    sharpe10YValue: "Sharpe (10Y). Sharpe Ratio calculated using the Average 10-Year Rolling CAGR.",
-    sortino10YValue: "Sortino (10Y). Sortino Ratio calculated using the Average 10-Year Rolling CAGR.",
-    avgRolling5YearCAGRValue: "Average 5Y Rolling CAGR. The average of all possible 5-year rolling Compound Annual Growth Rates.",
+    avgRolling10YearCAGRValue: "Average 10Y Rolling TWR. The average of all possible 10-year rolling Time-Weighted Returns.",
+    avgRolling10YearMWRValue: "Average 10Y Rolling MWR (IRR). The average of all possible 10-year rolling money-weighted returns, including contribution timing.",
+    sharpe10YValue: "Sharpe (10Y). Sharpe Ratio calculated using the Average 10-Year Rolling TWR.",
+    sortino10YValue: "Sortino (10Y). Sortino Ratio calculated using the Average 10-Year Rolling TWR.",
+    avgRolling5YearCAGRValue: "Average 5Y Rolling TWR. The average of all possible 5-year rolling Time-Weighted Returns.",
     vol10YValue: "Volatility (10Y). The average annualized volatility over rolling 10-year periods.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
     capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
@@ -786,20 +794,37 @@ export function AnalysisSection() {
                 const r = item.result;
                 if (!r) return null;
 
-                const cagrValue = (r.portValues && r.totalInvested && r.portValues.length === r.totalInvested.length)
-                    ? cagrRecurring(r.portValues, r.totalInvested)
-                    : cagr(Object.keys(r.idxMap).sort().map((d) => ({ value: r.idxMap[d] })));
+                const cagrValue = twrr(r.portRets, r.portRets.length / 12);
+                const mwrValue = mwr(r.portValues, r.totalInvested);
                 const volValue = annualVol(r.portRets);
                 const sharpeValue = sharpe(r.portRets, riskFreeRate);
                 const avgRolling10YearCAGRValue = averageRolling10YearCAGR(r);
-                const sharpe10YValue = volValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / volValue : 0;
+                const avgRolling10YearMWRValue = averageRolling10YearMWR(r);
 
-                // New metrics for rolling view
+                // Rolling-window risk metrics: averaged across 10Y windows for consistency with the rolling return.
                 const vol10YValue = averageRolling10YearVol(r);
-                const ddValue = downsideDeviation(r.portRets, riskFreeRate);
-                const sortino10YValue = ddValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / ddValue : 0;
+                const dd10YValue = averageRollingDownsideDev(r.portRets, 10, riskFreeRate);
+                const sharpe10YValue = vol10YValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / vol10YValue : 0;
+                const sortino10YValue = dd10YValue !== 0 ? (avgRolling10YearCAGRValue - riskFreeRate) / dd10YValue : 0;
 
                 const sortinoValue = sortino(r.portRets, riskFreeRate);
+                const downsideVolValue = downsideDeviation(r.portRets, riskFreeRate);
+                const annualReturns = computeAnnualReturns(r.idxMap);
+                const positiveYearsCount = annualReturns.filter((a) => a.nominal > 0).length;
+                const totalYearsCount = annualReturns.length;
+                const positiveYearsPctValue = totalYearsCount ? positiveYearsCount / totalYearsCount : 0;
+                let longestLosingStreakYearsValue = 0;
+                let currentLosingStreak = 0;
+                for (const a of annualReturns) {
+                    if (a.nominal < 0) {
+                        currentLosingStreak++;
+                        if (currentLosingStreak > longestLosingStreakYearsValue) {
+                            longestLosingStreakYearsValue = currentLosingStreak;
+                        }
+                    } else {
+                        currentLosingStreak = 0;
+                    }
+                }
 
                 let actualDrawdowns = r.drawdowns;
                 if ((investmentMode === "recurring" || investmentMode === "hybrid") && r.portValues && r.dates.length === r.portValues.length) {
@@ -814,6 +839,7 @@ export function AnalysisSection() {
 
                 const maxDD = actualDrawdowns.reduce((min, d) => Math.min(min, d.value), 0);
                 const avgRolling5YearCAGRValue = averageRolling5YearCAGR(r);
+                const rolling10YDist = rollingTWRRDistribution(r.portRets, 10);
                 const calmarValue = calmar(cagrValue, maxDD);
                 const ulcerIndexValue = ulcerIndex(actualDrawdowns);
 
@@ -837,6 +863,8 @@ export function AnalysisSection() {
                     name: item.name,
                     cagrValue,
                     cagr: fmtPct(cagrValue),
+                    mwrValue,
+                    mwr: fmtPct(mwrValue),
                     volValue,
                     vol: fmtPct(volValue),
                     vol10YValue,
@@ -847,6 +875,8 @@ export function AnalysisSection() {
                     sharpe10Y: fmtNum(sharpe10YValue),
                     sortinoValue,
                     sortino: fmtNum(sortinoValue),
+                    downsideVolValue,
+                    downsideVol: fmtPct(downsideVolValue),
                     sortino10YValue,
                     sortino10Y: fmtNum(sortino10YValue),
                     maxDDValue: maxDD,
@@ -855,12 +885,21 @@ export function AnalysisSection() {
                     calmar: fmtNum(calmarValue),
                     ulcerIndexValue,
                     ulcerIndex: fmtNum(ulcerIndexValue),
+                    positiveYearsPctValue,
+                    positiveYearsCount,
+                    totalYearsCount,
+                    positiveYearsPct: `${Math.round(positiveYearsPctValue * 100)}% (${positiveYearsCount}/${totalYearsCount})`,
+                    longestLosingStreakYearsValue,
+                    longestLosingStreakYears: `${longestLosingStreakYearsValue}y`,
                     avgRolling10YearCAGRValue,
                     avgRolling10YearCAGR: fmtPct(avgRolling10YearCAGRValue),
+                    avgRolling10YearMWRValue,
+                    avgRolling10YearMWR: fmtPct(avgRolling10YearMWRValue),
                     avgRolling5YearCAGRValue,
                     avgRolling5YearCAGR: fmtPct(avgRolling5YearCAGRValue),
                     recoveryMonthsValue,
                     recoveryMonths,
+                    rolling10YDist,
                     finalValue,
                     cape: calculatePortfolioCAPE(
                         item.type === "asset"
@@ -874,6 +913,8 @@ export function AnalysisSection() {
                 name: string;
                 cagrValue: number;
                 cagr: string;
+                mwrValue: number;
+                mwr: string;
                 volValue: number;
                 vol: string;
                 vol10YValue: number;
@@ -884,6 +925,8 @@ export function AnalysisSection() {
                 sharpe10Y: string;
                 sortinoValue: number;
                 sortino: string;
+                downsideVolValue: number;
+                downsideVol: string;
                 sortino10YValue: number;
                 sortino10Y: string;
                 maxDDValue: number;
@@ -892,12 +935,21 @@ export function AnalysisSection() {
                 calmar: string;
                 ulcerIndexValue: number;
                 ulcerIndex: string;
+                positiveYearsPctValue: number;
+                positiveYearsCount: number;
+                totalYearsCount: number;
+                positiveYearsPct: string;
+                longestLosingStreakYearsValue: number;
+                longestLosingStreakYears: string;
                 avgRolling10YearCAGRValue: number;
                 avgRolling10YearCAGR: string;
+                avgRolling10YearMWRValue: number;
+                avgRolling10YearMWR: string;
                 avgRolling5YearCAGRValue: number;
                 avgRolling5YearCAGR: string;
                 recoveryMonthsValue: number;
                 recoveryMonths: string;
+                rolling10YDist: number[];
                 finalValue: number;
                 cape: number | null;
             }>;
@@ -1750,7 +1802,7 @@ export function AnalysisSection() {
                                                     <UITooltip delayDuration={0}>
                                                         <UITooltipTrigger asChild>
                                                             <div className="flex items-center justify-end gap-1 w-full">
-                                                                CAGR
+                                                                TWR
                                                                 <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                                 {sortConfig?.key === "cagrValue" && (
                                                                     sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
@@ -1763,29 +1815,31 @@ export function AnalysisSection() {
                                                     </UITooltip>
                                                 </TableHead>
                                             )}
+                                            {!showRollingMetrics && (
+                                                <TableHead onClick={() => handleSort("mwrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
+                                                    <UITooltip delayDuration={0}>
+                                                        <UITooltipTrigger asChild>
+                                                            <div className="flex items-center justify-end gap-1 w-full">
+                                                                MWR
+                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                                {sortConfig?.key === "mwrValue" && (
+                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                                )}
+                                                            </div>
+                                                        </UITooltipTrigger>
+                                                        <UITooltipContent side="top" align="center">
+                                                            <p className="w-48">{METRIC_EXPLANATIONS.mwrValue}</p>
+                                                        </UITooltipContent>
+                                                    </UITooltip>
+                                                </TableHead>
+                                            )}
                                             {showRollingMetrics && (
                                                 <>
-                                                    <TableHead onClick={() => handleSort("avgRolling5YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                        <UITooltip delayDuration={0}>
-                                                            <UITooltipTrigger asChild>
-                                                                <div className="flex items-center justify-end gap-1 w-full">
-                                                                    5Y CAGR
-                                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                    {sortConfig?.key === "avgRolling5YearCAGRValue" && (
-                                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                    )}
-                                                                </div>
-                                                            </UITooltipTrigger>
-                                                            <UITooltipContent side="top" align="center">
-                                                                <p className="w-48">{METRIC_EXPLANATIONS.avgRolling5YearCAGRValue}</p>
-                                                            </UITooltipContent>
-                                                        </UITooltip>
-                                                    </TableHead>
                                                     <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
                                                         <UITooltip delayDuration={0}>
                                                             <UITooltipTrigger asChild>
                                                                 <div className="flex items-center justify-end gap-1 w-full">
-                                                                    10Y CAGR
+                                                                    10Y TWR
                                                                     <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                                     {sortConfig?.key === "avgRolling10YearCAGRValue" && (
                                                                         sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
@@ -1794,6 +1848,22 @@ export function AnalysisSection() {
                                                             </UITooltipTrigger>
                                                             <UITooltipContent side="top" align="center">
                                                                 <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
+                                                            </UITooltipContent>
+                                                        </UITooltip>
+                                                    </TableHead>
+                                                    <TableHead onClick={() => handleSort("avgRolling10YearMWRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[110px]">
+                                                        <UITooltip delayDuration={0}>
+                                                            <UITooltipTrigger asChild>
+                                                                <div className="flex items-center justify-end gap-1 w-full">
+                                                                    10Y MWR
+                                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                                    {sortConfig?.key === "avgRolling10YearMWRValue" && (
+                                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                                    )}
+                                                                </div>
+                                                            </UITooltipTrigger>
+                                                            <UITooltipContent side="top" align="center">
+                                                                <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearMWRValue}</p>
                                                             </UITooltipContent>
                                                         </UITooltip>
                                                     </TableHead>
@@ -1904,6 +1974,22 @@ export function AnalysisSection() {
                                                     </UITooltip>
                                                 </TableHead>
                                             )}
+                                            <TableHead onClick={() => handleSort("downsideVolValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[120px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Downside Vol
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "downsideVolValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.downsideVolValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
                                             <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
                                                 <UITooltip delayDuration={0}>
                                                     <UITooltipTrigger asChild>
@@ -1933,6 +2019,38 @@ export function AnalysisSection() {
                                                     </UITooltipTrigger>
                                                     <UITooltipContent side="top" align="center">
                                                         <p className="w-48">{METRIC_EXPLANATIONS.ulcerIndexValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("positiveYearsPctValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[120px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Positive Years
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "positiveYearsPctValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.positiveYearsPctValue}</p>
+                                                    </UITooltipContent>
+                                                </UITooltip>
+                                            </TableHead>
+                                            <TableHead onClick={() => handleSort("longestLosingStreakYearsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
+                                                <UITooltip delayDuration={0}>
+                                                    <UITooltipTrigger asChild>
+                                                        <div className="flex items-center justify-end gap-1 w-full">
+                                                            Longest Losing Streak
+                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
+                                                            {sortConfig?.key === "longestLosingStreakYearsValue" && (
+                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
+                                                            )}
+                                                        </div>
+                                                    </UITooltipTrigger>
+                                                    <UITooltipContent side="top" align="center">
+                                                        <p className="w-48">{METRIC_EXPLANATIONS.longestLosingStreakYearsValue}</p>
                                                     </UITooltipContent>
                                                 </UITooltip>
                                             </TableHead>
@@ -1993,10 +2111,13 @@ export function AnalysisSection() {
                                                 {!showRollingMetrics && (
                                                     <TableCell className="text-right">{row.cagr}</TableCell>
                                                 )}
+                                                {!showRollingMetrics && (
+                                                    <TableCell className="text-right">{row.mwr}</TableCell>
+                                                )}
                                                 {showRollingMetrics && (
                                                     <>
-                                                        <TableCell className="text-right text-blue-600">{row.avgRolling5YearCAGR}</TableCell>
                                                         <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
+                                                        <TableCell className="text-right text-teal-600">{row.avgRolling10YearMWR}</TableCell>
                                                     </>
                                                 )}
                                                 {!showRollingMetrics ? (
@@ -2014,6 +2135,7 @@ export function AnalysisSection() {
                                                 ) : (
                                                     <TableCell className="text-right text-blue-600">{row.sortino10Y}</TableCell>
                                                 )}
+                                                <TableCell className="text-right">{row.downsideVol}</TableCell>
                                                 <TableCell className={`text-right ${(() => {
                                                     const val = Math.abs(row.maxDDValue);
                                                     if (val < 0.15) return "text-red-400";
@@ -2023,6 +2145,8 @@ export function AnalysisSection() {
                                                     return "text-red-800";
                                                 })()}`}>{row.maxDD}</TableCell>
                                                 <TableCell className="text-right">{row.ulcerIndex}</TableCell>
+                                                <TableCell className="text-right text-lime-600">{row.positiveYearsPct}</TableCell>
+                                                <TableCell className="text-right text-rose-600">{row.longestLosingStreakYears}</TableCell>
                                                 <TableCell className="text-right">{row.recoveryMonths}</TableCell>
                                                 <TableCell className="text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
                                             </TableRow>
@@ -2033,6 +2157,196 @@ export function AnalysisSection() {
                         </CardContent>
                     </Card>
                 )}
+
+                {validItems.length > 0 && showRollingMetrics && (() => {
+                    const INFLATION_THRESHOLD = 0.02;
+
+                    const distRows = slicedItems
+                        .map(item => {
+                            if (!item.result) return null;
+                            const rawDist = rollingTWRRDistribution(item.result.portRets, rollingYears);
+                            if (rawDist.length === 0) return null;
+                            const row = metricsTableRows.find(r => r.key === makeKey(item));
+                            if (!row) return null;
+                            const d = [...rawDist].sort((a, b) => a - b);
+                            const n = d.length;
+                            const median = n % 2 === 0
+                                ? (d[n / 2 - 1] + d[n / 2]) / 2
+                                : d[Math.floor(n / 2)];
+                            const mean = d.reduce((s, v) => s + v, 0) / n;
+                            const worst = d[0];
+                            const best = d[n - 1];
+                            const pctNeg = d.filter(v => v < 0).length / n;
+                            const pctAboveInflation = d.filter(v => v >= INFLATION_THRESHOLD).length / n;
+                            const p10 = d[Math.floor(n * 0.1)];
+                            const p25 = d[Math.floor(n * 0.25)];
+                            const p75 = d[Math.floor(n * 0.75)];
+                            const p90 = d[Math.floor(n * 0.9)];
+                            return { key: makeKey(item), name: item.name, median, mean, worst, best, pctNeg, pctAboveInflation, p10, p25, p75, p90, dist: d, n };
+                        })
+                        .filter(Boolean) as Array<{ key: string; name: string; median: number; mean: number; worst: number; best: number; pctNeg: number; pctAboveInflation: number; p10: number; p25: number; p75: number; p90: number; dist: number[]; n: number }>;
+
+                    if (distRows.length === 0) return null;
+
+                    // Build histogram bins
+                    const allVals = distRows.flatMap(r => r.dist);
+                    const globalMin = Math.min(...allVals);
+                    const globalMax = Math.max(...allVals);
+                    const BIN_WIDTH = 0.01; // 1% bins
+                    const binStart = Math.floor(globalMin / BIN_WIDTH) * BIN_WIDTH;
+                    const binEnd = Math.ceil(globalMax / BIN_WIDTH) * BIN_WIDTH;
+                    const binCount = Math.round((binEnd - binStart) / BIN_WIDTH) + 1;
+                    const bins = Array.from({ length: binCount }, (_, i) => binStart + i * BIN_WIDTH);
+
+                    const histData = bins.map(bin => {
+                        const point: Record<string, number | string> = {
+                            bin: `${(bin * 100).toFixed(0)}%`
+                        };
+                        for (const row of distRows) {
+                            const count = row.dist.filter(v => v >= bin && v < bin + BIN_WIDTH).length;
+                            point[row.name] = row.n > 0 ? (count / row.n) * 100 : 0;
+                        }
+                        return point;
+                    });
+
+                    const colors = slicedItems.map(i => i.color);
+                    const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
+
+                    return (
+                        <Card key={`dist-${calcKey}-${rollingYears}`}>
+                            <CardHeader className="flex flex-row items-start justify-between gap-4">
+                                <div>
+                                    <CardTitle>Rolling {rollingYears}Y Return Distribution</CardTitle>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Each data point is an independently computed {rollingYears}-year annualized return (geometric compounding). Windows advance monthly.
+                                    </p>
+                                </div>
+                                {(() => {
+                                    const minMonths = slicedItems.reduce((min, item) =>
+                                        Math.min(min, item.result?.portRets.length ?? 0), Infinity);
+                                    const availableOptions = [5, 10, 15, 20, 25].filter(y => y * 12 <= minMonths);
+                                    const safeValue = availableOptions.includes(rollingYears)
+                                        ? rollingYears
+                                        : (availableOptions[availableOptions.length - 1] ?? 5);
+                                    return (
+                                        <Select value={String(safeValue)} onValueChange={(v) => setRollingYears(Number(v))}>
+                                            <SelectTrigger className="w-[90px] shrink-0">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {availableOptions.map(y => (
+                                                    <SelectItem key={y} value={String(y)}>{y}Y</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    );
+                                })()}
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="overflow-x-auto">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead className="md:sticky md:left-0 bg-background md:z-20 md:border-r">Strategy</TableHead>
+                                                {[
+                                                    { label: "Windows", tip: "Total number of rolling 10-year periods computed. Each window shifts forward by one month." },
+                                                    { label: "Median", tip: "Middle value of all rolling 10Y returns. More robust than the mean — not distorted by extreme outliers. This is the primary summary statistic." },
+                                                    { label: "Mean", tip: "Arithmetic average of all rolling 10Y annualized returns. Can be skewed by extreme best/worst windows." },
+                                                    { label: "Worst", tip: "The single worst 10-year annualized return across all rolling windows. Represents the tail risk of a 10-year holding period." },
+                                                    { label: "Best", tip: "The single best 10-year annualized return across all rolling windows." },
+                                                    { label: "P10", tip: "10th percentile: 10% of all rolling 10Y windows produced a return below this value. Represents a bad-but-not-worst outcome." },
+                                                    { label: "P25", tip: "25th percentile (lower quartile): 25% of windows fell below this return." },
+                                                    { label: "P75", tip: "75th percentile (upper quartile): 75% of windows fell below this return." },
+                                                    { label: "P90", tip: "90th percentile: 90% of windows fell below this return. Represents a strong-but-not-best outcome." },
+                                                    { label: "% Negative", tip: "Share of rolling 10-year windows that ended with a negative annualized return — i.e. the investor lost money in real nominal terms.", className: "text-red-600" },
+                                                    { label: "% > Inflation (2%)", tip: "Share of rolling 10-year windows where the annualized return exceeded 2% (a common inflation proxy). Measures the consistency of real purchasing-power preservation.", className: "text-emerald-600" },
+                                                ].map(({ label, tip, className }) => (
+                                                    <TableHead key={label} className={`text-right${className ? ` ${className}` : ""}`}>
+                                                        <UITooltip delayDuration={0}>
+                                                            <UITooltipTrigger asChild>
+                                                                <div className="flex items-center justify-end gap-1 cursor-help">
+                                                                    {label}
+                                                                    <Info className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                                                                </div>
+                                                            </UITooltipTrigger>
+                                                            <UITooltipContent side="top" align="center">
+                                                                <p className="w-56 text-white">{tip}</p>
+                                                            </UITooltipContent>
+                                                        </UITooltip>
+                                                    </TableHead>
+                                                ))}
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {distRows.map((row, idx) => (
+                                                <TableRow key={row.key}>
+                                                    <TableCell className="font-medium md:sticky md:left-0 bg-background md:z-10 md:border-r">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[idx] }} />
+                                                            {row.name}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right text-muted-foreground">{row.n}</TableCell>
+                                                    <TableCell className="text-right font-semibold text-blue-600">{fmtPct(row.median)}</TableCell>
+                                                    <TableCell className="text-right">{fmtPct(row.mean)}</TableCell>
+                                                    <TableCell className="text-right text-red-600">{fmtPct(row.worst)}</TableCell>
+                                                    <TableCell className="text-right text-green-600">{fmtPct(row.best)}</TableCell>
+                                                    <TableCell className="text-right text-muted-foreground">{fmtPct(row.p10)}</TableCell>
+                                                    <TableCell className="text-right text-muted-foreground">{fmtPct(row.p25)}</TableCell>
+                                                    <TableCell className="text-right text-muted-foreground">{fmtPct(row.p75)}</TableCell>
+                                                    <TableCell className="text-right text-muted-foreground">{fmtPct(row.p90)}</TableCell>
+                                                    <TableCell className="text-right text-red-600">{Math.round(row.pctNeg * 100)}%</TableCell>
+                                                    <TableCell className="text-right text-emerald-600">{Math.round(row.pctAboveInflation * 100)}%</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                <div className="h-[260px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={histData} barCategoryGap="5%" barGap={1}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
+                                            <XAxis
+                                                dataKey="bin"
+                                                fontSize={11}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                interval={4}
+                                                stroke="#888888"
+                                            />
+                                            <YAxis
+                                                fontSize={11}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                stroke="#888888"
+                                                tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                                                label={{ value: "% of windows", angle: -90, position: "insideLeft", fontSize: 11, fill: "#888888", dy: 50 }}
+                                            />
+                                            <ReferenceLine x="0%" stroke="#ef4444" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: "0%", fill: "#ef4444", fontSize: 10, position: "top" }} />
+                                            <ReferenceLine x="2%" stroke="#10b981" strokeDasharray="4 2" strokeWidth={1.5} label={{ value: "2%", fill: "#10b981", fontSize: 10, position: "top" }} />
+                                            <RechartsTooltip
+                                                formatter={(value: number, name: string) => [`${value.toFixed(1)}%`, name]}
+                                                labelFormatter={(label: string) => `Annualized return: ${label}`}
+                                                labelStyle={{ color: "#000000" }}
+                                            />
+                                            <Legend />
+                                            {distRows.map((row, idx) => (
+                                                <Bar
+                                                    key={row.key}
+                                                    dataKey={row.name}
+                                                    fill={colors[idx]}
+                                                    fillOpacity={distRows.length > 1 ? 0.7 : 0.85}
+                                                    radius={[2, 2, 0, 0]}
+                                                />
+                                            ))}
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    );
+                })()}
 
                 {validItems.length > 0 && (
                     <PortfolioCompositionCards
@@ -2119,11 +2433,8 @@ export function AnalysisSection() {
                                                             const item = slicedItems.find(item => item.name === value);
                                                             if (!item?.result) return value;
 
-                                                            const cagrValue = (item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.totalInvested.length)
-                                                                ? cagrRecurring(item.result.portValues, item.result.totalInvested)
-                                                                : cagr(Object.keys(item.result.idxMap).sort().map((d) => ({ value: item.result!.idxMap[d] })));
-
-                                                            return `${value} (${(cagrValue * 100).toFixed(2)}%)`;
+                                                            const twrrValue = twrr(item.result.portRets, item.result.portRets.length / 12);
+                                                            return `${value} (${(twrrValue * 100).toFixed(2)}%)`;
                                                         }}
                                                     />
                                                     {slicedItems

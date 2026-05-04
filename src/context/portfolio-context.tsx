@@ -144,7 +144,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     });
-    const [investmentMode, setInvestmentMode] = useState<InvestmentMode>("lump_sum");
+    const [investmentMode, setInvestmentMode] = useState<InvestmentMode>("hybrid");
     const [initialInvestment, setInitialInvestment] = useState(100000);
     const [monthlyInvestment, setMonthlyInvestment] = useState(1000);
     const [rebalance, setRebalance] = useState<RebalancePeriod>("Annual");

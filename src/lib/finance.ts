@@ -177,8 +177,12 @@ export function sharpe(mrets: number[], rf = 0): number {
 }
 
 export function sortino(mrets: number[], rf = 0): number {
-    const rfM = rf / 12; const dn = mrets.filter(r => r < rfM); const dd = stdev(dn);
-    const mean = (mrets.reduce((a, b) => a + b, 0) / mrets.length) - rfM; return dd === 0 ? 0 : (mean / dd) * Math.sqrt(12);
+    if (!mrets.length) return 0;
+    const rfM = rf / 12;
+    const sq = mrets.reduce((s, r) => s + Math.pow(Math.min(r - rfM, 0), 2), 0);
+    const dd = Math.sqrt(sq / mrets.length);
+    const mean = (mrets.reduce((a, b) => a + b, 0) / mrets.length) - rfM;
+    return dd === 0 ? 0 : (mean / dd) * Math.sqrt(12);
 }
 
 export interface DrawdownPoint {
@@ -218,6 +222,56 @@ export function twrr(portRets: number[], years: number): number {
     if (portRets.length === 0 || years <= 0) return 0;
     const cumulative = portRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
     return Math.pow(1 + cumulative, 1 / years) - 1;
+}
+
+/**
+ * Money-Weighted Rate of Return (MWR), annualized.
+ * Uses monthly cash flows derived from totalInvested deltas and final liquidation value.
+ */
+export function mwr(portValues?: number[], totalInvested?: number[]): number {
+    if (!portValues || !totalInvested) return 0;
+    if (portValues.length === 0 || portValues.length !== totalInvested.length) return 0;
+    if (portValues.length < 2) return 0;
+
+    const cashFlows: number[] = [];
+    for (let i = 0; i < totalInvested.length; i++) {
+        const contribution = i === 0 ? totalInvested[0] : totalInvested[i] - totalInvested[i - 1];
+        cashFlows.push(-contribution);
+    }
+    cashFlows[cashFlows.length - 1] += portValues[portValues.length - 1];
+
+    const npv = (rate: number): number =>
+        cashFlows.reduce((acc, cf, t) => acc + cf / Math.pow(1 + rate, t), 0);
+
+    let low = -0.9999;
+    let high = 1.0;
+    let fLow = npv(low);
+    let fHigh = npv(high);
+
+    for (let i = 0; i < 20 && fLow * fHigh > 0; i++) {
+        high *= 2;
+        fHigh = npv(high);
+    }
+
+    if (fLow * fHigh > 0) return 0;
+
+    for (let i = 0; i < 100; i++) {
+        const mid = (low + high) / 2;
+        const fMid = npv(mid);
+        if (Math.abs(fMid) < 1e-10) {
+            return Math.pow(1 + mid, 12) - 1;
+        }
+        if (fLow * fMid <= 0) {
+            high = mid;
+            fHigh = fMid;
+        } else {
+            low = mid;
+            fLow = fMid;
+        }
+    }
+
+    const monthlyRate = (low + high) / 2;
+    return Math.pow(1 + monthlyRate, 12) - 1;
 }
 
 /**
@@ -511,6 +565,7 @@ export function computeRecurringPortfolio(dates: string[], series: Record<string
     const portRets: number[] = [];
     const totalInvested = [monthlyInvestment];
 
+    // Seed month-0 contribution exactly once.
     for (let i = 0; i < cols.length; i++) {
         holdings[i] = monthlyInvestment * targetW[i];
     }
@@ -522,14 +577,17 @@ export function computeRecurringPortfolio(dates: string[], series: Record<string
             valueAfterReturns += holdings[i];
         }
 
-        const investmentAmount = monthlyInvestment;
+        const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
+        portRets.push(periodReturn);
+
+        // Add next-period contribution AFTER recording this period's return.
+        // Skip on the final iteration (no next period to fund).
+        const isLast = t === N - 1;
+        const investmentAmount = isLast ? 0 : monthlyInvestment;
         for (let i = 0; i < cols.length; i++) {
             holdings[i] += investmentAmount * targetW[i];
         }
         const newTotalValue = valueAfterReturns + investmentAmount;
-
-        const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
-        portRets.push(periodReturn);
 
         totalValue = newTotalValue;
         portValues.push(totalValue);
@@ -590,14 +648,15 @@ export function computeHybridPortfolio(dates: string[], series: Record<string, (
             valueAfterReturns += holdings[i];
         }
 
-        const investmentAmount = monthlyInvestment;
+        const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
+        portRets.push(periodReturn);
+
+        const isLast = t === N - 1;
+        const investmentAmount = isLast ? 0 : monthlyInvestment;
         for (let i = 0; i < cols.length; i++) {
             holdings[i] += investmentAmount * targetW[i];
         }
         const newTotalValue = valueAfterReturns + investmentAmount;
-
-        const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
-        portRets.push(periodReturn);
 
         totalValue = newTotalValue;
         portValues.push(totalValue);
@@ -656,32 +715,103 @@ export function averageRollingNCAGR(idxMap: Record<string, number>, years: numbe
     return sum / rollingValues.length;
 }
 
-export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
-    // Use monetary series if available, otherwise use normalized index
-    const series = portfolio.portValues && portfolio.totalInvested
-        ? portfolio.portValues.map((val, i) => val / portfolio.totalInvested![i] * 100)
-        : portfolio.normalizedIndex || Object.values(portfolio.idxMap);
+export function rollingTWRRDistribution(portRets: number[], years: number): number[] {
+    const w = years * 12;
+    if (portRets.length < w) return [];
+    const out: number[] = [];
+    for (let i = w; i <= portRets.length; i++) {
+        const windowRets = portRets.slice(i - w, i);
+        const cumulative = windowRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
+        out.push(Math.pow(1 + cumulative, 1 / years) - 1);
+    }
+    return out;
+}
 
-    const idxMap: Record<string, number> = {};
-    for (let i = 0; i < portfolio.dates.length; i++) {
-        idxMap[portfolio.dates[i]] = series[i];
+export function averageRollingTWRR(portRets: number[], years: number): number {
+    const w = years * 12;
+    if (portRets.length < w) return 0;
+
+    let sum = 0;
+    let n = 0;
+
+    for (let i = w; i <= portRets.length; i++) {
+        const windowRets = portRets.slice(i - w, i);
+        const cumulative = windowRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
+        sum += Math.pow(1 + cumulative, 1 / years) - 1;
+        n++;
     }
 
-    return averageRollingNCAGR(idxMap, 10);
+    return n > 0 ? sum / n : 0;
+}
+
+export function averageRolling10YearCAGR(portfolio: PortfolioResult): number {
+    return averageRollingTWRR(portfolio.portRets, 10);
 }
 
 export function averageRolling5YearCAGR(portfolio: PortfolioResult): number {
-    // Use monetary series if available, otherwise use normalized index
-    const series = portfolio.portValues && portfolio.totalInvested
-        ? portfolio.portValues.map((val, i) => val / portfolio.totalInvested![i] * 100)
-        : portfolio.normalizedIndex || Object.values(portfolio.idxMap);
+    return averageRollingTWRR(portfolio.portRets, 5);
+}
 
-    const idxMap: Record<string, number> = {};
-    for (let i = 0; i < portfolio.dates.length; i++) {
-        idxMap[portfolio.dates[i]] = series[i];
+/**
+ * Solve annualized IRR given an explicit monthly cashflow series.
+ * Cashflows are indexed by month: negative = outflow (contribution),
+ * positive = inflow (terminal liquidation).
+ */
+function solveAnnualizedIRR(cashFlows: number[]): number {
+    if (cashFlows.length < 2) return 0;
+    const npv = (rate: number): number =>
+        cashFlows.reduce((acc, cf, t) => acc + cf / Math.pow(1 + rate, t), 0);
+
+    let low = -0.9999;
+    let high = 1.0;
+    let fLow = npv(low);
+    let fHigh = npv(high);
+    for (let i = 0; i < 20 && fLow * fHigh > 0; i++) {
+        high *= 2;
+        fHigh = npv(high);
     }
+    if (fLow * fHigh > 0) return 0;
 
-    return averageRollingNCAGR(idxMap, 5);
+    for (let i = 0; i < 100; i++) {
+        const mid = (low + high) / 2;
+        const fMid = npv(mid);
+        if (Math.abs(fMid) < 1e-10) return Math.pow(1 + mid, 12) - 1;
+        if (fLow * fMid <= 0) { high = mid; fHigh = fMid; }
+        else { low = mid; fLow = fMid; }
+    }
+    const monthlyRate = (low + high) / 2;
+    return Math.pow(1 + monthlyRate, 12) - 1;
+}
+
+export function averageRollingNMWR(portValues: number[] | undefined, totalInvested: number[] | undefined, years: number): number {
+    if (!portValues || !totalInvested) return 0;
+    if (portValues.length !== totalInvested.length) return 0;
+    const w = years * 12;
+    if (portValues.length < w + 1) return 0;
+
+    let sum = 0;
+    let n = 0;
+    for (let i = w; i < portValues.length; i++) {
+        const startIdx = i - w;
+        const cashFlows: number[] = new Array(w + 1).fill(0);
+        // Window starts with current NAV as initial "investment" for this rolling window.
+        cashFlows[0] = -portValues[startIdx];
+        // In-window contributions = deltas of totalInvested.
+        for (let t = 1; t <= w; t++) {
+            const contribution = totalInvested[startIdx + t] - totalInvested[startIdx + t - 1];
+            cashFlows[t] = -contribution;
+        }
+        // Terminal liquidation at end of window.
+        cashFlows[w] += portValues[i];
+
+        sum += solveAnnualizedIRR(cashFlows);
+        n++;
+    }
+    return n > 0 ? sum / n : 0;
+}
+
+export function averageRolling10YearMWR(portfolio: PortfolioResult): number {
+    return averageRollingNMWR(portfolio.portValues, portfolio.totalInvested, 10);
 }
 
 export function averageRollingVol(mrets: number[], years: number): number {
@@ -700,10 +830,22 @@ export function averageRolling10YearVol(portfolio: PortfolioResult): number {
 }
 
 export function downsideDeviation(mrets: number[], rf = 0): number {
+    if (!mrets.length) return 0;
     const rfM = rf / 12;
-    const dn = mrets.filter(r => r < rfM);
-    const dd = stdev(dn);
-    return dd * Math.sqrt(12);
+    const sq = mrets.reduce((s, r) => s + Math.pow(Math.min(r - rfM, 0), 2), 0);
+    return Math.sqrt(sq / mrets.length) * Math.sqrt(12);
+}
+
+export function averageRollingDownsideDev(mrets: number[], years: number, rf = 0): number {
+    const w = years * 12;
+    if (mrets.length < w) return 0;
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i + w <= mrets.length; i++) {
+        sum += downsideDeviation(mrets.slice(i, i + w), rf);
+        n++;
+    }
+    return n > 0 ? sum / n : 0;
 }
 
 export function slicePortfolioResult(res: PortfolioResult, startDate: string, endDate: string, baseValue: number = 10000): PortfolioResult {

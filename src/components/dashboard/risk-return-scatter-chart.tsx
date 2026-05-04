@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cagr, cagrRecurring, annualVol, averageRollingNCAGR } from "@/lib/finance";
+import { twrr, annualVol, averageRollingNCAGR } from "@/lib/finance";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -83,9 +83,7 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
             let volValue = 0;
 
             if (period === "full") {
-                cagrValue = (r.portValues && r.totalInvested && r.portValues.length === r.totalInvested.length)
-                    ? cagrRecurring(r.portValues, r.totalInvested)
-                    : cagr(Object.keys(r.idxMap).sort().map((d) => ({ value: r.idxMap[d] })));
+                cagrValue = twrr(r.portRets, r.portRets.length / 12);
                 volValue = annualVol(r.portRets);
             } else {
                 // Rolling calculations
@@ -141,7 +139,7 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                     <div>
                         <CardTitle>Risk vs. Return</CardTitle>
                         <CardDescription>
-                            {period === "full" ? "Annualized Return (CAGR) vs. Volatility" : `Average Rolling ${period.toUpperCase()} Return vs. Volatility`}
+                            {period === "full" ? "Annualized Return (TWR) vs. Volatility" : `Average Rolling ${period.toUpperCase()} Return vs. Volatility`}
                         </CardDescription>
                     </div>
                     <div className="flex items-center gap-4">

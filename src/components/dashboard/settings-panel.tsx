@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Input } from "@/components/ui/input";
-import { Settings2 } from "lucide-react";
+import { Settings2, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Switch } from "@/components/ui/switch";
@@ -425,6 +425,153 @@ export function SettingsPanel() {
                             <span className={cn("text-xs font-medium", currency === "USD" ? "text-primary" : "text-muted-foreground")}>USD</span>
                         </div>
                     </div>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex items-center gap-2">
+                        <BarChart2 className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle>Metrics Explained</CardTitle>
+                    </div>
+                    <CardDescription>How each performance and risk metric is calculated.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="twr">
+                            <AccordionTrigger>TWR — Time-Weighted Return</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>The annualized return that eliminates the effect of external cash flows (contributions and withdrawals). It measures the portfolio manager's performance independently of when money was added or removed.</p>
+                                <p className="text-muted-foreground">Used for all investment modes so results are directly comparable to benchmarks and other portfolios.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    <p>Sub-period return = (Value<sub>end</sub> − Value<sub>before contribution</sub>) / Value<sub>before contribution</sub></p>
+                                    <p className="mt-1">TWR = [(1 + r₁) × (1 + r₂) × … × (1 + rₙ)]^(1/years) − 1</p>
+                                </div>
+                                <p className="text-muted-foreground text-xs">Each month's return is calculated on the portfolio value <em>before</em> that month's new investment is added, making it cash-flow neutral.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="cumulative">
+                            <AccordionTrigger>Cumulative Return</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Total percentage gain or loss on invested capital over the selected period.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Cumulative Return = (Final Value / Total Invested) − 1
+                                </div>
+                                <p className="text-muted-foreground text-xs">For lump-sum portfolios this equals (Final / Initial) − 1. For DCA/hybrid it reflects actual money invested vs. final value.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="mwr">
+                            <AccordionTrigger>MWR — Money-Weighted Return (IRR)</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>The annualized investor return that includes the timing and size of contributions. Unlike TWR, this reflects your actual dollar experience.</p>
+                                <p className="text-muted-foreground">In recurring or hybrid modes, MWR is often lower than TWR in rising markets because more capital is invested later.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    <p>Find monthly IRR r that solves:</p>
+                                    <p className="mt-1">Σ [CF<sub>t</sub> / (1 + r)<sup>t</sup>] = 0</p>
+                                    <p className="mt-1">MWR (annualized) = (1 + r)<sup>12</sup> − 1</p>
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="rolling-twr">
+                            <AccordionTrigger>Avg Rolling TWR (5Y / 10Y)</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>The average of all overlapping N-year annualized TWR windows in the history. A more robust measure of typical performance than the full-period TWR, since it smooths over entry-point luck.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    <p>For each window [t, t+N×12]:</p>
+                                    <p className="mt-1">Rolling TWR = (V<sub>t+N×12</sub> / V<sub>t</sub>)^(1/N) − 1</p>
+                                    <p className="mt-1">Avg Rolling TWR = mean of all windows</p>
+                                </div>
+                                <p className="text-muted-foreground text-xs">Computed on the normalized TWR index, so it correctly reflects market performance regardless of contribution size.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="volatility">
+                            <AccordionTrigger>Volatility</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Annualized standard deviation of monthly returns. Measures the dispersion of returns — higher volatility means a rougher ride.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Volatility = StdDev(monthly returns) × √12
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="sharpe">
+                            <AccordionTrigger>Sharpe Ratio</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Return earned above the risk-free rate per unit of total volatility. Higher is better.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Sharpe = (Mean monthly excess return / StdDev) × √12
+                                </div>
+                                <p className="text-muted-foreground text-xs">Excess return = monthly return − (risk-free rate / 12). The risk-free rate is configurable in Financial Settings above.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="sortino">
+                            <AccordionTrigger>Sortino Ratio</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Like Sharpe, but only penalizes <em>downside</em> volatility (returns below the risk-free rate). Better captures the asymmetric nature of risk.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Sortino = (Mean monthly excess return / StdDev of negative excess returns) × √12
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="max-drawdown">
+                            <AccordionTrigger>Max Drawdown</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>The largest peak-to-trough decline in portfolio value before a new peak is reached. Represents the worst-case loss an investor who bought at the top would have experienced.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Max Drawdown = min(V<sub>t</sub> / max(V<sub>0..t</sub>) − 1) for all t
+                                </div>
+                                <p className="text-muted-foreground text-xs">Computed on the normalized TWR index so it reflects market performance, not the size of contributions.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="calmar">
+                            <AccordionTrigger>Calmar Ratio</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Return per unit of maximum drawdown risk. Useful for comparing strategies where you care about the depth of losses, not just their frequency.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Calmar = TWR / |Max Drawdown|
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="ulcer">
+                            <AccordionTrigger>Ulcer Index</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Measures both the depth and duration of drawdowns. A portfolio that stays underwater for a long time scores worse than one that recovers quickly, even at the same max drawdown.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Ulcer Index = √(mean(drawdown² × 100²))
+                                </div>
+                                <p className="text-muted-foreground text-xs">Lower is better. A value of 5 means the portfolio spends its average time about 5% below a prior high.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="beta">
+                            <AccordionTrigger>Beta</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Sensitivity of the portfolio's returns to the selected benchmark. A beta of 1.2 means the portfolio tends to move 1.2× the benchmark's move.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    β = Cov(portfolio returns, benchmark returns) / Var(benchmark returns)
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+
+                        <AccordionItem value="cape">
+                            <AccordionTrigger>Portfolio CAPE</AccordionTrigger>
+                            <AccordionContent className="space-y-2 text-sm">
+                                <p>Weighted-average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio. A higher CAPE historically correlates with lower future 10-year returns.</p>
+                                <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+                                    Portfolio CAPE = Σ(weight<sub>i</sub> × CAPE<sub>i</sub>) / Σ(equity weights)
+                                </div>
+                                <p className="text-muted-foreground text-xs">Only equity assets with known CAPE values are included. Bonds, gold, and cash are excluded from the calculation.</p>
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </CardContent>
             </Card>
 
