@@ -651,16 +651,18 @@ export function computeHybridPortfolio(dates: string[], series: Record<string, (
         const periodReturn = totalValue > 0 ? (valueAfterReturns - totalValue) / totalValue : 0;
         portRets.push(periodReturn);
 
-        const isLast = t === N - 1;
-        const investmentAmount = isLast ? 0 : monthlyInvestment;
+        // Always add the DCA contribution, even on the last period. Unlike DCA mode (where the
+        // seed IS the first DCA payment and the loop contributes for subsequent periods), in hybrid
+        // mode the seed is the lump sum and DCA runs for all N months. Skipping the final
+        // contribution would undercount total invested by one payment.
         for (let i = 0; i < cols.length; i++) {
-            holdings[i] += investmentAmount * targetW[i];
+            holdings[i] += monthlyInvestment * targetW[i];
         }
-        const newTotalValue = valueAfterReturns + investmentAmount;
+        const newTotalValue = valueAfterReturns + monthlyInvestment;
 
         totalValue = newTotalValue;
         portValues.push(totalValue);
-        totalInvested.push(totalInvested[totalInvested.length - 1] + investmentAmount);
+        totalInvested.push(totalInvested[totalInvested.length - 1] + monthlyInvestment);
 
         if ((t + 1) % step === 0 && totalValue > 0) {
             for (let i = 0; i < cols.length; i++) {
@@ -794,7 +796,10 @@ export function averageRollingNMWR(portValues: number[] | undefined, totalInvest
     for (let i = w; i < portValues.length; i++) {
         const startIdx = i - w;
         const cashFlows: number[] = new Array(w + 1).fill(0);
-        // Window starts with current NAV as initial "investment" for this rolling window.
+        // The start-of-window NAV is treated as a single lump-sum "investment" for this rolling
+        // window. In-window DCA contributions are then added as subsequent cashflows. When the NAV
+        // is large relative to monthly contributions (common in hybrid mode after many years), the
+        // IRR converges toward the rolling TWRR — that is expected and correct for this definition.
         cashFlows[0] = -portValues[startIdx];
         // In-window contributions = deltas of totalInvested.
         for (let t = 1; t <= w; t++) {
