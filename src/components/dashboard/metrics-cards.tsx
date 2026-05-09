@@ -244,24 +244,24 @@ export function MetricsCards({ portfolio, rf = 0.02, cape }: MetricsCardsProps) 
             </Card>
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Avg 10Y Rolling TWR</CardTitle>
+                    <CardTitle className="text-sm font-medium">Median 10Y Rolling TWR</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
                         {formatPercent(avgRolling10YearCAGR)}
                     </div>
-                    <p className="text-xs text-muted-foreground">Average of rolling 10Y periods</p>
+                    <p className="text-xs text-muted-foreground">Median of rolling 10Y periods</p>
                 </CardContent>
             </Card>
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Avg 10Y Rolling MWR</CardTitle>
+                    <CardTitle className="text-sm font-medium">Median 10Y Rolling MWR</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="text-2xl font-bold text-teal-600 dark:text-teal-400">
                         {formatPercent(avgRolling10YearMWR)}
                     </div>
-                    <p className="text-xs text-muted-foreground">Average of rolling 10Y IRR periods</p>
+                    <p className="text-xs text-muted-foreground">Median of rolling 10Y IRR periods</p>
                 </CardContent>
             </Card>
             <Card>

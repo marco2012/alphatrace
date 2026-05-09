@@ -24,46 +24,21 @@ interface RollingReturnsChartProps {
 
 export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
     const { investmentMode } = usePortfolio();
-    const showTWRR = investmentMode === "recurring" || investmentMode === "hybrid";
+    const showSecondary = investmentMode === "recurring" || investmentMode === "hybrid";
     const [years, setYears] = useState(10);
 
     const data = useMemo(() => {
         if (!portfolio) return [];
-
-        const idxArray = Object.keys(portfolio.idxMap).sort().map(d => ({
-            date: d,
-            value: portfolio.idxMap[d]
+        const twrrPoints = rollingTWRR(portfolio.dates, portfolio.portRets, years);
+        const twrrMap = new Map(twrrPoints.map(pt => [pt.date, pt.value * 100]));
+        return twrrPoints.map(pt => ({
+            date: pt.date,
+            value: pt.value * 100,
+            // Keep secondary series for recurring/hybrid as a duplicate of the canonical
+            // TWR stream so visuals/export stay aligned with key-metric methodology.
+            twrr: showSecondary ? (twrrMap.get(pt.date) ?? null) : null,
         }));
-        const dates = idxArray.map(x => x.date);
-        const seriesValues = idxArray.map(x => x.value);
-
-        const period = years * 12;
-        if (seriesValues.length < period) return [];
-
-        // Rolling CAGR from idxMap
-        const cagrMap: Record<string, number> = {};
-        for (let i = period; i < seriesValues.length; i++) {
-            const startVal = seriesValues[i - period];
-            const endVal = seriesValues[i];
-            cagrMap[dates[i]] = startVal > 0 ? (Math.pow(endVal / startVal, 1 / years) - 1) * 100 : 0;
-        }
-
-        // Rolling TWRR from portRets (only for recurring/hybrid)
-        const twrrMap: Record<string, number> = {};
-        if (showTWRR && portfolio.portRets && portfolio.dates) {
-            const twrrPoints = rollingTWRR(portfolio.dates, portfolio.portRets, years);
-            for (const pt of twrrPoints) {
-                twrrMap[pt.date] = pt.value * 100;
-            }
-        }
-
-        // Merge by date — only dates that have a CAGR value
-        return Object.keys(cagrMap).sort().map(date => ({
-            date,
-            value: cagrMap[date],
-            twrr: twrrMap[date] ?? null,
-        }));
-    }, [portfolio, years, showTWRR]);
+    }, [portfolio, years, showSecondary]);
 
     const avgRollingReturn = useMemo(() => {
         if (data.length === 0) return null;
@@ -78,7 +53,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
 
     const downloadCSV = () => {
         const headers = ['Date', `${years}-Year Rolling TWR (%)`];
-        if (showTWRR) {
+        if (showSecondary) {
             headers.push(`${years}-Year Rolling TWRR (%)`);
         }
 
@@ -86,7 +61,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
             headers,
             ...data.map(row => {
                 const rowData = [row.date, row.value.toFixed(2)];
-                if (showTWRR) {
+                if (showSecondary) {
                     rowData.push(row.twrr != null ? row.twrr.toFixed(2) : "");
                 }
                 return rowData;
@@ -169,7 +144,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 }}
                                 itemStyle={{ color: 'hsl(var(--foreground))' }}
                                 formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name]}
-                                labelFormatter={(label: any) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
+                                labelFormatter={(label: string | number) => new Date(label).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}
                             />
                             <Line
                                 type="monotone"
@@ -179,7 +154,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                                 strokeWidth={2}
                                 dot={false}
                             />
-                            {showTWRR && (
+                            {showSecondary && (
                                 <Line
                                     type="monotone"
                                     dataKey="twrr"

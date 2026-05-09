@@ -164,6 +164,48 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
     const [didAutoLoadDefault, setDidAutoLoadDefault] = useState(false);
 
+    const getGlobalMinDate = (): string => {
+        if (!rows.length) return "1994-11-01";
+        const minDate = rows.reduce<string | null>((min, row) => {
+            const d = toMonthStr(row?.Date);
+            if (!d) return min;
+            if (min == null) return d;
+            return d < min ? d : min;
+        }, null);
+        return minDate ?? "1994-11-01";
+    };
+
+    // Returns the start date for MAX: latest first-valid date across all selected assets
+    // so every selected asset has real data from that point forward.
+    const getMaxStartDate = (): string => {
+        const selectedAssets = Object.entries(weights).filter(([, w]) => w > 0).map(([a]) => a);
+        if (!selectedAssets.length || !norm?.firstValidDates) return getGlobalMinDate();
+
+        let latest: string | null = null;
+        for (const asset of selectedAssets) {
+            const fvd = norm.firstValidDates[asset];
+            if (fvd && (!latest || fvd > latest)) latest = fvd;
+        }
+        return latest ?? getGlobalMinDate();
+    };
+
+    // Returns the end date for MAX: earliest last-valid date across all selected assets,
+    // capped at the current month.
+    const getMaxEndDate = (): string => {
+        const now = new Date();
+        const currentMonth = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
+        const selectedAssets = Object.entries(weights).filter(([, w]) => w > 0).map(([a]) => a);
+        if (!selectedAssets.length || !norm?.lastValidDates) return currentMonth;
+
+        let earliest: string | null = null;
+        for (const asset of selectedAssets) {
+            const lvd = norm.lastValidDates[asset];
+            if (lvd && (!earliest || lvd < earliest)) earliest = lvd;
+        }
+        const candidate = earliest ?? currentMonth;
+        return candidate < currentMonth ? candidate : currentMonth;
+    };
+
     // Load risk-free rate from localStorage
     useEffect(() => {
         const savedRate = localStorage.getItem("alphatrace_risk_free_rate");
@@ -175,15 +217,14 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    // Initialize with MAX years setting the appropriate start date
+    // Keep MAX pinned: re-compute start and end whenever assets or data change.
     useEffect(() => {
-        if (yearSelection === "MAX") {
-            const maxStartDate = calculateStartDate("MAX");
-            if (startDate !== maxStartDate) {
-                setStartDate(maxStartDate);
-            }
-        }
-    }, []);
+        if (yearSelection !== "MAX") return;
+        const newStart = getMaxStartDate();
+        const newEnd = getMaxEndDate();
+        setStartDate((prev) => (prev === newStart ? prev : newStart));
+        setEndDate((prev) => (prev === newEnd ? prev : newEnd));
+    }, [yearSelection, rows, weights]); // norm read via closure; rows covers norm's deps
 
     // Load Data
     useEffect(() => {
@@ -518,7 +559,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     // Calculate start date based on year selection
     const calculateStartDate = (years: YearSelection): string => {
         const now = new Date();
-        if (years === "MAX") return "1994-11-01";
+        const globalMinDate = getGlobalMinDate();
+        if (years === "MAX") return getMaxStartDate();
         if (years === "dotcom_crash") return "2000-02-01";
         if (years === "financial_crisis") return "2008-08-01";
         if (years === "covid_crash") return "2020-01-01";
@@ -528,15 +570,15 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             const yearsBack = now.getFullYear() - years;
             const resultDate = new Date(yearsBack, now.getMonth(), 1);
 
-            // Ensure start date is not earlier than available data (1994-11-01)
-            const minDate = new Date("1994-11-01");
+            // Ensure start date is not earlier than the earliest available dataset month.
+            const minDate = new Date(globalMinDate);
             if (resultDate < minDate) {
-                return "1994-11-01";
+                return globalMinDate;
             }
             return toMonthStr(resultDate);
         }
 
-        return "1994-11-01";
+        return globalMinDate;
     };
 
 
@@ -550,7 +592,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const now = new Date();
         const currentMaxDate = toMonthStr(new Date(now.getFullYear(), now.getMonth(), 1));
 
-        let newEndDate = currentMaxDate;
+        let newEndDate = years === "MAX" ? getMaxEndDate() : currentMaxDate;
 
         if (years === "dotcom_crash") newEndDate = "2003-03-01";
         else if (years === "financial_crisis") newEndDate = "2009-03-01";

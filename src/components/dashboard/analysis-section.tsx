@@ -33,6 +33,7 @@ import {
     averageRolling10YearVol,
     averageRollingDownsideDev,
     averageRolling5YearCAGR,
+    rollingTWRR,
     rollingTWRRDistribution,
     twrr,
     computeAnnualReturns,
@@ -84,11 +85,11 @@ const METRIC_EXPLANATIONS = {
     longestLosingStreakYearsValue: "Longest Losing Streak. Longest run of consecutive negative calendar years.",
     recoveryMonthsValue: "Longest Recovery. The longest time it took for the portfolio to recover from a drawdown to its previous peak.",
     betaValue: "Beta. A measure of the volatility, or systematic risk, of a portfolio in comparison to the selected benchmark.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling TWR. The average of all possible 10-year rolling Time-Weighted Returns.",
-    avgRolling10YearMWRValue: "Average 10Y Rolling MWR (IRR). The average of all possible 10-year rolling money-weighted returns, including contribution timing.",
-    sharpe10YValue: "Sharpe (10Y). Sharpe Ratio calculated using the Average 10-Year Rolling TWR.",
-    sortino10YValue: "Sortino (10Y). Sortino Ratio calculated using the Average 10-Year Rolling TWR.",
-    avgRolling5YearCAGRValue: "Average 5Y Rolling TWR. The average of all possible 5-year rolling Time-Weighted Returns.",
+    avgRolling10YearCAGRValue: "Median 10Y Rolling TWR. The median of all possible 10-year rolling Time-Weighted Returns.",
+    avgRolling10YearMWRValue: "Median 10Y Rolling MWR (IRR). The median of all possible 10-year rolling money-weighted returns, including contribution timing.",
+    sharpe10YValue: "Sharpe (10Y). Sharpe Ratio calculated using the Median 10-Year Rolling TWR.",
+    sortino10YValue: "Sortino (10Y). Sortino Ratio calculated using the Median 10-Year Rolling TWR.",
+    avgRolling5YearCAGRValue: "Median 5Y Rolling TWR. The median of all possible 5-year rolling Time-Weighted Returns.",
     vol10YValue: "Volatility (10Y). The average annualized volatility over rolling 10-year periods.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
     capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
@@ -182,7 +183,8 @@ export function AnalysisSection() {
         setInvestmentMode,
         setRebalance,
         currency,
-        cpiMap
+        cpiMap,
+        yearSelection
     } = usePortfolio();
 
     const searchParams = useSearchParams();
@@ -685,25 +687,21 @@ export function AnalysisSection() {
         return { start: maxStartDate, end: minEndDate };
     }, [validItems, norm, weights, savedPortfolios]);
 
-    // Sync global simulation dates to the required analysis range if it changes
-    // This allows the charts and settings to reflect the true comparable range
+    // Sync global simulation dates to the required analysis range if it changes.
     useEffect(() => {
-        if (availableDateRange) {
-            const { start, end } = availableDateRange;
+        if (!availableDateRange) return;
+        const { start, end } = availableDateRange;
 
-            // Only auto-adjust if the current date is OUT of valid bounds
-            // This preserves user's manual zoom/selection
-            if (startDate < start) {
-                setStartDate(start);
-            }
-
-            // For end date: if data ends earlier than selected end date, we must constrain it.
-            // But if user selected an earlier end date, we allow it.
-            if (endDate > end && end < "9999-12-31") {
-                setEndDate(end);
-            }
+        if (yearSelection === "MAX") {
+            // In MAX mode always snap to the exact available range of selected items.
+            setStartDate(start);
+            if (end < "9999-12-31") setEndDate(end);
+        } else {
+            // Outside MAX mode: only push boundaries inward to stay within valid data.
+            if (startDate < start) setStartDate(start);
+            if (endDate > end && end < "9999-12-31") setEndDate(end);
         }
-    }, [availableDateRange]); // Don't add startDate/endDate to deps to allow manual override
+    }, [availableDateRange, yearSelection]); // startDate/endDate intentionally omitted to avoid feedback loop
 
     useEffect(() => {
         if (!betaBenchmark && validItems.length > 0) {
@@ -973,77 +971,29 @@ export function AnalysisSection() {
     const rollingComparisonData = useMemo(() => {
         if (slicedItems.length < 2) return [];
 
-        const period = rollingYears * 12;
-        const seriesByName: Record<string, { dates: string[]; values: number[]; invested?: number[] }> = {};
+        // Canonical rolling TWR stream for each item, derived from cash-flow-neutral portRets.
+        const seriesByName: Record<string, Map<string, number>> = {};
+        let baseDates: string[] = [];
 
-        for (const item of slicedItems) {
+        for (const item of validItems) {
             if (!item.result) continue;
-
-            const dates = item.result.dates || Object.keys(item.result.idxMap).sort();
-
-            // Determine if we should use totalInvested logic (Recurring/Hybrid) or Index logic (Lump Sum)
-            // Recurring/Hybrid results have portValues and totalInvested arrays
-            const hasInvested = item.result.portValues && item.result.totalInvested && item.result.portValues.length === item.result.dates.length;
-
-            if (hasInvested) {
-                seriesByName[item.name] = {
-                    dates: item.result.dates,
-                    values: item.result.portValues!,
-                    invested: item.result.totalInvested!
-                };
-            } else {
-                // Fallback to idxMap (Lump Sum / Single Asset normalized)
-                seriesByName[item.name] = {
-                    dates,
-                    values: dates.map(d => item.result!.idxMap[d])
-                };
-            }
+            const pts = rollingTWRR(item.result.dates, item.result.portRets, rollingYears);
+            if (!pts.length) continue;
+            if (baseDates.length === 0) baseDates = pts.map(p => p.date);
+            seriesByName[item.name] = new Map(pts.map(p => [p.date, p.value * 100]));
         }
 
-        const baseItem = validItems[0];
-        const baseSeries = seriesByName[baseItem.name];
-        if (!baseSeries || baseSeries.values.length <= period) return [];
+        if (!baseDates.length) return [];
 
-        // Align by index since dates should be synchronized for comparison if from same dataset/range
-        // If not, this simple index mapping might be slightly off if date ranges differ, 
-        // but typically in this app, they share the same 'dates' axis from the main simulation context.
-        // We'll iterate through the base series indices.
-
-        const result = [];
-        for (let i = period; i < baseSeries.values.length; i++) {
-            const date = baseSeries.dates[i];
+        return baseDates.map((date) => {
             const row: Record<string, any> = { date };
-
             for (const item of validItems) {
-                const s = seriesByName[item.name];
-                if (!s || i >= s.values.length) continue;
-
-                const startVal = s.values[i - period];
-                const endVal = s.values[i];
-
-                if (startVal && endVal) {
-                    if (s.invested) {
-                        const startInv = s.invested[i - period];
-                        const endInv = s.invested[i];
-                        const netContrib = endInv - startInv;
-                        // Return on Capital approximation: (EndValue / (StartValue + NetContributions)) ^ (1/N) - 1
-                        // This aligns with the 'cagrRecurring' logic used in metrics.
-                        const denominator = startVal + netContrib;
-                        if (denominator > 0) {
-                            row[item.name] = (Math.pow(endVal / denominator, 1 / rollingYears) - 1) * 100;
-                        } else {
-                            row[item.name] = 0;
-                        }
-                    } else {
-                        // Standard Rolling CAGR for Index
-                        row[item.name] = (Math.pow(endVal / startVal, 1 / rollingYears) - 1) * 100;
-                    }
-                }
+                const val = seriesByName[item.name]?.get(date);
+                if (val !== undefined) row[item.name] = val;
             }
-            result.push(row);
-        }
-        return result;
-    }, [validItems, rollingYears]);
+            return row;
+        });
+    }, [validItems, rollingYears, slicedItems.length]);
 
     const rollingBetaData = useMemo(() => {
         if (validItems.length === 0 || !benchmarkResult) return [];

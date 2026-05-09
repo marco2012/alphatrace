@@ -58,7 +58,7 @@ const METRIC_EXPLANATIONS = {
     maxDDValue: "Maximum Drawdown. The maximum observed loss from a peak to a trough of a portfolio, before a new peak is attained.",
     calmarValue: "Calmar Ratio. Measures the risk-adjusted return relative to the maximum drawdown.",
     ulcerIndexValue: "Ulcer Index. Measures the depth and duration of drawdowns from earlier highs.",
-    avgRolling10YearCAGRValue: "Average 10Y Rolling TWR. The average of all possible 10-year rolling Time-Weighted Returns.",
+    avgRolling10YearCAGRValue: "Median 10Y Rolling TWR. The median of all possible 10-year rolling Time-Weighted Returns.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period."
 };
 
@@ -465,7 +465,7 @@ export function ComparisonAnalysis() {
                                         <UITooltip delayDuration={0}>
                                             <UITooltipTrigger asChild>
                                                 <div className="flex items-center justify-end gap-1 cursor-pointer">
-                                                    Avg 10Y Rolling TWR
+                                                    Median 10Y Rolling TWR
                                                     <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
                                                 </div>
                                             </UITooltipTrigger>

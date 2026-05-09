@@ -476,13 +476,13 @@ export function SettingsPanel() {
                         </AccordionItem>
 
                         <AccordionItem value="rolling-twr">
-                            <AccordionTrigger>Avg Rolling TWR (5Y / 10Y)</AccordionTrigger>
+                            <AccordionTrigger>Median Rolling TWR (5Y / 10Y)</AccordionTrigger>
                             <AccordionContent className="space-y-2 text-sm">
-                                <p>The average of all overlapping N-year annualized TWR windows in the history. A more robust measure of typical performance than the full-period TWR, since it smooths over entry-point luck.</p>
+                                <p>The median of all overlapping N-year annualized TWR windows in the history. A more robust measure of typical performance than the full-period TWR, since it is resistant to outlier periods (e.g. crashes or booms at the edges of the dataset).</p>
                                 <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
                                     <p>For each window [t, t+N×12]:</p>
                                     <p className="mt-1">Rolling TWR = (V<sub>t+N×12</sub> / V<sub>t</sub>)^(1/N) − 1</p>
-                                    <p className="mt-1">Avg Rolling TWR = mean of all windows</p>
+                                    <p className="mt-1">Median Rolling TWR = median of all windows</p>
                                 </div>
                                 <p className="text-muted-foreground text-xs">Computed on the normalized TWR index, so it correctly reflects market performance regardless of contribution size.</p>
                             </AccordionContent>
