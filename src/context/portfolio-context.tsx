@@ -259,24 +259,33 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         }
 
         // User signed in: merge local portfolios into Firestore, then subscribe
-        const doMerge = async () => {
-            const local = portfoliosForSignoutRef.current;
-            const cloud = await fetchCloudPortfolios(user.uid);
-            const cloudIds = new Set(cloud.map((p) => p.id));
-            const toUpload = local.filter((p) => !cloudIds.has(p.id));
-            await Promise.all(toUpload.map((p) => upsertPortfolio(user.uid, p)));
-            localStorage.removeItem("alphatrace_portfolios");
+        let isCancelled = false;
 
-            firestoreUnsubRef.current = subscribePortfolios(user.uid, (portfolios) => {
-                setSavedPortfolios(portfolios);
-            });
+        const doMerge = async () => {
+            try {
+                const local = portfoliosForSignoutRef.current;
+                const cloud = await fetchCloudPortfolios(user.uid);
+                if (isCancelled) return;
+                const cloudIds = new Set(cloud.map((p) => p.id));
+                const toUpload = local.filter((p) => !cloudIds.has(p.id));
+                await Promise.all(toUpload.map((p) => upsertPortfolio(user.uid, p)));
+                if (isCancelled) return;
+                localStorage.removeItem("alphatrace_portfolios");
+                firestoreUnsubRef.current = subscribePortfolios(user.uid, (portfolios) => {
+                    setSavedPortfolios(portfolios);
+                });
+            } catch (e) {
+                console.error("Firestore sync failed", e);
+            }
         };
 
         doMerge();
 
         return () => {
+            isCancelled = true;
             if (firestoreUnsubRef.current) {
                 firestoreUnsubRef.current();
+                firestoreUnsubRef.current = null;
             }
         };
     }, [user]);
@@ -706,7 +715,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             setSavedPortfolios(updated);
             if (user) {
                 const updatedPortfolio = updated.find((p) => p.id === activePortfolioId);
-                if (updatedPortfolio) upsertPortfolio(user.uid, updatedPortfolio);
+                if (updatedPortfolio) upsertPortfolio(user.uid, updatedPortfolio).catch(console.error);
             } else {
                 localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
             }
@@ -724,7 +733,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
         if (user) {
-            upsertPortfolio(user.uid, newPortfolio);
+            upsertPortfolio(user.uid, newPortfolio).catch(console.error);
         } else {
             localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         }
@@ -748,7 +757,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
         if (user) {
-            upsertPortfolio(user.uid, newPortfolio);
+            upsertPortfolio(user.uid, newPortfolio).catch(console.error);
         } else {
             localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         }
@@ -767,7 +776,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         setSavedPortfolios(updated);
         if (user) {
             const toggled = updated.find((p) => p.id === id);
-            if (toggled) upsertPortfolio(user.uid, toggled);
+            if (toggled) upsertPortfolio(user.uid, toggled).catch(console.error);
         } else {
             localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         }
@@ -777,7 +786,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = savedPortfolios.filter(p => p.id !== id);
         setSavedPortfolios(updated);
         if (user) {
-            removePortfolio(user.uid, id);
+            removePortfolio(user.uid, id).catch(console.error);
         } else {
             localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         }
@@ -836,7 +845,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         const updated = [...savedPortfolios, clone];
         setSavedPortfolios(updated);
         if (user) {
-            upsertPortfolio(user.uid, clone);
+            upsertPortfolio(user.uid, clone).catch(console.error);
         } else {
             localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
         }
@@ -972,7 +981,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                 const updated = [...savedPortfolios, newPortfolio];
                 setSavedPortfolios(updated);
                 if (user) {
-                    upsertPortfolio(user.uid, newPortfolio);
+                    upsertPortfolio(user.uid, newPortfolio).catch(console.error);
                 } else {
                     localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
                 }
