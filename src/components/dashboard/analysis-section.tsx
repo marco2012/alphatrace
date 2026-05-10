@@ -1916,7 +1916,7 @@ export function AnalysisSection() {
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/30">
-                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
                                             <th
                                                 className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900"
@@ -1958,7 +1958,7 @@ export function AnalysisSection() {
                                     <tbody>
                                         {metricsTableRows.map(row => (
                                             <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
-                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 z-10 bg-background">
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
@@ -2027,7 +2027,7 @@ export function AnalysisSection() {
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/30">
-                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
                                             {!showRollingMetrics ? (
                                                 <>
@@ -2049,7 +2049,7 @@ export function AnalysisSection() {
                                     <tbody>
                                         {metricsTableRows.map((row, idx) => (
                                             <tr key={row.key} className={`border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors ${idx === 0 && metricsTableRows.length > 1 ? "" : ""}`}>
-                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 z-10 bg-background">
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
@@ -2097,7 +2097,7 @@ export function AnalysisSection() {
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/30">
-                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("volValue")}>Vol {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sharpeValue")}>Sharpe {sortConfig?.key === "sharpeValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("sortinoValue")}>Sortino {sortConfig?.key === "sortinoValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
@@ -2110,7 +2110,7 @@ export function AnalysisSection() {
                                     <tbody>
                                         {metricsTableRows.map(row => (
                                             <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
-                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 z-10 bg-background">
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
@@ -2147,7 +2147,7 @@ export function AnalysisSection() {
                                 <table className="w-full text-sm">
                                     <thead>
                                         <tr className="border-b bg-muted/30">
-                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("maxDDValue")}>Max DD {sortConfig?.key === "maxDDValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("ulcerIndexValue")}>Ulcer Index {sortConfig?.key === "ulcerIndexValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("timeUnderwaterPctValue")}>Time Underwater {sortConfig?.key === "timeUnderwaterPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
@@ -2158,7 +2158,7 @@ export function AnalysisSection() {
                                     <tbody>
                                         {metricsTableRows.map(row => (
                                             <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
-                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 z-10 bg-background">
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
@@ -2201,7 +2201,7 @@ export function AnalysisSection() {
                                     <table className="w-full text-sm">
                                         <thead>
                                             <tr className="bg-muted/30">
-                                                <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
+                                                <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
                                                     Prob. of Loss
                                                 </th>
                                                 <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">over 1 year</th>
@@ -2212,7 +2212,7 @@ export function AnalysisSection() {
                                         <tbody>
                                             {metricsTableRows.map(row => (
                                                 <tr key={row.key} className="border-t border-muted/40 hover:bg-muted/20 transition-colors">
-                                                    <td className="py-2.5 px-3 sm:px-4 sticky left-0 bg-background">
+                                                    <td className="py-2.5 px-3 sm:px-4 sticky left-0 z-10 bg-background">
                                                         <div className="flex items-center gap-2 min-w-0">
                                                             {(() => { const item = slicedItems.find(si => makeKey(si) === row.key); return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null; })()}
                                                             <span className="truncate text-xs sm:text-sm font-medium">{row.name}</span>
@@ -2233,7 +2233,7 @@ export function AnalysisSection() {
                                         <table className="w-full text-sm">
                                             <thead>
                                                 <tr className="bg-muted/30">
-                                                    <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
+                                                    <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
                                                         10Y Wealth Range <span className="font-normal text-xs">({sym}10k start)</span>
                                                     </th>
                                                     <th className="text-right py-2 px-3 font-medium text-red-500 whitespace-nowrap">Worst</th>
@@ -2249,7 +2249,7 @@ export function AnalysisSection() {
                                                     if (!tw) return null;
                                                     return (
                                                         <tr key={row.key} className="border-t border-muted/40 hover:bg-muted/20 transition-colors">
-                                                            <td className="py-2.5 px-3 sm:px-4 sticky left-0 bg-background">
+                                                            <td className="py-2.5 px-3 sm:px-4 sticky left-0 z-10 bg-background">
                                                                 <div className="flex items-center gap-2 min-w-0">
                                                                     {(() => { const item = slicedItems.find(si => makeKey(si) === row.key); return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null; })()}
                                                                     <span className="truncate text-xs sm:text-sm font-medium">{row.name}</span>
