@@ -1850,6 +1850,7 @@ export function AnalysisSection() {
                         plossScores[i]   * 0.15
                     );
                     const winnerIdx = composite.indexOf(Math.max(...composite));
+                    if (winnerIdx === -1) return null;
                     const winner = rows[winnerIdx];
                     const item = slicedItems.find(i => makeKey(i) === winner.key);
 
