@@ -2,6 +2,13 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import * as XLSX from "xlsx";
+import { useAuth } from "@/context/auth-context";
+import {
+    fetchCloudPortfolios,
+    upsertPortfolio,
+    removePortfolio,
+    subscribePortfolios,
+} from "@/lib/firestore-portfolios";
 import {
     DEFAULT_WEIGHTS,
     ASSET_NAME_MAPPING,
@@ -15,7 +22,8 @@ import {
     InvestmentMode,
     RebalancePeriod,
     YearSelection,
-    PortfolioResult
+    PortfolioResult,
+    type InflationCountry,
 } from "@/lib/finance";
 
 interface PortfolioContextType {
@@ -79,6 +87,8 @@ interface PortfolioContextType {
     resetPortfolioSelection: () => void;
     currency: "EUR" | "USD";
     setCurrency: (c: "EUR" | "USD") => void;
+    inflationCountry: InflationCountry;
+    setInflationCountry: (c: InflationCountry) => void;
 }
 
 export interface SavedPortfolio {
@@ -152,6 +162,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     const [riskFreeRate, setRiskFreeRateState] = useState(0.02);
     const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>([]);
     const [currency, setCurrencyState] = useState<"EUR" | "USD">("EUR");
+    const [inflationCountry, setInflationCountryState] = useState<InflationCountry>(() => {
+        if (typeof window !== "undefined") {
+            const saved = localStorage.getItem("alphatrace_inflation_country");
+            if (saved === "IT" || saved === "IE" || saved === "US") return saved;
+        }
+        return "IT";
+    });
 
     const [activePortfolioId, setActivePortfolioId] = useState<string | null>(null);
     const [activePortfolioName, setActivePortfolioName] = useState<string | null>(null);
@@ -163,6 +180,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     });
 
     const [didAutoLoadDefault, setDidAutoLoadDefault] = useState(false);
+
+    const { user } = useAuth();
+    const firestoreUnsubRef = React.useRef<(() => void) | null>(null);
+    const portfoliosForSignoutRef = React.useRef<SavedPortfolio[]>([]);
 
     const getGlobalMinDate = (): string => {
         if (!rows.length) return "1994-11-01";
@@ -216,6 +237,49 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             }
         }
     }, []);
+
+    // Keep a ref so sign-out can persist portfolios back to localStorage
+    useEffect(() => {
+        portfoliosForSignoutRef.current = savedPortfolios;
+    }, [savedPortfolios]);
+
+    // Sync portfolios with Firestore when user signs in/out
+    useEffect(() => {
+        if (!user) {
+            if (firestoreUnsubRef.current) {
+                firestoreUnsubRef.current();
+                firestoreUnsubRef.current = null;
+            }
+            // Persist current portfolios back to localStorage on sign-out
+            localStorage.setItem(
+                "alphatrace_portfolios",
+                JSON.stringify(portfoliosForSignoutRef.current)
+            );
+            return;
+        }
+
+        // User signed in: merge local portfolios into Firestore, then subscribe
+        const doMerge = async () => {
+            const local = portfoliosForSignoutRef.current;
+            const cloud = await fetchCloudPortfolios(user.uid);
+            const cloudIds = new Set(cloud.map((p) => p.id));
+            const toUpload = local.filter((p) => !cloudIds.has(p.id));
+            await Promise.all(toUpload.map((p) => upsertPortfolio(user.uid, p)));
+            localStorage.removeItem("alphatrace_portfolios");
+
+            firestoreUnsubRef.current = subscribePortfolios(user.uid, (portfolios) => {
+                setSavedPortfolios(portfolios);
+            });
+        };
+
+        doMerge();
+
+        return () => {
+            if (firestoreUnsubRef.current) {
+                firestoreUnsubRef.current();
+            }
+        };
+    }, [user]);
 
     // Keep MAX pinned: re-compute start and end whenever assets or data change.
     useEffect(() => {
@@ -490,8 +554,9 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
     const cpiMap = useMemo(() => {
         if (!norm) return {};
-        return buildMonthlyCPI(norm.dates, currency);
-    }, [norm, currency]);
+        const country: InflationCountry = currency === "USD" ? "US" : inflationCountry;
+        return buildMonthlyCPI(norm.dates, country);
+    }, [norm, currency, inflationCountry]);
 
     // Compute Portfolio
     const portfolio = useMemo<PortfolioResult | null>(() => {
@@ -639,7 +704,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                     : p
             );
             setSavedPortfolios(updated);
-            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+            if (user) {
+                const updatedPortfolio = updated.find((p) => p.id === activePortfolioId);
+                if (updatedPortfolio) upsertPortfolio(user.uid, updatedPortfolio);
+            } else {
+                localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+            }
             setActivePortfolioName(trimmed);
             return;
         }
@@ -653,7 +723,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         };
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
-        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        if (user) {
+            upsertPortfolio(user.uid, newPortfolio);
+        } else {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        }
         setActivePortfolioId(newPortfolio.id);
         setActivePortfolioName(newPortfolio.name);
     };
@@ -673,7 +747,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
         const updated = [...savedPortfolios, newPortfolio];
         setSavedPortfolios(updated);
-        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        if (user) {
+            upsertPortfolio(user.uid, newPortfolio);
+        } else {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        }
 
         // Optionally switch to it? For now, just save it.
         // If we want to switch:
@@ -687,13 +765,22 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             p.id === id ? { ...p, highlighted: !Boolean(p.highlighted) } : p
         );
         setSavedPortfolios(updated);
-        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        if (user) {
+            const toggled = updated.find((p) => p.id === id);
+            if (toggled) upsertPortfolio(user.uid, toggled);
+        } else {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        }
     };
 
     const deletePortfolio = (id: string) => {
         const updated = savedPortfolios.filter(p => p.id !== id);
         setSavedPortfolios(updated);
-        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        if (user) {
+            removePortfolio(user.uid, id);
+        } else {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        }
 
         if (activePortfolioId === id) {
             setActivePortfolioId(null);
@@ -748,7 +835,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
         const updated = [...savedPortfolios, clone];
         setSavedPortfolios(updated);
-        localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        if (user) {
+            upsertPortfolio(user.uid, clone);
+        } else {
+            localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+        }
 
         // Load the duplicated portfolio
         setWeights(clone.weights);
@@ -880,7 +971,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
                 const updated = [...savedPortfolios, newPortfolio];
                 setSavedPortfolios(updated);
-                localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+                if (user) {
+                    upsertPortfolio(user.uid, newPortfolio);
+                } else {
+                    localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+                }
 
                 setWeights(zeroWeights);
                 setActivePortfolioId(newPortfolio.id);
@@ -892,7 +987,12 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                 setActivePortfolioName(null);
             },
             currency,
-            setCurrency
+            setCurrency,
+            inflationCountry,
+            setInflationCountry: (c: InflationCountry) => {
+                setInflationCountryState(c);
+                localStorage.setItem("alphatrace_inflation_country", c);
+            },
         }}>
             {children}
         </PortfolioContext.Provider>
