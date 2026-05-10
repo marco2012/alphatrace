@@ -1,4 +1,4 @@
-import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, US_ANNUAL_CPI, ASSET_TER_MAPPING, ASSET_CAPE_MAPPING } from "./constants";
+import { ASSET_CATEGORY_OVERRIDES, IT_ANNUAL_CPI, IE_ANNUAL_CPI, US_ANNUAL_CPI, ASSET_TER_MAPPING, ASSET_CAPE_MAPPING } from "./constants";
 import {
     calculateBeta as toolkitCalculateBeta,
     calculateCalmarRatio,
@@ -124,10 +124,24 @@ export function buildItalyMonthlyCPI(dates: string[]): Record<string, number> {
     } return out;
 }
 
-export function buildMonthlyCPI(dates: string[], currency: "EUR" | "USD" = "EUR"): Record<string, number> {
+export type InflationCountry = "IT" | "IE" | "US";
+
+export function buildMonthlyCPI(
+    dates: string[],
+    currencyOrCountry: "EUR" | "USD" | InflationCountry = "EUR",
+    inflationCountry?: InflationCountry,
+): Record<string, number> {
     const out: Record<string, number> = {}; if (!dates.length) return out; out[dates[0]] = 100;
-    const CPI_TABLE = currency === "USD" ? US_ANNUAL_CPI : IT_ANNUAL_CPI;
-    
+    // Resolve the CPI table: explicit inflationCountry wins, then the first arg if it's a country code
+    let country: InflationCountry;
+    if (inflationCountry) {
+        country = inflationCountry;
+    } else if (currencyOrCountry === "IT" || currencyOrCountry === "IE" || currencyOrCountry === "US") {
+        country = currencyOrCountry;
+    } else {
+        country = currencyOrCountry === "USD" ? "US" : "IT";
+    }
+    const CPI_TABLE = country === "US" ? US_ANNUAL_CPI : country === "IE" ? IE_ANNUAL_CPI : IT_ANNUAL_CPI;
     for (let i = 1; i < dates.length; i++) {
         const y = new Date(dates[i]).getFullYear();
         const r = CPI_TABLE[y] ?? 0;
@@ -1204,4 +1218,239 @@ export function findOptimalWeights(
         result[asset] = bestWeights[idx];
     });
     return result;
+}
+
+// ─── Investor Outcome Metrics ──────────────────────────────────────────────
+
+export function realReturn(nominal: number, inflation: number): number {
+    if (inflation <= -1) return nominal;
+    return (1 + nominal) / (1 + inflation) - 1;
+}
+
+export function annualizedInflationFromCPI(
+    cpiMap: Record<string, number>,
+    startDate: string,
+    endDate: string,
+): number {
+    const s = cpiMap[startDate];
+    const e = cpiMap[endDate];
+    if (!s || !e || s <= 0) return 0;
+    const months = monthsBetween(startDate, endDate);
+    if (months <= 0) return 0;
+    return Math.pow(e / s, 12 / months) - 1;
+}
+
+export function realCAGRFromCPI(
+    portRets: number[],
+    dates: string[],
+    cpiMap: Record<string, number>,
+): number {
+    if (!portRets.length || !dates.length || dates.length < 2) return 0;
+    const nominalCAGR = twrr(portRets, portRets.length / 12);
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+    const inflation = annualizedInflationFromCPI(cpiMap, startDate, endDate);
+    return realReturn(nominalCAGR, inflation);
+}
+
+export function realMWRFromCPI(
+    portValues: number[] | undefined,
+    totalInvested: number[] | undefined,
+    dates: string[],
+    cpiMap: Record<string, number>,
+): number {
+    if (!portValues || !totalInvested || dates.length < 2) return 0;
+    const nominalMWR = mwr(portValues, totalInvested);
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+    const inflation = annualizedInflationFromCPI(cpiMap, startDate, endDate);
+    return realReturn(nominalMWR, inflation);
+}
+
+export interface TimeUnderwaterStats {
+    pctMonths: number;
+    longestStreakMonths: number;
+}
+
+export function timeUnderwaterStats(portValues: number[]): TimeUnderwaterStats {
+    if (!portValues.length) return { pctMonths: 0, longestStreakMonths: 0 };
+    let peak = portValues[0];
+    let underwaterCount = 0;
+    let longestStreak = 0;
+    let currentStreak = 0;
+    for (const v of portValues) {
+        if (v > peak) peak = v;
+        if (v < peak) {
+            underwaterCount++;
+            currentStreak++;
+            if (currentStreak > longestStreak) longestStreak = currentStreak;
+        } else {
+            currentStreak = 0;
+        }
+    }
+    return {
+        pctMonths: portValues.length > 1 ? underwaterCount / (portValues.length - 1) : 0,
+        longestStreakMonths: longestStreak,
+    };
+}
+
+export function probabilityOfLoss(portRets: number[], years: number): number {
+    const dist = rollingTWRRDistribution(portRets, years);
+    if (!dist.length) return 0;
+    return dist.filter(r => r < 0).length / dist.length;
+}
+
+export interface TerminalWealthStats {
+    min: number;
+    p10: number;
+    median: number;
+    p90: number;
+    max: number;
+    n: number;
+}
+
+export function terminalWealthDistribution(
+    portValues: number[],
+    totalInvested: number[],
+    years: number,
+): TerminalWealthStats | null {
+    if (!portValues.length || !totalInvested.length) return null;
+    const w = years * 12;
+    if (portValues.length < w + 1) return null;
+
+    const terminals: number[] = [];
+    for (let i = w; i < portValues.length; i++) {
+        const startIdx = i - w;
+        // Re-base: pretend the investor started from scratch at startIdx.
+        // Scale the terminal value to a €10 000 start.
+        const startVal = portValues[startIdx];
+        const endVal = portValues[i];
+        if (startVal <= 0) continue;
+        // Scale monthly contributions proportionally.
+        const scale = 10000 / startVal;
+        const windowContributions = (totalInvested[i] - totalInvested[startIdx]) * scale;
+        const terminalValue = endVal * scale;
+        terminals.push(terminalValue + windowContributions * 0); // terminal already includes contributions
+        // Actually we just want the raw portfolio value scaled to common base.
+        terminals[terminals.length - 1] = terminalValue;
+    }
+    if (!terminals.length) return null;
+
+    const sorted = [...terminals].sort((a, b) => a - b);
+    const pct = (p: number) => {
+        const idx = Math.floor(p * (sorted.length - 1));
+        return sorted[idx];
+    };
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 === 0
+        ? (sorted[mid - 1] + sorted[mid]) / 2
+        : sorted[mid];
+
+    return {
+        min: sorted[0],
+        p10: pct(0.1),
+        median,
+        p90: pct(0.9),
+        max: sorted[sorted.length - 1],
+        n: sorted.length,
+    };
+}
+
+export function wealthMultiple(portValues: number[], totalInvested: number[]): number {
+    if (!portValues.length || !totalInvested.length) return 0;
+    const finalValue = portValues[portValues.length - 1];
+    const totalContrib = totalInvested[totalInvested.length - 1];
+    if (!totalContrib) return 0;
+    return finalValue / totalContrib;
+}
+
+export function rollingMWRDistribution(
+    portValues: number[] | undefined,
+    totalInvested: number[] | undefined,
+    years: number,
+): number[] {
+    if (!portValues || !totalInvested) return [];
+    if (portValues.length !== totalInvested.length) return [];
+    const w = years * 12;
+    if (portValues.length < w + 1) return [];
+
+    const validIRRs: number[] = [];
+    for (let i = w; i < portValues.length; i++) {
+        const startIdx = i - w;
+        const cashFlows: number[] = new Array(w + 1).fill(0);
+        cashFlows[0] = -portValues[startIdx];
+        for (let t = 1; t <= w; t++) {
+            const contribution = totalInvested[startIdx + t] - totalInvested[startIdx + t - 1];
+            cashFlows[t] = -contribution;
+        }
+        cashFlows[w] += portValues[i];
+        const irr = solveAnnualizedIRR(cashFlows);
+        if (Number.isFinite(irr) && irr > -0.9999 && irr < 10) {
+            validIRRs.push(irr);
+        }
+    }
+    return validIRRs;
+}
+
+export function sequenceRiskScore(
+    portValues: number[] | undefined,
+    totalInvested: number[] | undefined,
+    years = 10,
+): number {
+    const dist = rollingMWRDistribution(portValues, totalInvested, years);
+    return stdev(dist);
+}
+
+export function medianRollingRealTWRR(
+    portRets: number[],
+    dates: string[],
+    cpiMap: Record<string, number>,
+    years: number,
+): number {
+    const w = years * 12;
+    if (portRets.length < w || dates.length < w + 1) return 0;
+    const reals: number[] = [];
+    for (let i = w; i <= portRets.length; i++) {
+        const windowRets = portRets.slice(i - w, i);
+        const cumulative = windowRets.reduce((acc, r) => acc * (1 + r), 1) - 1;
+        const nominalCAGR = Math.pow(1 + cumulative, 1 / years) - 1;
+        const startDate = dates[i - w];
+        const endDate = dates[i];
+        if (!startDate || !endDate) continue;
+        const inflation = annualizedInflationFromCPI(cpiMap, startDate, endDate);
+        reals.push(realReturn(nominalCAGR, inflation));
+    }
+    return medianOf(reals);
+}
+
+export function medianRollingRealMWR(
+    portValues: number[] | undefined,
+    totalInvested: number[] | undefined,
+    dates: string[],
+    cpiMap: Record<string, number>,
+    years: number,
+): number {
+    if (!portValues || !totalInvested) return 0;
+    if (portValues.length !== totalInvested.length) return 0;
+    const w = years * 12;
+    if (portValues.length < w + 1) return 0;
+
+    const reals: number[] = [];
+    for (let i = w; i < portValues.length; i++) {
+        const startIdx = i - w;
+        const cashFlows: number[] = new Array(w + 1).fill(0);
+        cashFlows[0] = -portValues[startIdx];
+        for (let t = 1; t <= w; t++) {
+            cashFlows[t] = -(totalInvested[startIdx + t] - totalInvested[startIdx + t - 1]);
+        }
+        cashFlows[w] += portValues[i];
+        const irr = solveAnnualizedIRR(cashFlows);
+        if (!Number.isFinite(irr) || irr <= -0.9999 || irr >= 10) continue;
+        const startDate = dates[startIdx];
+        const endDate = dates[i];
+        if (!startDate || !endDate) continue;
+        const inflation = annualizedInflationFromCPI(cpiMap, startDate, endDate);
+        reals.push(realReturn(irr, inflation));
+    }
+    return medianOf(reals);
 }

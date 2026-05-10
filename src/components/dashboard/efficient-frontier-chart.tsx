@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Download, RotateCcw, Save, Settings, X, TrendingUp, ShieldCheck, Info, ChevronDown, ChevronUp } from "lucide-react";
 import { NormalizedData, getAssetCategory, pctChangeSeries, PortfolioResult, averageRolling10YearCAGR, averageRolling10YearVol } from "@/lib/finance";
+import { ChartWrapper } from "./chart-wrapper";
 import { usePortfolio } from "@/context/portfolio-context";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -987,7 +988,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                             )}
                         </div>
                     ) : (
-                        <div className="relative h-full w-full">
+                        <ChartWrapper className="relative h-full w-full">
                             {isLoading && (
                                 <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-[1px] rounded-lg">
                                     <div className="flex flex-col items-center gap-3">
@@ -1152,7 +1153,7 @@ export function EfficientFrontierChart({ norm, weights, startDate, endDate, rf =
                                     )}
                                 </ScatterChart>
                             </ResponsiveContainer>
-                        </div>
+                        </ChartWrapper>
                     )}
                 </div>
 

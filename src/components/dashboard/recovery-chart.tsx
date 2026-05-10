@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult, timeToRecoverFromIndex } from "@/lib/finance";
 import { useMemo } from "react";
+import { ChartWrapper } from "./chart-wrapper";
 
 interface TimeToRecoveryChartProps {
     portfolio: PortfolioResult | null;
@@ -155,7 +156,7 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                 No items selected.
                             </div>
                         ) : (
-                            <div className="w-full min-w-[560px] md:min-w-0 h-full">
+                            <ChartWrapper className="w-full min-w-[560px] md:min-w-0 h-full">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <BarChart data={comparisonData}>
                                     <XAxis
@@ -199,14 +200,14 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                     ))}
                                     </BarChart>
                                 </ResponsiveContainer>
-                            </div>
+                            </ChartWrapper>
                         )
                     ) : episodeData.length === 0 ? (
                         <div className="flex h-full items-center justify-center text-muted-foreground">
                             No major drawdowns detected.
                         </div>
                     ) : (
-                        <div className="w-full min-w-[560px] md:min-w-0 h-full">
+                        <ChartWrapper className="w-full min-w-[560px] md:min-w-0 h-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={episodeData}>
                                 <XAxis
@@ -249,7 +250,7 @@ export function TimeToRecoveryChart({ portfolio, items }: TimeToRecoveryChartPro
                                 <Bar dataKey="recoveryTimeMonths" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
-                        </div>
+                        </ChartWrapper>
                     )}
                 </div>
             </CardContent>

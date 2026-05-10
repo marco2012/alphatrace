@@ -6,6 +6,7 @@ import { PortfolioProvider } from "@/context/portfolio-context";
 import { AuthProvider } from "@/context/auth-context";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SuppressRechartsWarning } from "@/components/suppress-recharts-warning";
 
 const font = Outfit({ subsets: ["latin"] });
 
@@ -37,6 +38,7 @@ export default function RootLayout({
           <AuthProvider>
             <PortfolioProvider>
               <TooltipProvider>
+                <SuppressRechartsWarning />
                 {children}
                 <Toaster />
               </TooltipProvider>

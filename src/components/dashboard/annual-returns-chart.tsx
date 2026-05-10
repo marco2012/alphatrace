@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult, computeAnnualReturns, twrr } from "@/lib/finance";
 import { useMemo } from "react";
+import { ChartWrapper } from "./chart-wrapper";
 
 interface AnnualReturnsChartProps {
     portfolio: PortfolioResult | null;
@@ -122,7 +123,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
             </CardHeader>
             <CardContent className="pl-2">
                 <div className="overflow-x-auto">
-                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                    <ChartWrapper className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data}>
                             <XAxis
@@ -160,7 +161,7 @@ export function AnnualReturnsChart({ portfolio }: AnnualReturnsChartProps) {
                             </Bar>
                             </BarChart>
                         </ResponsiveContainer>
-                    </div>
+                    </ChartWrapper>
                 </div>
             </CardContent>
         </Card>

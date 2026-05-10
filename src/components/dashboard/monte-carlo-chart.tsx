@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { NormalizedData, getAssetCategory, runMonteCarlo, findOptimalWeights, pctChangeSeries, computePortfolio, OptimizationType, monthsBetween } from "@/lib/finance";
 import { Badge } from "@/components/ui/badge";
+import { ChartWrapper } from "./chart-wrapper";
 
 type MonteCarloChartProps = {
     norm: NormalizedData | null;
@@ -208,7 +209,7 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        <div className="h-[400px] w-full">
+                        <ChartWrapper className="h-[400px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={chartData}>
                                     <defs>
@@ -329,7 +330,7 @@ export function MonteCarloChart({ norm, weights, startDate, endDate, rf = 0.02, 
                                     )}
                                 </AreaChart>
                             </ResponsiveContainer>
-                        </div>
+                        </ChartWrapper>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-4">

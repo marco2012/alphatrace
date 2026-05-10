@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult, InvestmentMode } from "@/lib/finance";
 import { useMemo } from "react";
+import { ChartWrapper } from "./chart-wrapper";
 
 interface DrawdownChartProps {
     portfolios: Array<{
@@ -126,7 +127,7 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
             </CardHeader>
             <CardContent className="pl-2">
                 <div className="overflow-x-auto">
-                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                    <ChartWrapper className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={data}>
                             <defs>
@@ -198,7 +199,7 @@ export function DrawdownChart({ portfolios, mode }: DrawdownChartProps) {
                             ))}
                             </AreaChart>
                         </ResponsiveContainer>
-                    </div>
+                    </ChartWrapper>
                 </div>
             </CardContent>
         </Card>

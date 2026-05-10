@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult, rollingTWRR } from "@/lib/finance";
+import { ChartWrapper } from "./chart-wrapper";
 import { usePortfolio } from "@/context/portfolio-context";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -108,7 +109,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
             </CardHeader>
             <CardContent className="pl-2">
                 <div className="overflow-x-auto">
-                    <div className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
+                    <ChartWrapper className="h-[380px] sm:h-[320px] md:h-[250px] w-full min-w-[560px] md:min-w-0">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={data}>
                             <XAxis
@@ -167,7 +168,7 @@ export function RollingReturnsChart({ portfolio }: RollingReturnsChartProps) {
                             )}
                             </LineChart>
                         </ResponsiveContainer>
-                    </div>
+                    </ChartWrapper>
                 </div>
             </CardContent>
         </Card>

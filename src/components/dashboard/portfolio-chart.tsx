@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
+import { ChartWrapper } from "./chart-wrapper";
 
 interface PortfolioChartProps {
     portfolio: PortfolioResult | null;
@@ -66,7 +67,7 @@ export function PortfolioChart({ portfolio, currency = "EUR" }: PortfolioChartPr
                 </Button>
             </CardHeader>
             <CardContent className="px-2 sm:pl-2">
-                <div className="h-[240px] w-full sm:h-[350px]">
+                <ChartWrapper className="h-[240px] w-full sm:h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 12 }}>
                             <defs>
@@ -117,7 +118,7 @@ export function PortfolioChart({ portfolio, currency = "EUR" }: PortfolioChartPr
                             />
                         </AreaChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartWrapper>
             </CardContent>
         </Card>
     );

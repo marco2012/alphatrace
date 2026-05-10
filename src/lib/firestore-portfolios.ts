@@ -32,7 +32,11 @@ export function subscribePortfolios(
   uid: string,
   onUpdate: (portfolios: SavedPortfolio[]) => void
 ): Unsubscribe {
-  return onSnapshot(portfoliosRef(uid), (snap) => {
-    onUpdate(snap.docs.map((d) => d.data() as SavedPortfolio));
-  });
+  return onSnapshot(
+    portfoliosRef(uid),
+    (snap) => {
+      onUpdate(snap.docs.map((d) => d.data() as SavedPortfolio));
+    },
+    (err) => console.error("Firestore portfolios snapshot error:", err)
+  );
 }

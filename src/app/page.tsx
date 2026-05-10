@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, Suspense } from "react";
+import dynamic from "next/dynamic";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,9 +12,13 @@ import { usePortfolio } from "@/context/portfolio-context";
 import { Trash2, Upload, Plus, Briefcase, Share2, Copy, Loader2, FilePlus, Highlighter, ChevronDown, ChevronUp } from "lucide-react";
 import { AssetAllocation } from "@/components/dashboard/asset-allocation";
 import { CategoryAllocationPie } from "@/components/dashboard/category-allocation-pie";
-import { AnalysisSection } from "@/components/dashboard/analysis-section";
 import { getAssetCategory, getAssetTER } from "@/lib/finance";
 import { toast } from "sonner";
+
+const AnalysisSection = dynamic(
+  () => import("@/components/dashboard/analysis-section").then(m => ({ default: m.AnalysisSection })),
+  { ssr: false }
+);
 
 const CATEGORY_COLORS: Record<string, string> = {
   stocks: "#2563eb",

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
-import * as XLSX from "xlsx";
 import { useAuth } from "@/context/auth-context";
 import {
     fetchCloudPortfolios,
@@ -262,6 +261,13 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         let isCancelled = false;
 
         const doMerge = async () => {
+            // Show cached portfolios immediately while Firestore loads (stale-while-revalidate)
+            const cacheKey = `alphatrace_portfolios_cache_${user.uid}`;
+            try {
+                const cached = localStorage.getItem(cacheKey);
+                if (cached) setSavedPortfolios(JSON.parse(cached));
+            } catch {}
+
             try {
                 const local = portfoliosForSignoutRef.current;
                 const cloud = await fetchCloudPortfolios(user.uid);
@@ -273,6 +279,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                 localStorage.removeItem("alphatrace_portfolios");
                 firestoreUnsubRef.current = subscribePortfolios(user.uid, (portfolios) => {
                     setSavedPortfolios(portfolios);
+                    try { localStorage.setItem(cacheKey, JSON.stringify(portfolios)); } catch {}
                 });
             } catch (e) {
                 console.error("Firestore sync failed", e);
@@ -303,49 +310,24 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         async function loadData() {
             try {
-                let buffer: ArrayBuffer;
-
-                // Use default file
                 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-                const response = await fetch(`${basePath}/alphatrace_data.xlsx`);
+                const response = await fetch(`${basePath}/alphatrace_data.json`);
                 if (!response.ok) throw new Error('Failed to fetch data');
-                buffer = await response.arrayBuffer();
+                const { headers, rows: rawRows } = await response.json() as {
+                    headers: string[];
+                    rows: (string | number | null)[][];
+                };
 
-                const wb = XLSX.read(buffer, { type: "array" });
-                const ws = wb.Sheets[wb.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any[][];
-
-                if (!json.length) return;
-
-                const headers = json[0].map(h => String(h).trim());
-                let dateIdx = headers.findIndex(h => h.toLowerCase() === "date");
-                if (dateIdx === -1) dateIdx = 0;
-
-                const body = json.slice(1).filter(r => Array.isArray(r) && r.some(x => x != null && x !== ""));
-                const normalized = body.map(arr => {
+                const normalized = rawRows.map(arr => {
                     const obj: any = {};
-                    headers.forEach((h, i) => {
-                        if (!h) return;
-                        const v = arr[i];
-                        if (i === dateIdx) {
-                            if (typeof v === "number") {
-                                const dc = XLSX.SSF.parse_date_code(v);
-                                const d = new Date(dc.y, dc.m - 1, dc.d);
-                                obj["Date"] = toMonthStr(d);
-                            } else {
-                                obj["Date"] = toMonthStr(v);
-                            }
-                        } else {
-                            obj[h] = (v === null || v === undefined || v === "") ? null : Number(v);
-                        }
-                    });
+                    headers.forEach((h, i) => { obj[h] = arr[i] ?? null; });
                     return obj;
                 });
 
                 setRows(normalized);
 
                 // Initialize weights
-                const cols = Object.keys(normalized[0] || {}).filter(k => k.toLowerCase() !== "date");
+                const cols = headers.filter(k => k.toLowerCase() !== "date");
                 let w: Record<string, number> = {};
                 for (const c of cols) w[c] = 0;
 
@@ -427,6 +409,22 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
                                     const updated = [...existing, newPortfolio];
                                     localStorage.setItem("alphatrace_portfolios", JSON.stringify(updated));
+                                    setSavedPortfolios(updated);
+                                    setActivePortfolioId(newPortfolio.id);
+                                    setActivePortfolioName(newPortfolio.name);
+                                    if (user) {
+                                        upsertPortfolio(user.uid, newPortfolio).catch(console.error);
+                                    }
+                                } else {
+                                    // Portfolio already exists — find and activate it
+                                    const existingPortfolio = existing.find(p =>
+                                        p.name.trim().toLowerCase() === finalNameLower &&
+                                        weightsEqual(p.weights, migratedShared)
+                                    );
+                                    if (existingPortfolio) {
+                                        setActivePortfolioId(existingPortfolio.id);
+                                        setActivePortfolioName(existingPortfolio.name);
+                                    }
                                 }
                             } catch (e) {
                                 console.error("Failed to auto-save shared portfolio", e);
@@ -434,6 +432,11 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                         } catch (e) {
                             console.error("Invalid share data", e);
                         }
+
+                        // Clear the share param so reloading doesn't re-import
+                        const cleanUrl = new URL(window.location.href);
+                        cleanUrl.searchParams.delete("share");
+                        window.history.replaceState({}, '', cleanUrl.toString());
                     }
                 }
 
@@ -476,8 +479,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
             if (shareAllData) {
                 try {
-                    const normalizeWeights = (weights: Record<string, number>) =>
-                        Object.entries(weights || {})
+                    const normalizeWeights = (ws: Record<string, number>) =>
+                        Object.entries(ws || {})
                             .map(([k, v]) => [k, Number(v)] as [string, number])
                             .filter(([, v]) => !Number.isNaN(v) && Math.abs(v) > 1e-6)
                             .sort((a, b) => a[0].localeCompare(b[0]));
@@ -492,46 +495,63 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
                         });
                     };
 
-                    const isDuplicatePortfolio = (existing: SavedPortfolio, name: string, weights: Record<string, number>) =>
-                        existing.name.trim().toLowerCase() === name.trim().toLowerCase() && weightsEqual(existing.weights, weights);
-
-                    const getWeightSignature = (weights: Record<string, number>) =>
-                        normalizeWeights(weights)
+                    const getWeightSignature = (ws: Record<string, number>) =>
+                        normalizeWeights(ws)
                             .map(([asset, value]) => `${asset}:${value.toFixed(6)}`)
                             .join("|");
+
+                    const getUniqueName = (baseName: string, takenNames: Set<string>): string => {
+                        if (!takenNames.has(baseName.toLowerCase())) return baseName;
+                        let candidate = `${baseName}_copy`;
+                        let i = 2;
+                        while (takenNames.has(candidate.toLowerCase())) {
+                            candidate = `${baseName}_copy ${i}`;
+                            i++;
+                        }
+                        return candidate;
+                    };
 
                     const decoded = JSON.parse(atob(shareAllData));
                     if (Array.isArray(decoded)) {
                         const seenSignatures = new Set<string>();
+                        const takenNames = new Set(loaded.map(p => p.name.trim().toLowerCase()));
+                        const toImport: SavedPortfolio[] = [];
 
-                        const uniqueCandidates = decoded.reduce((acc: { name: string; weights: Record<string, number> }[], raw: any) => {
+                        for (const raw of decoded) {
                             const candidateName = (raw?.n || "Imported Portfolio").toString().trim() || "Imported Portfolio";
                             const candidateWeights = typeof raw?.w === "object" && raw?.w !== null ? raw.w as Record<string, number> : {};
                             const signature = `${candidateName.toLowerCase()}|${getWeightSignature(candidateWeights)}`;
 
-                            if (seenSignatures.has(signature)) return acc;
-                            if (loaded.some(existing => isDuplicatePortfolio(existing, candidateName, candidateWeights))) return acc;
+                            // Skip exact duplicates (same name + same weights)
+                            if (seenSignatures.has(signature)) continue;
+                            if (loaded.some(p =>
+                                p.name.trim().toLowerCase() === candidateName.trim().toLowerCase() &&
+                                weightsEqual(p.weights, candidateWeights)
+                            )) continue;
 
                             seenSignatures.add(signature);
-                            acc.push({ name: candidateName, weights: candidateWeights });
-                            return acc;
-                        }, []);
 
-                        if (uniqueCandidates.length > 0) {
-                            const imported: SavedPortfolio[] = uniqueCandidates.map((candidate) => ({
-                                id: Math.random().toString(36).substr(2, 9) + Date.now().toString(36), // Unique ID
-                                name: candidate.name,
-                                weights: candidate.weights,
-                                date: new Date().toISOString()
-                            }));
+                            // If name is taken (different weights) → rename with _copy
+                            const finalName = getUniqueName(candidateName, takenNames);
+                            takenNames.add(finalName.toLowerCase());
 
-                            loaded = [...loaded, ...imported];
-
-                            // Update storage immediately
-                            localStorage.setItem("alphatrace_portfolios", JSON.stringify(loaded));
+                            toImport.push({
+                                id: Math.random().toString(36).substr(2, 9) + Date.now().toString(36),
+                                name: finalName,
+                                weights: candidateWeights,
+                                date: new Date().toISOString(),
+                                highlighted: false,
+                            });
                         }
 
-                        // Optionally clear the query param
+                        if (toImport.length > 0) {
+                            loaded = [...loaded, ...toImport];
+                            localStorage.setItem("alphatrace_portfolios", JSON.stringify(loaded));
+                            if (user) {
+                                toImport.forEach(p => upsertPortfolio(user.uid, p).catch(console.error));
+                            }
+                        }
+
                         const newUrl = window.location.pathname;
                         window.history.replaceState({}, '', newUrl);
                     }
@@ -541,7 +561,10 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        setSavedPortfolios(migrated);
+        setSavedPortfolios(loaded.map((p: any) => ({
+            ...p,
+            highlighted: Boolean(p?.highlighted),
+        })) as SavedPortfolio[]);
     }, []);
 
     // Columns & Sorting

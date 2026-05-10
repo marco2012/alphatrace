@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { PortfolioResult } from "@/lib/finance";
+import { ChartWrapper } from "./chart-wrapper";
 
 type InflationImpactChartProps = {
     portfolio: PortfolioResult | null;
@@ -97,7 +98,7 @@ export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" 
             </CardHeader>
             {isOpen && (
             <CardContent className="pl-2">
-                <div className="h-[300px] w-full">
+                <ChartWrapper className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={data}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -138,7 +139,7 @@ export function InflationImpactChart({ portfolio, cpiMap = {}, currency = "EUR" 
                             <Line type="monotone" dataKey="real" stroke="#ef4444" strokeWidth={2} dot={false} />
                         </LineChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartWrapper>
             </CardContent>
             )}
         </Card>

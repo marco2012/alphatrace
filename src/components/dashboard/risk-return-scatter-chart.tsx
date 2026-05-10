@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ZoomIn, RotateCcw } from "lucide-react";
 import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, ZAxis, Cell, ReferenceArea } from "recharts";
+import { ChartWrapper } from "./chart-wrapper";
 
 interface RiskReturnScatterChartProps {
     items: {
@@ -174,7 +175,7 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                         </div>
                     ))}
                 </div>
-                <div className="h-[400px] w-full relative group">
+                <ChartWrapper className="h-[400px] w-full relative group">
                     {(left !== "auto" || bottom !== "auto") && (
                         <div className="absolute right-2 top-2 z-10">
                             <Button
@@ -277,7 +278,7 @@ export function RiskReturnScatterChart({ items }: RiskReturnScatterChartProps) {
                             ) : null}
                         </ScatterChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartWrapper>
             </CardContent>
         </Card>
     );

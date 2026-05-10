@@ -23,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 import { AnnualReturnsChart } from "@/components/dashboard/annual-returns-chart";
+import { ChartWrapper } from "@/components/dashboard/chart-wrapper";
 import { DrawdownChart } from "@/components/dashboard/drawdown-chart";
 import { RollingReturnsChart } from "@/components/dashboard/rolling-returns-chart";
 import { TimeToRecoveryChart } from "@/components/dashboard/recovery-chart";
@@ -295,7 +296,7 @@ export function ComparisonAnalysis() {
                     </CardHeader>
                     <CardContent>
                         <div className="overflow-x-auto">
-                            <div className="h-[300px] sm:h-[360px] md:h-[400px] w-full min-w-[620px] md:min-w-0">
+                            <ChartWrapper className="h-[300px] sm:h-[360px] md:h-[400px] w-full min-w-[620px] md:min-w-0">
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={chartData}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -342,7 +343,7 @@ export function ComparisonAnalysis() {
                                     ))}
                                     </LineChart>
                                 </ResponsiveContainer>
-                            </div>
+                            </ChartWrapper>
                         </div>
                     </CardContent>
                 </Card>

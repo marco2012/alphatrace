@@ -347,7 +347,7 @@ def get_ubs_cmci():
 };
 
 export function SettingsPanel() {
-    const { currency, setCurrency } = usePortfolio();
+    const { currency, setCurrency, inflationCountry, setInflationCountry } = usePortfolio();
     const [riskFreeRate, setRiskFreeRate] = useState("0.02");
 
     useEffect(() => {
@@ -425,6 +425,44 @@ export function SettingsPanel() {
                             <span className={cn("text-xs font-medium", currency === "USD" ? "text-primary" : "text-muted-foreground")}>USD</span>
                         </div>
                     </div>
+
+                    {currency === "EUR" && (
+                        <div className="flex items-center justify-between pt-4 border-t">
+                            <div className="space-y-0.5">
+                                <Label className="flex items-center gap-2">
+                                    <Globe className="h-4 w-4 text-muted-foreground" />
+                                    Inflation Index
+                                </Label>
+                                <div className="text-xs text-muted-foreground">
+                                    CPI used for real (inflation-adjusted) return calculations.
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1 rounded-md border p-1">
+                                <button
+                                    onClick={() => setInflationCountry("IT")}
+                                    className={cn(
+                                        "px-2 py-1 text-xs rounded transition-colors",
+                                        inflationCountry === "IT"
+                                            ? "bg-primary text-primary-foreground font-medium"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                >
+                                    🇮🇹 Italy
+                                </button>
+                                <button
+                                    onClick={() => setInflationCountry("IE")}
+                                    className={cn(
+                                        "px-2 py-1 text-xs rounded transition-colors",
+                                        inflationCountry === "IE"
+                                            ? "bg-primary text-primary-foreground font-medium"
+                                            : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                >
+                                    🇮🇪 Ireland
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 

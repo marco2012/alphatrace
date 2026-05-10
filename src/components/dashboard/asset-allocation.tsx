@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info, Zap, FileText } from "lucide-react";
+import { AlertCircle, CheckCircle2, Scale, RotateCcw, Info, Zap, FileText, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAssetCategory, getAssetTER, getAssetSourceType } from "@/lib/finance";
 import { usePortfolio } from "@/context/portfolio-context";
@@ -27,6 +28,7 @@ interface AssetAllocationProps {
 
 export function AssetAllocation({ weights, onWeightChange, assets, portfolioName }: AssetAllocationProps) {
     const { norm } = usePortfolio();
+    const [search, setSearch] = useState("");
     const formatPercent = (val: number) => Math.round(val * 100);
 
     const formatDate = (d: string) => {
@@ -117,6 +119,17 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                     </div>
                 </div>
             </CardHeader>
+            <div className="px-4 sm:px-6 py-3 border-b">
+                <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                        placeholder="Search assets..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-8 h-8 text-sm"
+                    />
+                </div>
+            </div>
             <CardContent className="p-0">
                 <div className="overflow-x-auto">
                     <Table>
@@ -129,7 +142,9 @@ export function AssetAllocation({ weights, onWeightChange, assets, portfolioName
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {[...assets].sort((a, b) => {
+                            {[...assets].filter((a) =>
+                                a.toLowerCase().includes(search.toLowerCase())
+                            ).sort((a, b) => {
                                 const catA = getAssetCategory(a).toLowerCase();
                                 const catB = getAssetCategory(b).toLowerCase();
                                 if (catA !== catB) return catB.localeCompare(catA); // category desc
