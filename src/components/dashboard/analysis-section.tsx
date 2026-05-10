@@ -1917,7 +1917,6 @@ export function AnalysisSection() {
                                     <thead>
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
                                             <th
                                                 className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
                                                 onClick={() => handleSort(showRollingMetrics ? "avgRolling10YearCAGRValue" : "cagrValue")}
@@ -1973,9 +1972,6 @@ export function AnalysisSection() {
                                                         })()}
                                                         <span className="truncate text-xs sm:text-sm">{row.name}</span>
                                                     </div>
-                                                </td>
-                                                <td className="text-right py-2.5 px-3 font-medium text-xs">
-                                                    {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                 </td>
                                                 <td className="text-right py-2.5 px-3 text-xs">
                                                     {showRollingMetrics ? row.avgRolling10YearCAGR : row.cagr}
