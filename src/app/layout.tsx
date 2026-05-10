@@ -3,6 +3,7 @@ import { Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PortfolioProvider } from "@/context/portfolio-context";
+import { AuthProvider } from "@/context/auth-context";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -33,12 +34,14 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <PortfolioProvider>
-            <TooltipProvider>
-              {children}
-              <Toaster />
-            </TooltipProvider>
-          </PortfolioProvider>
+          <AuthProvider>
+            <PortfolioProvider>
+              <TooltipProvider>
+                {children}
+                <Toaster />
+              </TooltipProvider>
+            </PortfolioProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
