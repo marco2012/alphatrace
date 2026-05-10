@@ -1888,6 +1888,128 @@ export function AnalysisSection() {
                     );
                 })()}
 
+                {/* ── Performance Summary ─────────────────────────── */}
+                {validItems.length > 0 && (
+                    <Card key={`metrics-summary-${calcKey}`}>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 flex-wrap gap-2">
+                            <div>
+                                <CardTitle className="text-base">Performance Summary</CardTitle>
+                                <CardDescription className="text-xs">Key metrics — Real TWR, Sharpe, Max DD, Vol, P(Loss 10Y)</CardDescription>
+                            </div>
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                    <Switch id="rolling-mode-summary" checked={showRollingMetrics} onCheckedChange={setShowRollingMetrics} />
+                                    <Label htmlFor="rolling-mode-summary" className="text-xs">10Y Rolling</Label>
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-xs text-muted-foreground h-7 px-2"
+                                    onClick={() => setShowAllMetrics(prev => !prev)}
+                                >
+                                    {showAllMetrics ? "Hide details" : "Show all metrics"}
+                                </Button>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-0 pt-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b bg-muted/30">
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900"
+                                                onClick={() => handleSort(showRollingMetrics ? "medianRollingReal10YTWRValue" : "realCAGRValue")}
+                                            >
+                                                Real TWR{" "}
+                                                {sortConfig?.key === (showRollingMetrics ? "medianRollingReal10YTWRValue" : "realCAGRValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell"
+                                                onClick={() => handleSort(showRollingMetrics ? "sharpe10YValue" : "sharpeValue")}
+                                            >
+                                                Sharpe{" "}
+                                                {sortConfig?.key === (showRollingMetrics ? "sharpe10YValue" : "sharpeValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
+                                                onClick={() => handleSort("maxDDValue")}
+                                            >
+                                                Max DD{" "}
+                                                {sortConfig?.key === "maxDDValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell"
+                                                onClick={() => handleSort("volValue")}
+                                            >
+                                                Vol{" "}
+                                                {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell"
+                                                onClick={() => handleSort("probLoss10YValue")}
+                                            >
+                                                P(Loss 10Y){" "}
+                                                {sortConfig?.key === "probLoss10YValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {metricsTableRows.map(row => (
+                                            <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {(() => {
+                                                            const item = slicedItems.find(si => makeKey(si) === row.key);
+                                                            return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null;
+                                                        })()}
+                                                        <span className="truncate text-xs sm:text-sm">{row.name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 font-medium text-xs hidden sm:table-cell">
+                                                    {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                                    {showRollingMetrics ? row.medianRollingReal10YTWR : row.realCAGR}
+                                                </td>
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium hidden sm:table-cell ${
+                                                    (showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 1
+                                                        ? "text-emerald-600"
+                                                        : (showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 0.5
+                                                            ? "text-foreground"
+                                                            : "text-red-500"
+                                                }`}>
+                                                    {showRollingMetrics ? row.sharpe10Y : row.sharpe}
+                                                </td>
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${
+                                                    Math.abs(row.maxDDValue) < 0.15
+                                                        ? "text-amber-500"
+                                                        : Math.abs(row.maxDDValue) < 0.3
+                                                            ? "text-orange-600"
+                                                            : "text-red-700"
+                                                }`}>
+                                                    {row.maxDD}
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.vol}</td>
+                                                <td className={`text-right py-2.5 px-3 text-xs hidden md:table-cell ${
+                                                    row.probLoss10YValue > 0.1
+                                                        ? "text-red-600"
+                                                        : row.probLoss10YValue > 0.02
+                                                            ? "text-amber-500"
+                                                            : "text-emerald-600"
+                                                }`}>
+                                                    {row.probLoss10Y}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* ── Returns & Growth ─────────────────────────────────── */}
                 {validItems.length > 0 && (
                     <Card key={`metrics-returns-${calcKey}`}>
