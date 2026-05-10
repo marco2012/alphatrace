@@ -15,6 +15,7 @@ import { CorrelationMatrix } from "@/components/dashboard/correlation-matrix";
 import { RiskReturnScatterChart } from "@/components/dashboard/risk-return-scatter-chart";
 import { InflationImpactChart } from "@/components/dashboard/inflation-impact-chart";
 import { PortfolioCompositionCards } from "@/components/dashboard/portfolio-composition-cards";
+import { ChartWrapper } from "./chart-wrapper";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,7 +50,17 @@ import {
     computeBeta,
     computeRollingBeta,
     calculatePortfolioCAPE,
-    mwr
+    mwr,
+    realCAGRFromCPI,
+    realMWRFromCPI,
+    medianRollingRealTWRR,
+    medianRollingRealMWR,
+    timeUnderwaterStats,
+    probabilityOfLoss,
+    terminalWealthDistribution,
+    wealthMultiple,
+    sequenceRiskScore,
+    type TerminalWealthStats,
 } from "@/lib/finance";
 
 import {
@@ -92,7 +103,16 @@ const METRIC_EXPLANATIONS = {
     avgRolling5YearCAGRValue: "Median 5Y Rolling TWR. The median of all possible 5-year rolling Time-Weighted Returns.",
     vol10YValue: "Volatility (10Y). The average annualized volatility over rolling 10-year periods.",
     finalValue: "Final Portfolio Value. The total value of the portfolio at the end of the selected period.",
-    capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio."
+    capeValue: "Portfolio CAPE. The weighted average Cyclically Adjusted Price-to-Earnings ratio of the equity portion of the portfolio.",
+    realCAGRValue: "Real TWR (Inflation-Adjusted). The Time-Weighted Return adjusted for inflation. Measures actual purchasing power growth.",
+    realMWRValue: "Real MWR (Inflation-Adjusted). The Money-Weighted Return adjusted for inflation, reflecting real investor purchasing power gain.",
+    timeUnderwaterPctValue: "Time Underwater (%). Percentage of months the portfolio spent below its previous all-time high.",
+    longestUnderwaterMonthsValue: "Longest Underwater Period. The longest consecutive streak of months below the previous portfolio peak.",
+    wealthMultipleValue: "Wealth Multiple. Final portfolio value divided by total capital contributed. A multiple of 2.0x means every €1 invested became €2.",
+    probLoss1YValue: "Probability of Loss (1Y). Fraction of all 1-year rolling windows that ended with a negative time-weighted return.",
+    probLoss5YValue: "Probability of Loss (5Y). Fraction of all 5-year rolling windows that ended with a negative time-weighted return.",
+    probLoss10YValue: "Probability of Loss (10Y). Fraction of all 10-year rolling windows that ended with a negative time-weighted return.",
+    sequenceRiskValue: "Sequence Risk Score. Standard deviation of 10-year rolling MWR outcomes. Higher values mean investor returns are more sensitive to entry timing.",
 };
 
 function downloadCSV(data: any[], filename: string) {
@@ -209,6 +229,7 @@ export function AnalysisSection() {
     const [searchTerm, setSearchTerm] = useState("");
     const [decomposePortfolios, setDecomposePortfolios] = useState(false);
     const [showRollingMetrics, setShowRollingMetrics] = useState(true);
+    const [showAllMetrics, setShowAllMetrics] = useState(false);
 
     const makeKey = (item: Pick<AnalysisItem, "type" | "id">): AnalysisItemKey => `${item.type}:${item.id}`;
 
@@ -781,6 +802,44 @@ export function AnalysisSection() {
         return null;
     }, [betaBenchmark, validItems, computeAssetPortfolio]);
 
+    // Expensive per-item metrics isolated into their own memo so sorting (sortConfig) doesn't re-trigger them.
+    const expensiveMetrics = useMemo(() => {
+        const map = new Map<string, {
+            realCAGRValue: number;
+            realMWRValue: number;
+            medianRollingReal10YTWRValue: number;
+            medianRollingReal10YMWRValue: number;
+            timeUnderwaterPctValue: number;
+            longestUnderwaterMonthsValue: number;
+            probLoss1YValue: number;
+            probLoss5YValue: number;
+            probLoss10YValue: number;
+            wealthMultipleValue: number;
+            sequenceRiskValue: number;
+            terminalWealthStats10Y: TerminalWealthStats | null;
+        }>();
+        for (const item of slicedItems) {
+            const r = item.result;
+            if (!r) continue;
+            const underwater = timeUnderwaterStats(r.portValues ?? r.normalizedIndex ?? []);
+            map.set(makeKey(item), {
+                realCAGRValue: realCAGRFromCPI(r.portRets, r.dates, cpiMap),
+                realMWRValue: realMWRFromCPI(r.portValues, r.totalInvested, r.dates, cpiMap),
+                medianRollingReal10YTWRValue: medianRollingRealTWRR(r.portRets, r.dates, cpiMap, 10),
+                medianRollingReal10YMWRValue: medianRollingRealMWR(r.portValues, r.totalInvested, r.dates, cpiMap, 10),
+                timeUnderwaterPctValue: underwater.pctMonths,
+                longestUnderwaterMonthsValue: underwater.longestStreakMonths,
+                probLoss1YValue: probabilityOfLoss(r.portRets, 1),
+                probLoss5YValue: probabilityOfLoss(r.portRets, 5),
+                probLoss10YValue: probabilityOfLoss(r.portRets, 10),
+                wealthMultipleValue: wealthMultiple(r.portValues ?? [], r.totalInvested ?? []),
+                sequenceRiskValue: sequenceRiskScore(r.portValues, r.totalInvested, 10),
+                terminalWealthStats10Y: terminalWealthDistribution(r.portValues ?? [], r.totalInvested ?? [], 10),
+            });
+        }
+        return map;
+    }, [slicedItems, cpiMap, makeKey]);
+
     const metricsTableRows = useMemo(() => {
         const fmtPct = (v: number) => `${(v * 100).toFixed(2)}%`;
         const fmtNum = (v: number) => v.toFixed(2);
@@ -856,6 +915,21 @@ export function AnalysisSection() {
                     finalValue = r.normalizedIndex[r.normalizedIndex.length - 1];
                 }
 
+                // Investor outcome metrics — pre-computed in expensiveMetrics to avoid re-running on sort.
+                const exp = expensiveMetrics.get(makeKey(item));
+                const realCAGRValue = exp?.realCAGRValue ?? 0;
+                const realMWRValue = exp?.realMWRValue ?? 0;
+                const medianRollingReal10YTWRValue = exp?.medianRollingReal10YTWRValue ?? 0;
+                const medianRollingReal10YMWRValue = exp?.medianRollingReal10YMWRValue ?? 0;
+                const timeUnderwaterPctRaw = exp?.timeUnderwaterPctValue ?? 0;
+                const longestUnderwaterMonthsRaw = exp?.longestUnderwaterMonthsValue ?? 0;
+                const probLoss1YValue = exp?.probLoss1YValue ?? 0;
+                const probLoss5YValue = exp?.probLoss5YValue ?? 0;
+                const probLoss10YValue = exp?.probLoss10YValue ?? 0;
+                const wealthMultipleValue = exp?.wealthMultipleValue ?? 0;
+                const sequenceRiskValue = exp?.sequenceRiskValue ?? 0;
+                const terminalWealthStats10Y = exp?.terminalWealthStats10Y ?? null;
+
                 return {
                     key: makeKey(item),
                     name: item.name,
@@ -899,6 +973,29 @@ export function AnalysisSection() {
                     recoveryMonths,
                     rolling10YDist,
                     finalValue,
+                    realCAGRValue,
+                    realCAGR: fmtPct(realCAGRValue),
+                    realMWRValue,
+                    realMWR: fmtPct(realMWRValue),
+                    medianRollingReal10YTWRValue,
+                    medianRollingReal10YTWR: fmtPct(medianRollingReal10YTWRValue),
+                    medianRollingReal10YMWRValue,
+                    medianRollingReal10YMWR: fmtPct(medianRollingReal10YMWRValue),
+                    timeUnderwaterPctValue: timeUnderwaterPctRaw,
+                    timeUnderwaterPct: `${Math.round(timeUnderwaterPctRaw * 100)}%`,
+                    longestUnderwaterMonthsValue: longestUnderwaterMonthsRaw,
+                    longestUnderwaterMonths: formatMonthsAsYearsAndMonths(longestUnderwaterMonthsRaw),
+                    wealthMultipleValue,
+                    wealthMultiple: `${wealthMultipleValue.toFixed(2)}x`,
+                    probLoss1YValue,
+                    probLoss1Y: `${Math.round(probLoss1YValue * 100)}%`,
+                    probLoss5YValue,
+                    probLoss5Y: `${Math.round(probLoss5YValue * 100)}%`,
+                    probLoss10YValue,
+                    probLoss10Y: `${Math.round(probLoss10YValue * 100)}%`,
+                    sequenceRiskValue,
+                    sequenceRisk: `${(sequenceRiskValue * 100).toFixed(1)}%`,
+                    terminalWealthStats10Y,
                     cape: calculatePortfolioCAPE(
                         item.type === "asset"
                             ? { [(item as any).effectiveId || item.id]: 100 }
@@ -950,6 +1047,29 @@ export function AnalysisSection() {
                 rolling10YDist: number[];
                 finalValue: number;
                 cape: number | null;
+                realCAGRValue: number;
+                realCAGR: string;
+                realMWRValue: number;
+                realMWR: string;
+                medianRollingReal10YTWRValue: number;
+                medianRollingReal10YTWR: string;
+                medianRollingReal10YMWRValue: number;
+                medianRollingReal10YMWR: string;
+                timeUnderwaterPctValue: number;
+                timeUnderwaterPct: string;
+                longestUnderwaterMonthsValue: number;
+                longestUnderwaterMonths: string;
+                wealthMultipleValue: number;
+                wealthMultiple: string;
+                probLoss1YValue: number;
+                probLoss1Y: string;
+                probLoss5YValue: number;
+                probLoss5Y: string;
+                probLoss10YValue: number;
+                probLoss10Y: string;
+                sequenceRiskValue: number;
+                sequenceRisk: string;
+                terminalWealthStats10Y: TerminalWealthStats | null;
             }>;
 
         const sortedRows = [...rows].sort((a, b) => {
@@ -966,7 +1086,7 @@ export function AnalysisSection() {
         });
 
         return sortedRows;
-    }, [slicedItems, riskFreeRate, makeKey, sortConfig, betaBenchmark]);
+    }, [slicedItems, riskFreeRate, makeKey, sortConfig, betaBenchmark, expensiveMetrics]);
 
     const rollingComparisonData = useMemo(() => {
         if (slicedItems.length < 2) return [];
@@ -1709,404 +1829,326 @@ export function AnalysisSection() {
                     })()}
                 </div>
 
+                {/* ── Best Portfolio Scorecard ─────────────────────────── */}
+                {validItems.length > 1 && metricsTableRows.length > 1 && (() => {
+                    const rows = metricsTableRows;
+                    const norm01 = (vals: number[], higher = true) => {
+                        const mn = Math.min(...vals), mx = Math.max(...vals);
+                        if (mx === mn) return vals.map(() => 0.5);
+                        return vals.map(v => higher ? (v - mn) / (mx - mn) : (mx - v) / (mx - mn));
+                    };
+                    const sharpeScores  = norm01(rows.map(r => r.sharpe10YValue));
+                    const cagrScores    = norm01(rows.map(r => r.realCAGRValue));
+                    const rollingScores = norm01(rows.map(r => r.avgRolling10YearCAGRValue));
+                    const ddScores      = norm01(rows.map(r => r.maxDDValue), false); // lower is worse (maxDD is negative)
+                    const plossScores   = norm01(rows.map(r => r.probLoss10YValue), false);
+                    const composite     = rows.map((_, i) =>
+                        sharpeScores[i]  * 0.25 +
+                        cagrScores[i]    * 0.20 +
+                        rollingScores[i] * 0.20 +
+                        ddScores[i]      * 0.20 +
+                        plossScores[i]   * 0.15
+                    );
+                    const winnerIdx = composite.indexOf(Math.max(...composite));
+                    const winner = rows[winnerIdx];
+                    const item = slicedItems.find(i => makeKey(i) === winner.key);
+
+                    // Find the top 3 strongest dimensions
+                    const dims = [
+                        { label: "best risk-adjusted return", score: sharpeScores[winnerIdx], value: `Sharpe ${winner.sharpe10Y}` },
+                        { label: "real purchasing power", score: cagrScores[winnerIdx], value: `Real TWR ${winner.realCAGR}` },
+                        { label: "rolling consistency", score: rollingScores[winnerIdx], value: `Median 10Y ${winner.avgRolling10YearCAGR}` },
+                        { label: "drawdown protection", score: ddScores[winnerIdx], value: `Max DD ${winner.maxDD}` },
+                        { label: "loss protection", score: plossScores[winnerIdx], value: `10Y prob ${winner.probLoss10Y}` },
+                    ].sort((a, b) => b.score - a.score).slice(0, 3);
+
+                    const [d1, d2, d3] = dims;
+                    const narrative = `It leads on ${d1.label} (${d1.value}) and stands out for ${d2.label} (${d2.value}), while keeping ${d3.label} at ${d3.value}.`;
+
+                    return (
+                        <div className="rounded-xl border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 p-4 sm:p-5">
+                            <div className="flex items-center gap-3 min-w-0 mb-2">
+                                <div
+                                    className="w-3 h-3 rounded-full shrink-0 ring-2 ring-emerald-400"
+                                    style={{ backgroundColor: item?.color ?? "#10b981" }}
+                                />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Best Overall Portfolio</p>
+                                    <p className="text-base font-bold text-emerald-900 dark:text-emerald-100 truncate">
+                                        {winner.name} is the top-scoring strategy across 5 dimensions.
+                                    </p>
+                                </div>
+                            </div>
+                            <p className="text-sm text-emerald-800 dark:text-emerald-200 leading-relaxed">{narrative}</p>
+                            <p className="text-xs text-emerald-700/70 dark:text-emerald-400/70 mt-2">
+                                Scored across risk-adjusted return, real return, consistency, drawdown, and loss probability. {rows.length} strategies compared.
+                            </p>
+                        </div>
+                    );
+                })()}
+
+                {/* ── Returns & Growth ─────────────────────────────────── */}
                 {validItems.length > 0 && (
-                    <Card key={`metrics-${calcKey}`}>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-                            <CardTitle>Key Metrics</CardTitle>
-                            <div className="flex items-center space-x-2">
+                    <Card key={`metrics-returns-${calcKey}`}>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                            <div>
+                                <CardTitle className="text-base">Returns & Growth</CardTitle>
+                                <CardDescription className="text-xs">Nominal and real (inflation-adjusted) annualized returns</CardDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
                                 <Switch id="rolling-mode" checked={showRollingMetrics} onCheckedChange={setShowRollingMetrics} />
-                                <Label htmlFor="rolling-mode">Rolling Metrics</Label>
+                                <Label htmlFor="rolling-mode" className="text-xs">10Y Rolling</Label>
                             </div>
                         </CardHeader>
-                        <CardContent>
+                        <CardContent className="p-0 pt-0">
                             <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead onClick={() => handleSort("name")} className="cursor-pointer hover:bg-muted/50 md:sticky md:left-0 bg-background md:z-20 md:border-r md:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                                <div className="flex items-center justify-between">
-                                                    Strategy
-                                                    {sortConfig?.key === "name" && (
-                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                    )}
-                                                </div>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("finalValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Final Value {currency === "USD" ? "($)" : "(€)"}
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "finalValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.finalValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            {!showRollingMetrics && (
-                                                <TableHead onClick={() => handleSort("cagrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                TWR
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "cagrValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.cagrValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            )}
-                                            {!showRollingMetrics && (
-                                                <TableHead onClick={() => handleSort("mwrValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                MWR
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "mwrValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.mwrValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            )}
-                                            {showRollingMetrics && (
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b bg-muted/30">
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
+                                            {!showRollingMetrics ? (
                                                 <>
-                                                    <TableHead onClick={() => handleSort("avgRolling10YearCAGRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                        <UITooltip delayDuration={0}>
-                                                            <UITooltipTrigger asChild>
-                                                                <div className="flex items-center justify-end gap-1 w-full">
-                                                                    10Y TWR
-                                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                    {sortConfig?.key === "avgRolling10YearCAGRValue" && (
-                                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                    )}
-                                                                </div>
-                                                            </UITooltipTrigger>
-                                                            <UITooltipContent side="top" align="center">
-                                                                <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearCAGRValue}</p>
-                                                            </UITooltipContent>
-                                                        </UITooltip>
-                                                    </TableHead>
-                                                    <TableHead onClick={() => handleSort("avgRolling10YearMWRValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[110px]">
-                                                        <UITooltip delayDuration={0}>
-                                                            <UITooltipTrigger asChild>
-                                                                <div className="flex items-center justify-end gap-1 w-full">
-                                                                    10Y MWR
-                                                                    <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                    {sortConfig?.key === "avgRolling10YearMWRValue" && (
-                                                                        sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                    )}
-                                                                </div>
-                                                            </UITooltipTrigger>
-                                                            <UITooltipContent side="top" align="center">
-                                                                <p className="w-48">{METRIC_EXPLANATIONS.avgRolling10YearMWRValue}</p>
-                                                            </UITooltipContent>
-                                                        </UITooltip>
-                                                    </TableHead>
+                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("cagrValue")}>TWR {sortConfig?.key === "cagrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realCAGRValue")}>Real TWR {sortConfig?.key === "realCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900 hidden md:table-cell" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <th className="text-right py-2 px-3 font-medium text-blue-600 whitespace-nowrap cursor-pointer hover:text-blue-800" onClick={() => handleSort("avgRolling10YearCAGRValue")}>Med. 10Y TWR {sortConfig?.key === "avgRolling10YearCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800 hidden sm:table-cell" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-teal-600 whitespace-nowrap cursor-pointer hover:text-teal-800" onClick={() => handleSort("avgRolling10YearMWRValue")}>Med. 10Y MWR {sortConfig?.key === "avgRolling10YearMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900 hidden md:table-cell" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                                 </>
                                             )}
-                                            {!showRollingMetrics ? (
-                                                <TableHead onClick={() => handleSort("volValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Volatility
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "volValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.volValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            ) : (
-                                                <TableHead onClick={() => handleSort("vol10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Vol (10Y)
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "vol10YValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.vol10YValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            )}
-                                            {!showRollingMetrics ? (
-                                                <TableHead onClick={() => handleSort("sharpeValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Sharpe
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "sharpeValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.sharpeValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            ) : (
-                                                <TableHead onClick={() => handleSort("sharpe10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Sharpe (10Y)
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "sharpe10YValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.sharpe10YValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            )}
-                                            {!showRollingMetrics ? (
-                                                <TableHead onClick={() => handleSort("sortinoValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Sortino
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "sortinoValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.sortinoValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            ) : (
-                                                <TableHead onClick={() => handleSort("sortino10YValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                    <UITooltip delayDuration={0}>
-                                                        <UITooltipTrigger asChild>
-                                                            <div className="flex items-center justify-end gap-1 w-full">
-                                                                Sortino (10Y)
-                                                                <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                                {sortConfig?.key === "sortino10YValue" && (
-                                                                    sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                                )}
-                                                            </div>
-                                                        </UITooltipTrigger>
-                                                        <UITooltipContent side="top" align="center">
-                                                            <p className="w-48">{METRIC_EXPLANATIONS.sortino10YValue}</p>
-                                                        </UITooltipContent>
-                                                    </UITooltip>
-                                                </TableHead>
-                                            )}
-                                            <TableHead onClick={() => handleSort("downsideVolValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[120px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Downside Vol
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "downsideVolValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.downsideVolValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("maxDDValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[80px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Max DD
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "maxDDValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.maxDDValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("ulcerIndexValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Ulcer Index
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "ulcerIndexValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.ulcerIndexValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("positiveYearsPctValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[120px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Positive Years
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "positiveYearsPctValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.positiveYearsPctValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("longestLosingStreakYearsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Longest Losing Streak
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "longestLosingStreakYearsValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.longestLosingStreakYearsValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("recoveryMonthsValue")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[140px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            Longest Recovery
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "recoveryMonthsValue" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.recoveryMonthsValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                            <TableHead onClick={() => handleSort("cape")} className="cursor-pointer hover:bg-muted/50 text-right min-w-[100px]">
-                                                <UITooltip delayDuration={0}>
-                                                    <UITooltipTrigger asChild>
-                                                        <div className="flex items-center justify-end gap-1 w-full">
-                                                            CAPE
-                                                            <Info className="h-4 w-4 text-muted-foreground/50 cursor-help" />
-                                                            {sortConfig?.key === "cape" && (
-                                                                sortConfig.direction === "asc" ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />
-                                                            )}
-                                                        </div>
-                                                    </UITooltipTrigger>
-                                                    <UITooltipContent side="top" align="center">
-                                                        <p className="w-48">{METRIC_EXPLANATIONS.capeValue}</p>
-                                                    </UITooltipContent>
-                                                </UITooltip>
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {metricsTableRows.map((row) => (
-                                            <TableRow key={row.key}>
-                                                <TableCell className="font-medium py-2 md:sticky md:left-0 bg-background md:z-10 md:border-r md:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                                    <div className="flex flex-col">
-                                                        <span className="whitespace-nowrap">{row.name}</span>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {metricsTableRows.map((row, idx) => (
+                                            <tr key={row.key} className={`border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors ${idx === 0 && metricsTableRows.length > 1 ? "" : ""}`}>
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                    <div className="flex items-center gap-2 min-w-0">
                                                         {(() => {
                                                             const item = slicedItems.find(si => makeKey(si) === row.key);
-                                                            const range = item ? getItemRange(item) : null;
-                                                            return range ? (
-                                                                <span className="text-[10px] text-muted-foreground font-normal whitespace-nowrap">
-                                                                    {formatDate(range.start)} - {formatDate(range.end)}
-                                                                </span>
-                                                            ) : null;
+                                                            return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null;
                                                         })()}
+                                                        <span className="truncate text-xs sm:text-sm">{row.name}</span>
                                                     </div>
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium">
-                                                    {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                                </TableCell>
-                                                {!showRollingMetrics && (
-                                                    <TableCell className="text-right">{row.cagr}</TableCell>
-                                                )}
-                                                {!showRollingMetrics && (
-                                                    <TableCell className="text-right">{row.mwr}</TableCell>
-                                                )}
-                                                {showRollingMetrics && (
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 font-medium text-xs hidden sm:table-cell">
+                                                    {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                </td>
+                                                {!showRollingMetrics ? (
                                                     <>
-                                                        <TableCell className="text-right text-blue-600">{row.avgRolling10YearCAGR}</TableCell>
-                                                        <TableCell className="text-right text-teal-600">{row.avgRolling10YearMWR}</TableCell>
+                                                        <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.mwr}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400 hidden md:table-cell">{row.realMWR}</td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600 hidden sm:table-cell">{row.medianRollingReal10YTWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 hidden md:table-cell">{row.medianRollingReal10YMWR}</td>
                                                     </>
                                                 )}
-                                                {!showRollingMetrics ? (
-                                                    <TableCell className="text-right">{row.vol}</TableCell>
-                                                ) : (
-                                                    <TableCell className="text-right text-blue-600">{row.vol10Y}</TableCell>
-                                                )}
-                                                {!showRollingMetrics ? (
-                                                    <TableCell className="text-right">{row.sharpe}</TableCell>
-                                                ) : (
-                                                    <TableCell className="text-right text-blue-600">{row.sharpe10Y}</TableCell>
-                                                )}
-                                                {!showRollingMetrics ? (
-                                                    <TableCell className="text-right">{row.sortino}</TableCell>
-                                                ) : (
-                                                    <TableCell className="text-right text-blue-600">{row.sortino10Y}</TableCell>
-                                                )}
-                                                <TableCell className="text-right">{row.downsideVol}</TableCell>
-                                                <TableCell className={`text-right ${(() => {
-                                                    const val = Math.abs(row.maxDDValue);
-                                                    if (val < 0.15) return "text-red-400";
-                                                    if (val < 0.25) return "text-red-500";
-                                                    if (val < 0.35) return "text-red-600";
-                                                    if (val < 0.50) return "text-red-700";
-                                                    return "text-red-800";
-                                                })()}`}>{row.maxDD}</TableCell>
-                                                <TableCell className="text-right">{row.ulcerIndex}</TableCell>
-                                                <TableCell className="text-right text-lime-600">{row.positiveYearsPct}</TableCell>
-                                                <TableCell className="text-right text-rose-600">{row.longestLosingStreakYears}</TableCell>
-                                                <TableCell className="text-right">{row.recoveryMonths}</TableCell>
-                                                <TableCell className="text-right text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</TableCell>
-                                            </TableRow>
+                                            </tr>
                                         ))}
-                                    </TableBody>
-                                </Table>
+                                    </tbody>
+                                </table>
                             </div>
                         </CardContent>
                     </Card>
                 )}
+
+                {/* ── Risk & Consistency ───────────────────────────────── */}
+                {validItems.length > 0 && (
+                    <Card key={`metrics-risk-${calcKey}`}>
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Risk & Consistency</CardTitle>
+                            <CardDescription className="text-xs">Volatility, risk-adjusted returns, and year-by-year consistency</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0 pt-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b bg-muted/30">
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("volValue")}>Vol {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sharpeValue")}>Sharpe {sortConfig?.key === "sharpeValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("sortinoValue")}>Sortino {sortConfig?.key === "sortinoValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("downsideVolValue")}>Downside Vol {sortConfig?.key === "downsideVolValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("positiveYearsPctValue")}>Positive Yrs {sortConfig?.key === "positiveYearsPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden lg:table-cell" onClick={() => handleSort("longestLosingStreakYearsValue")}>Worst Streak {sortConfig?.key === "longestLosingStreakYearsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-amber-600 whitespace-nowrap cursor-pointer hover:text-amber-800 hidden lg:table-cell" onClick={() => handleSort("cape")}>CAPE {sortConfig?.key === "cape" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {metricsTableRows.map(row => (
+                                            <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {(() => {
+                                                            const item = slicedItems.find(si => makeKey(si) === row.key);
+                                                            return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null;
+                                                        })()}
+                                                        <span className="truncate text-xs sm:text-sm">{row.name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.vol}</td>
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${row.sharpeValue >= 1 ? "text-emerald-600" : row.sharpeValue >= 0.5 ? "text-foreground" : "text-red-500"}`}>{row.sharpe}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.sortino}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.downsideVol}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-lime-600 hidden sm:table-cell">{row.positiveYearsPct}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-rose-600 hidden lg:table-cell">{row.longestLosingStreakYears}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-amber-600 hidden lg:table-cell">{row.cape ? row.cape.toFixed(1) : "--"}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* ── Drawdown & Recovery ──────────────────────────────── */}
+                {validItems.length > 0 && (
+                    <Card key={`metrics-dd-${calcKey}`}>
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Drawdown & Recovery</CardTitle>
+                            <CardDescription className="text-xs">How deep losses go and how long recovery takes</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0 pt-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b bg-muted/30">
+                                            <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("maxDDValue")}>Max DD {sortConfig?.key === "maxDDValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("ulcerIndexValue")}>Ulcer Index {sortConfig?.key === "ulcerIndexValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("timeUnderwaterPctValue")}>Time Underwater {sortConfig?.key === "timeUnderwaterPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("longestUnderwaterMonthsValue")}>Longest Underwater {sortConfig?.key === "longestUnderwaterMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("recoveryMonthsValue")}>Longest Recovery {sortConfig?.key === "recoveryMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {metricsTableRows.map(row => (
+                                            <tr key={row.key} className="border-b border-muted/40 last:border-0 hover:bg-muted/20 transition-colors">
+                                                <td className="py-2.5 px-3 sm:px-4 font-medium sticky left-0 bg-background">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {(() => {
+                                                            const item = slicedItems.find(si => makeKey(si) === row.key);
+                                                            return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null;
+                                                        })()}
+                                                        <span className="truncate text-xs sm:text-sm">{row.name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${Math.abs(row.maxDDValue) < 0.15 ? "text-amber-500" : Math.abs(row.maxDDValue) < 0.3 ? "text-orange-600" : "text-red-700"}`}>{row.maxDD}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.ulcerIndex}</td>
+                                                <td className={`text-right py-2.5 px-3 text-xs ${row.timeUnderwaterPctValue > 0.5 ? "text-orange-600" : row.timeUnderwaterPctValue > 0.3 ? "text-amber-600" : ""}`}>{row.timeUnderwaterPct}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.longestUnderwaterMonths}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.recoveryMonths}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Investor Outcome Section */}
+                {validItems.length > 0 && metricsTableRows.length > 0 && (() => {
+                    const sym = currency === "USD" ? "$" : "€";
+                    const fmtCurrency = (v: number) => `${sym}${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                    const hasTerminal = metricsTableRows.some(r => r.terminalWealthStats10Y);
+                    const isContrib = investmentMode === "recurring" || investmentMode === "hybrid";
+
+                    return (
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base">Investor Outcome</CardTitle>
+                                <CardDescription className="text-xs">Probability of loss and wealth outcomes across historical 10-year windows</CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-0 pt-0 space-y-0">
+
+                                {/* ── Probability of loss ─────────────────── */}
+                                <div className="overflow-x-auto border-b">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="bg-muted/30">
+                                                <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
+                                                    Prob. of Loss
+                                                </th>
+                                                <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">over 1 year</th>
+                                                <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">over 5 years</th>
+                                                <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">over 10 years</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {metricsTableRows.map(row => (
+                                                <tr key={row.key} className="border-t border-muted/40 hover:bg-muted/20 transition-colors">
+                                                    <td className="py-2.5 px-3 sm:px-4 sticky left-0 bg-background">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            {(() => { const item = slicedItems.find(si => makeKey(si) === row.key); return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null; })()}
+                                                            <span className="truncate text-xs sm:text-sm font-medium">{row.name}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className={`text-right py-2.5 px-3 text-sm font-semibold ${row.probLoss1YValue > 0.3 ? "text-red-600" : row.probLoss1YValue > 0.15 ? "text-amber-500" : "text-emerald-600"}`}>{row.probLoss1Y}</td>
+                                                    <td className={`text-right py-2.5 px-3 text-sm font-semibold ${row.probLoss5YValue > 0.15 ? "text-red-600" : row.probLoss5YValue > 0.05 ? "text-amber-500" : "text-emerald-600"}`}>{row.probLoss5Y}</td>
+                                                    <td className={`text-right py-2.5 px-3 text-sm font-semibold ${row.probLoss10YValue > 0.1 ? "text-red-600" : row.probLoss10YValue > 0.02 ? "text-amber-500" : "text-emerald-600"}`}>{row.probLoss10Y}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* ── Terminal wealth + wealth multiple ───── */}
+                                {hasTerminal && (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="bg-muted/30">
+                                                    <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 bg-muted/30 min-w-[120px] sm:min-w-[160px]">
+                                                        10Y Wealth Range <span className="font-normal text-xs">({sym}10k start)</span>
+                                                    </th>
+                                                    <th className="text-right py-2 px-3 font-medium text-red-500 whitespace-nowrap">Worst</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Median</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap">Best</th>
+                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-violet-600 whitespace-nowrap hidden sm:table-cell">Wealth ×</th>}
+                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden md:table-cell">Seq. Risk</th>}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {metricsTableRows.map(row => {
+                                                    const tw = row.terminalWealthStats10Y;
+                                                    if (!tw) return null;
+                                                    return (
+                                                        <tr key={row.key} className="border-t border-muted/40 hover:bg-muted/20 transition-colors">
+                                                            <td className="py-2.5 px-3 sm:px-4 sticky left-0 bg-background">
+                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                    {(() => { const item = slicedItems.find(si => makeKey(si) === row.key); return item ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} /> : null; })()}
+                                                                    <span className="truncate text-xs sm:text-sm font-medium">{row.name}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="text-right py-2.5 px-3 text-xs text-red-500">{fmtCurrency(tw.min)}</td>
+                                                            <td className="text-right py-2.5 px-3 text-xs font-semibold">{fmtCurrency(tw.median)}</td>
+                                                            <td className="text-right py-2.5 px-3 text-xs text-emerald-600 font-semibold">{fmtCurrency(tw.max)}</td>
+                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-violet-600 font-semibold hidden sm:table-cell">{row.wealthMultiple}</td>}
+                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-muted-foreground hidden md:table-cell">{row.sequenceRisk}</td>}
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    );
+                })()}
 
                 {validItems.length > 0 && showRollingMetrics && (() => {
                     const INFLATION_THRESHOLD = 0.02;
@@ -2253,7 +2295,7 @@ export function AnalysisSection() {
                                     </Table>
                                 </div>
 
-                                <div className="h-[260px] w-full">
+                                <ChartWrapper className="h-[260px] w-full">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={histData} barCategoryGap="5%" barGap={1}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -2292,7 +2334,7 @@ export function AnalysisSection() {
                                             ))}
                                         </BarChart>
                                     </ResponsiveContainer>
-                                </div>
+                                </ChartWrapper>
                             </CardContent>
                         </Card>
                     );
@@ -2344,7 +2386,7 @@ export function AnalysisSection() {
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="h-[400px] w-full">
+                                        <ChartWrapper className="h-[400px] w-full">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <LineChart data={chartData}>
                                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -2402,7 +2444,7 @@ export function AnalysisSection() {
                                                         ))}
                                                 </LineChart>
                                             </ResponsiveContainer>
-                                        </div>
+                                        </ChartWrapper>
                                     </CardContent>
                                 </Card>
 
@@ -2437,7 +2479,7 @@ export function AnalysisSection() {
                                         </div>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="h-[300px] w-full">
+                                        <ChartWrapper className="h-[300px] w-full">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <LineChart data={rollingComparisonData}>
                                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -2481,7 +2523,7 @@ export function AnalysisSection() {
                                                     ))}
                                                 </LineChart>
                                             </ResponsiveContainer>
-                                        </div>
+                                        </ChartWrapper>
                                     </CardContent>
                                 </Card>
 
@@ -2500,7 +2542,7 @@ export function AnalysisSection() {
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="h-[300px] w-full">
+                                        <ChartWrapper className="h-[300px] w-full">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <LineChart data={drawdownComparisonData}>
                                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -2538,7 +2580,7 @@ export function AnalysisSection() {
                                                     ))}
                                                 </LineChart>
                                             </ResponsiveContainer>
-                                        </div>
+                                        </ChartWrapper>
                                     </CardContent>
                                 </Card>
 
@@ -2557,7 +2599,7 @@ export function AnalysisSection() {
                                         </Button>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="h-[300px] w-full">
+                                        <ChartWrapper className="h-[300px] w-full">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={annualComparisonData}>
                                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
@@ -2586,7 +2628,7 @@ export function AnalysisSection() {
                                                     ))}
                                                 </BarChart>
                                             </ResponsiveContainer>
-                                        </div>
+                                        </ChartWrapper>
                                     </CardContent>
                                 </Card>
 
