@@ -2035,16 +2035,17 @@ export function AnalysisSection() {
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
-                                            {[
+                                            {(!showRollingMetrics ? [
                                                 { key: "cagrValue", label: "TWR", tip: METRIC_EXPLANATIONS.cagrValue, cls: "text-muted-foreground hover:text-foreground" },
                                                 { key: "realCAGRValue", label: "Real TWR", tip: METRIC_EXPLANATIONS.realCAGRValue, cls: "text-emerald-700 dark:text-emerald-400 hover:text-emerald-900" },
                                                 { key: "mwrValue", label: "MWR", tip: METRIC_EXPLANATIONS.mwrValue, cls: "text-muted-foreground hover:text-foreground" },
                                                 { key: "realMWRValue", label: "Real MWR", tip: METRIC_EXPLANATIONS.realMWRValue, cls: "text-emerald-700 dark:text-emerald-400 hover:text-emerald-900" },
+                                            ] : [
                                                 { key: "avgRolling10YearCAGRValue", label: "Med. 10Y TWR", tip: METRIC_EXPLANATIONS.avgRolling10YearCAGRValue, cls: "text-blue-600 hover:text-blue-800" },
-                                                { key: "medianRollingReal10YTWRValue", label: "Real 10Y TWR", tip: "Median 10-year rolling TWR adjusted for inflation. Measures the real purchasing-power growth an investor experienced across all historical 10-year windows.", cls: "text-emerald-600 hover:text-emerald-800" },
+                                                { key: "medianRollingReal10YTWRValue", label: "Real 10Y TWR", tip: "Median 10-year rolling TWR adjusted for inflation. Measures real purchasing-power growth across all historical 10-year windows.", cls: "text-emerald-600 hover:text-emerald-800" },
                                                 { key: "avgRolling10YearMWRValue", label: "Med. 10Y MWR", tip: METRIC_EXPLANATIONS.avgRolling10YearMWRValue, cls: "text-teal-600 hover:text-teal-800" },
                                                 { key: "medianRollingReal10YMWRValue", label: "Real 10Y MWR", tip: "Median 10-year rolling MWR adjusted for inflation. Reflects the real investor experience including contribution timing across all historical 10-year windows.", cls: "text-emerald-700 hover:text-emerald-900" },
-                                            ].map(({ key, label, tip, cls }) => (
+                                            ]).map(({ key, label, tip, cls }) => (
                                                 <th key={key} className={`text-right py-2 px-3 font-medium whitespace-nowrap cursor-pointer ${cls}`} onClick={() => handleSort(key)}>
                                                     <UITooltip delayDuration={0}>
                                                         <UITooltipTrigger asChild>
@@ -2076,14 +2077,21 @@ export function AnalysisSection() {
                                                 <td className="text-right py-2.5 px-3 font-medium text-xs">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                 </td>
-                                                <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs">{row.mwr}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realMWR}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600">{row.medianRollingReal10YTWR}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700">{row.medianRollingReal10YMWR}</td>
+                                                {!showRollingMetrics ? (
+                                                    <>
+                                                        <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs">{row.mwr}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realMWR}</td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600">{row.medianRollingReal10YTWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700">{row.medianRollingReal10YMWR}</td>
+                                                    </>
+                                                )}
                                             </tr>
                                         ))}
                                     </tbody>
@@ -2106,9 +2114,9 @@ export function AnalysisSection() {
                                     <thead>
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("volValue")}>Vol {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sharpeValue")}>Sharpe {sortConfig?.key === "sharpeValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sortinoValue")}>Sortino {sortConfig?.key === "sortinoValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort(showRollingMetrics ? "vol10YValue" : "volValue")}>{showRollingMetrics ? "Vol (10Y)" : "Vol"} {sortConfig?.key === (showRollingMetrics ? "vol10YValue" : "volValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort(showRollingMetrics ? "sharpe10YValue" : "sharpeValue")}>{showRollingMetrics ? "Sharpe (10Y)" : "Sharpe"} {sortConfig?.key === (showRollingMetrics ? "sharpe10YValue" : "sharpeValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort(showRollingMetrics ? "sortino10YValue" : "sortinoValue")}>{showRollingMetrics ? "Sortino (10Y)" : "Sortino"} {sortConfig?.key === (showRollingMetrics ? "sortino10YValue" : "sortinoValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("downsideVolValue")}>Downside Vol {sortConfig?.key === "downsideVolValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("positiveYearsPctValue")}>Positive Yrs {sortConfig?.key === "positiveYearsPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("longestLosingStreakYearsValue")}>Worst Streak {sortConfig?.key === "longestLosingStreakYearsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
@@ -2127,9 +2135,9 @@ export function AnalysisSection() {
                                                         <span className="truncate text-xs sm:text-sm">{row.name}</span>
                                                     </div>
                                                 </td>
-                                                <td className="text-right py-2.5 px-3 text-xs">{row.vol}</td>
-                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${row.sharpeValue >= 1 ? "text-emerald-600" : row.sharpeValue >= 0.5 ? "text-foreground" : "text-red-500"}`}>{row.sharpe}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs">{row.sortino}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{showRollingMetrics ? row.vol10Y : row.vol}</td>
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${(showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 1 ? "text-emerald-600" : (showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 0.5 ? "text-foreground" : "text-red-500"}`}>{showRollingMetrics ? row.sharpe10Y : row.sharpe}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{showRollingMetrics ? row.sortino10Y : row.sortino}</td>
                                                 <td className="text-right py-2.5 px-3 text-xs">{row.downsideVol}</td>
                                                 <td className="text-right py-2.5 px-3 text-xs text-lime-600">{row.positiveYearsPct}</td>
                                                 <td className="text-right py-2.5 px-3 text-xs text-rose-600">{row.longestLosingStreakYears}</td>
