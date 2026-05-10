@@ -1917,7 +1917,7 @@ export function AnalysisSection() {
                                     <thead>
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
                                             <th
                                                 className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900"
                                                 onClick={() => handleSort(showRollingMetrics ? "medianRollingReal10YTWRValue" : "realCAGRValue")}
@@ -1926,7 +1926,7 @@ export function AnalysisSection() {
                                                 {sortConfig?.key === (showRollingMetrics ? "medianRollingReal10YTWRValue" : "realCAGRValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}
                                             </th>
                                             <th
-                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell"
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
                                                 onClick={() => handleSort(showRollingMetrics ? "sharpe10YValue" : "sharpeValue")}
                                             >
                                                 Sharpe{" "}
@@ -1940,14 +1940,14 @@ export function AnalysisSection() {
                                                 {sortConfig?.key === "maxDDValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}
                                             </th>
                                             <th
-                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell"
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
                                                 onClick={() => handleSort("volValue")}
                                             >
                                                 Vol{" "}
                                                 {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}
                                             </th>
                                             <th
-                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell"
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
                                                 onClick={() => handleSort("probLoss10YValue")}
                                             >
                                                 P(Loss 10Y){" "}
@@ -1967,13 +1967,13 @@ export function AnalysisSection() {
                                                         <span className="truncate text-xs sm:text-sm">{row.name}</span>
                                                     </div>
                                                 </td>
-                                                <td className="text-right py-2.5 px-3 font-medium text-xs hidden sm:table-cell">
+                                                <td className="text-right py-2.5 px-3 font-medium text-xs">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                 </td>
                                                 <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                                                     {showRollingMetrics ? row.medianRollingReal10YTWR : row.realCAGR}
                                                 </td>
-                                                <td className={`text-right py-2.5 px-3 text-xs font-medium hidden sm:table-cell ${
+                                                <td className={`text-right py-2.5 px-3 text-xs font-medium ${
                                                     (showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 1
                                                         ? "text-emerald-600"
                                                         : (showRollingMetrics ? row.sharpe10YValue : row.sharpeValue) >= 0.5
@@ -1991,8 +1991,8 @@ export function AnalysisSection() {
                                                 }`}>
                                                     {row.maxDD}
                                                 </td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.vol}</td>
-                                                <td className={`text-right py-2.5 px-3 text-xs hidden md:table-cell ${
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.vol}</td>
+                                                <td className={`text-right py-2.5 px-3 text-xs ${
                                                     row.probLoss10YValue > 0.1
                                                         ? "text-red-600"
                                                         : row.probLoss10YValue > 0.02
@@ -2028,20 +2028,20 @@ export function AnalysisSection() {
                                     <thead>
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden sm:table-cell">Final Value</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
                                             {!showRollingMetrics ? (
                                                 <>
                                                     <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("cagrValue")}>TWR {sortConfig?.key === "cagrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                                     <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realCAGRValue")}>Real TWR {sortConfig?.key === "realCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900 hidden md:table-cell" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                                 </>
                                             ) : (
                                                 <>
                                                     <th className="text-right py-2 px-3 font-medium text-blue-600 whitespace-nowrap cursor-pointer hover:text-blue-800" onClick={() => handleSort("avgRolling10YearCAGRValue")}>Med. 10Y TWR {sortConfig?.key === "avgRolling10YearCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800 hidden sm:table-cell" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                                     <th className="text-right py-2 px-3 font-medium text-teal-600 whitespace-nowrap cursor-pointer hover:text-teal-800" onClick={() => handleSort("avgRolling10YearMWRValue")}>Med. 10Y MWR {sortConfig?.key === "avgRolling10YearMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900 hidden md:table-cell" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                                 </>
                                             )}
                                         </tr>
@@ -2058,22 +2058,22 @@ export function AnalysisSection() {
                                                         <span className="truncate text-xs sm:text-sm">{row.name}</span>
                                                     </div>
                                                 </td>
-                                                <td className="text-right py-2.5 px-3 font-medium text-xs hidden sm:table-cell">
+                                                <td className="text-right py-2.5 px-3 font-medium text-xs">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                 </td>
                                                 {!showRollingMetrics ? (
                                                     <>
                                                         <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
                                                         <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.mwr}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400 hidden md:table-cell">{row.realMWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs">{row.mwr}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realMWR}</td>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600 hidden sm:table-cell">{row.medianRollingReal10YTWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600">{row.medianRollingReal10YTWR}</td>
                                                         <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 hidden md:table-cell">{row.medianRollingReal10YMWR}</td>
+                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700">{row.medianRollingReal10YMWR}</td>
                                                     </>
                                                 )}
                                             </tr>
@@ -2100,11 +2100,11 @@ export function AnalysisSection() {
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("volValue")}>Vol {sortConfig?.key === "volValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sharpeValue")}>Sharpe {sortConfig?.key === "sharpeValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("sortinoValue")}>Sortino {sortConfig?.key === "sortinoValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("downsideVolValue")}>Downside Vol {sortConfig?.key === "downsideVolValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("positiveYearsPctValue")}>Positive Yrs {sortConfig?.key === "positiveYearsPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden lg:table-cell" onClick={() => handleSort("longestLosingStreakYearsValue")}>Worst Streak {sortConfig?.key === "longestLosingStreakYearsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-amber-600 whitespace-nowrap cursor-pointer hover:text-amber-800 hidden lg:table-cell" onClick={() => handleSort("cape")}>CAPE {sortConfig?.key === "cape" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("sortinoValue")}>Sortino {sortConfig?.key === "sortinoValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("downsideVolValue")}>Downside Vol {sortConfig?.key === "downsideVolValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("positiveYearsPctValue")}>Positive Yrs {sortConfig?.key === "positiveYearsPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("longestLosingStreakYearsValue")}>Worst Streak {sortConfig?.key === "longestLosingStreakYearsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-amber-600 whitespace-nowrap cursor-pointer hover:text-amber-800" onClick={() => handleSort("cape")}>CAPE {sortConfig?.key === "cape" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2121,11 +2121,11 @@ export function AnalysisSection() {
                                                 </td>
                                                 <td className="text-right py-2.5 px-3 text-xs">{row.vol}</td>
                                                 <td className={`text-right py-2.5 px-3 text-xs font-medium ${row.sharpeValue >= 1 ? "text-emerald-600" : row.sharpeValue >= 0.5 ? "text-foreground" : "text-red-500"}`}>{row.sharpe}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.sortino}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.downsideVol}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs text-lime-600 hidden sm:table-cell">{row.positiveYearsPct}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs text-rose-600 hidden lg:table-cell">{row.longestLosingStreakYears}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs text-amber-600 hidden lg:table-cell">{row.cape ? row.cape.toFixed(1) : "--"}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.sortino}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.downsideVol}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-lime-600">{row.positiveYearsPct}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-rose-600">{row.longestLosingStreakYears}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs text-amber-600">{row.cape ? row.cape.toFixed(1) : "--"}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -2149,10 +2149,10 @@ export function AnalysisSection() {
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("maxDDValue")}>Max DD {sortConfig?.key === "maxDDValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("ulcerIndexValue")}>Ulcer Index {sortConfig?.key === "ulcerIndexValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("ulcerIndexValue")}>Ulcer Index {sortConfig?.key === "ulcerIndexValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("timeUnderwaterPctValue")}>Time Underwater {sortConfig?.key === "timeUnderwaterPctValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden md:table-cell" onClick={() => handleSort("longestUnderwaterMonthsValue")}>Longest Underwater {sortConfig?.key === "longestUnderwaterMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground hidden sm:table-cell" onClick={() => handleSort("recoveryMonthsValue")}>Longest Recovery {sortConfig?.key === "recoveryMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("longestUnderwaterMonthsValue")}>Longest Underwater {sortConfig?.key === "longestUnderwaterMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("recoveryMonthsValue")}>Longest Recovery {sortConfig?.key === "recoveryMonthsValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2168,10 +2168,10 @@ export function AnalysisSection() {
                                                     </div>
                                                 </td>
                                                 <td className={`text-right py-2.5 px-3 text-xs font-medium ${Math.abs(row.maxDDValue) < 0.15 ? "text-amber-500" : Math.abs(row.maxDDValue) < 0.3 ? "text-orange-600" : "text-red-700"}`}>{row.maxDD}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.ulcerIndex}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.ulcerIndex}</td>
                                                 <td className={`text-right py-2.5 px-3 text-xs ${row.timeUnderwaterPctValue > 0.5 ? "text-orange-600" : row.timeUnderwaterPctValue > 0.3 ? "text-amber-600" : ""}`}>{row.timeUnderwaterPct}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden md:table-cell">{row.longestUnderwaterMonths}</td>
-                                                <td className="text-right py-2.5 px-3 text-xs hidden sm:table-cell">{row.recoveryMonths}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.longestUnderwaterMonths}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.recoveryMonths}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -2239,8 +2239,8 @@ export function AnalysisSection() {
                                                     <th className="text-right py-2 px-3 font-medium text-red-500 whitespace-nowrap">Worst</th>
                                                     <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Median</th>
                                                     <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap">Best</th>
-                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-violet-600 whitespace-nowrap hidden sm:table-cell">Wealth ×</th>}
-                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap hidden md:table-cell">Seq. Risk</th>}
+                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-violet-600 whitespace-nowrap">Wealth ×</th>}
+                                                    {isContrib && <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Seq. Risk</th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2258,8 +2258,8 @@ export function AnalysisSection() {
                                                             <td className="text-right py-2.5 px-3 text-xs text-red-500">{fmtCurrency(tw.min)}</td>
                                                             <td className="text-right py-2.5 px-3 text-xs font-semibold">{fmtCurrency(tw.median)}</td>
                                                             <td className="text-right py-2.5 px-3 text-xs text-emerald-600 font-semibold">{fmtCurrency(tw.max)}</td>
-                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-violet-600 font-semibold hidden sm:table-cell">{row.wealthMultiple}</td>}
-                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-muted-foreground hidden md:table-cell">{row.sequenceRisk}</td>}
+                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-violet-600 font-semibold">{row.wealthMultiple}</td>}
+                                                            {isContrib && <td className="text-right py-2.5 px-3 text-xs text-muted-foreground">{row.sequenceRisk}</td>}
                                                         </tr>
                                                     );
                                                 })}
