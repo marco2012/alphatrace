@@ -2010,17 +2010,16 @@ export function AnalysisSection() {
                     </Card>
                 )}
 
+                {showAllMetrics && (
+                <>
+
                 {/* ── Returns & Growth ─────────────────────────────────── */}
                 {validItems.length > 0 && (
                     <Card key={`metrics-returns-${calcKey}`}>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                        <CardHeader className="pb-3">
                             <div>
                                 <CardTitle className="text-base">Returns & Growth</CardTitle>
                                 <CardDescription className="text-xs">Nominal and real (inflation-adjusted) annualized returns</CardDescription>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Switch id="rolling-mode" checked={showRollingMetrics} onCheckedChange={setShowRollingMetrics} />
-                                <Label htmlFor="rolling-mode" className="text-xs">10Y Rolling</Label>
                             </div>
                         </CardHeader>
                         <CardContent className="p-0 pt-0">
@@ -2272,6 +2271,9 @@ export function AnalysisSection() {
                         </Card>
                     );
                 })()}
+
+                </>
+                )}
 
                 {validItems.length > 0 && showRollingMetrics && (() => {
                     const INFLATION_THRESHOLD = 0.02;
