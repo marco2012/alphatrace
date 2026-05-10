@@ -8,7 +8,9 @@ import {
     PieChart,
     Menu,
     X,
-    Briefcase
+    Briefcase,
+    LogIn,
+    LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,14 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { SettingsPanel } from "@/components/dashboard/settings-panel";
+import Image from "next/image";
+import { useAuth } from "@/context/auth-context";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const sidebarAnchors = [
     {
@@ -48,6 +58,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     const [activeHash, setActiveHash] = useState<string>("");
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const { user, signIn, signOut } = useAuth();
 
     useEffect(() => {
         const updateHash = () => {
@@ -168,6 +179,44 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                                 </Button>
                             </SheetTrigger>
                             <ModeToggle />
+                            {user ? (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <button className="flex items-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                            {user.photoURL ? (
+                                                <Image
+                                                    src={user.photoURL}
+                                                    alt={user.displayName ?? "User"}
+                                                    width={28}
+                                                    height={28}
+                                                    className="rounded-full"
+                                                />
+                                            ) : (
+                                                <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
+                                                    {user.displayName?.[0] ?? "U"}
+                                                </div>
+                                            )}
+                                        </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                                            {user.email}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={signOut}>
+                                            <LogOut className="mr-2 h-4 w-4" />
+                                            Sign out
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            ) : (
+                                <button
+                                    onClick={signIn}
+                                    className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
+                                >
+                                    <LogIn className="h-3.5 w-3.5" />
+                                    Sign in
+                                </button>
+                            )}
                         </div>
                     </div>
                     {/* Page Content */}
