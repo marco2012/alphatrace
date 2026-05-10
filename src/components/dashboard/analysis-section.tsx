@@ -53,8 +53,8 @@ import {
     mwr,
     realCAGRFromCPI,
     realMWRFromCPI,
-    medianRollingRealTWRR,
-    medianRollingRealMWR,
+    annualizedInflationFromCPI,
+    realReturn,
     timeUnderwaterStats,
     probabilityOfLoss,
     terminalWealthDistribution,
@@ -807,8 +807,6 @@ export function AnalysisSection() {
         const map = new Map<string, {
             realCAGRValue: number;
             realMWRValue: number;
-            medianRollingReal10YTWRValue: number;
-            medianRollingReal10YMWRValue: number;
             timeUnderwaterPctValue: number;
             longestUnderwaterMonthsValue: number;
             probLoss1YValue: number;
@@ -825,8 +823,6 @@ export function AnalysisSection() {
             map.set(makeKey(item), {
                 realCAGRValue: realCAGRFromCPI(r.portRets, r.dates, cpiMap),
                 realMWRValue: realMWRFromCPI(r.portValues, r.totalInvested, r.dates, cpiMap),
-                medianRollingReal10YTWRValue: medianRollingRealTWRR(r.portRets, r.dates, cpiMap, 10),
-                medianRollingReal10YMWRValue: medianRollingRealMWR(r.portValues, r.totalInvested, r.dates, cpiMap, 10),
                 timeUnderwaterPctValue: underwater.pctMonths,
                 longestUnderwaterMonthsValue: underwater.longestStreakMonths,
                 probLoss1YValue: probabilityOfLoss(r.portRets, 1),
@@ -919,8 +915,9 @@ export function AnalysisSection() {
                 const exp = expensiveMetrics.get(makeKey(item));
                 const realCAGRValue = exp?.realCAGRValue ?? 0;
                 const realMWRValue = exp?.realMWRValue ?? 0;
-                const medianRollingReal10YTWRValue = exp?.medianRollingReal10YTWRValue ?? 0;
-                const medianRollingReal10YMWRValue = exp?.medianRollingReal10YMWRValue ?? 0;
+                const fullPeriodInflation = annualizedInflationFromCPI(cpiMap, r.dates[0], r.dates[r.dates.length - 1]);
+                const medianRollingReal10YTWRValue = realReturn(avgRolling10YearCAGRValue, fullPeriodInflation);
+                const medianRollingReal10YMWRValue = realReturn(avgRolling10YearMWRValue, fullPeriodInflation);
                 const timeUnderwaterPctRaw = exp?.timeUnderwaterPctValue ?? 0;
                 const longestUnderwaterMonthsRaw = exp?.longestUnderwaterMonthsValue ?? 0;
                 const probLoss1YValue = exp?.probLoss1YValue ?? 0;
