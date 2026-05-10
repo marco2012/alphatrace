@@ -2035,14 +2035,30 @@ export function AnalysisSection() {
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("cagrValue")}>TWR {sortConfig?.key === "cagrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realCAGRValue")}>Real TWR {sortConfig?.key === "realCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-blue-600 whitespace-nowrap cursor-pointer hover:text-blue-800" onClick={() => handleSort("avgRolling10YearCAGRValue")}>Med. 10Y TWR {sortConfig?.key === "avgRolling10YearCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-teal-600 whitespace-nowrap cursor-pointer hover:text-teal-800" onClick={() => handleSort("avgRolling10YearMWRValue")}>Med. 10Y MWR {sortConfig?.key === "avgRolling10YearMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            {[
+                                                { key: "cagrValue", label: "TWR", tip: METRIC_EXPLANATIONS.cagrValue, cls: "text-muted-foreground hover:text-foreground" },
+                                                { key: "realCAGRValue", label: "Real TWR", tip: METRIC_EXPLANATIONS.realCAGRValue, cls: "text-emerald-700 dark:text-emerald-400 hover:text-emerald-900" },
+                                                { key: "mwrValue", label: "MWR", tip: METRIC_EXPLANATIONS.mwrValue, cls: "text-muted-foreground hover:text-foreground" },
+                                                { key: "realMWRValue", label: "Real MWR", tip: METRIC_EXPLANATIONS.realMWRValue, cls: "text-emerald-700 dark:text-emerald-400 hover:text-emerald-900" },
+                                                { key: "avgRolling10YearCAGRValue", label: "Med. 10Y TWR", tip: METRIC_EXPLANATIONS.avgRolling10YearCAGRValue, cls: "text-blue-600 hover:text-blue-800" },
+                                                { key: "medianRollingReal10YTWRValue", label: "Real 10Y TWR", tip: "Median 10-year rolling TWR adjusted for inflation. Measures the real purchasing-power growth an investor experienced across all historical 10-year windows.", cls: "text-emerald-600 hover:text-emerald-800" },
+                                                { key: "avgRolling10YearMWRValue", label: "Med. 10Y MWR", tip: METRIC_EXPLANATIONS.avgRolling10YearMWRValue, cls: "text-teal-600 hover:text-teal-800" },
+                                                { key: "medianRollingReal10YMWRValue", label: "Real 10Y MWR", tip: "Median 10-year rolling MWR adjusted for inflation. Reflects the real investor experience including contribution timing across all historical 10-year windows.", cls: "text-emerald-700 hover:text-emerald-900" },
+                                            ].map(({ key, label, tip, cls }) => (
+                                                <th key={key} className={`text-right py-2 px-3 font-medium whitespace-nowrap cursor-pointer ${cls}`} onClick={() => handleSort(key)}>
+                                                    <UITooltip delayDuration={0}>
+                                                        <UITooltipTrigger asChild>
+                                                            <div className="flex items-center justify-end gap-1">
+                                                                {label} {sortConfig?.key === key && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                                                <Info className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                                                            </div>
+                                                        </UITooltipTrigger>
+                                                        <UITooltipContent side="top" align="center">
+                                                            <p className="w-64 text-white">{tip}</p>
+                                                        </UITooltipContent>
+                                                    </UITooltip>
+                                                </th>
+                                            ))}
                                         </tr>
                                     </thead>
                                     <tbody>
