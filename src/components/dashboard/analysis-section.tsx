@@ -1894,7 +1894,7 @@ export function AnalysisSection() {
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 flex-wrap gap-2">
                             <div>
                                 <CardTitle className="text-base">Performance Summary</CardTitle>
-                                <CardDescription className="text-xs">Key metrics — Real TWR, Sharpe, Max DD, Vol, P(Loss 10Y)</CardDescription>
+                                <CardDescription className="text-xs">Key metrics — TWR, Real TWR, Sharpe, Max DD, Vol, P(Loss 10Y)</CardDescription>
                             </div>
                             <div className="flex items-center gap-3 flex-wrap">
                                 <div className="flex items-center gap-2">
@@ -1918,6 +1918,13 @@ export function AnalysisSection() {
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
+                                            <th
+                                                className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground"
+                                                onClick={() => handleSort(showRollingMetrics ? "avgRolling10YearCAGRValue" : "cagrValue")}
+                                            >
+                                                TWR{" "}
+                                                {sortConfig?.key === (showRollingMetrics ? "avgRolling10YearCAGRValue" : "cagrValue") && (sortConfig.direction === "asc" ? "↑" : "↓")}
+                                            </th>
                                             <th
                                                 className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900"
                                                 onClick={() => handleSort(showRollingMetrics ? "medianRollingReal10YTWRValue" : "realCAGRValue")}
@@ -1969,6 +1976,9 @@ export function AnalysisSection() {
                                                 </td>
                                                 <td className="text-right py-2.5 px-3 font-medium text-xs">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                </td>
+                                                <td className="text-right py-2.5 px-3 text-xs">
+                                                    {showRollingMetrics ? row.avgRolling10YearCAGR : row.cagr}
                                                 </td>
                                                 <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                                                     {showRollingMetrics ? row.medianRollingReal10YTWR : row.realCAGR}
