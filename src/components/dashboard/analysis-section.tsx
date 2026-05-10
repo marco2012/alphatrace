@@ -2035,21 +2035,14 @@ export function AnalysisSection() {
                                         <tr className="border-b bg-muted/30">
                                             <th className="text-left py-2 px-3 sm:px-4 font-medium text-muted-foreground sticky left-0 z-10 bg-muted/30 min-w-[120px] sm:min-w-[160px]">Strategy</th>
                                             <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">Final Value</th>
-                                            {!showRollingMetrics ? (
-                                                <>
-                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("cagrValue")}>TWR {sortConfig?.key === "cagrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realCAGRValue")}>Real TWR {sortConfig?.key === "realCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <th className="text-right py-2 px-3 font-medium text-blue-600 whitespace-nowrap cursor-pointer hover:text-blue-800" onClick={() => handleSort("avgRolling10YearCAGRValue")}>Med. 10Y TWR {sortConfig?.key === "avgRolling10YearCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-teal-600 whitespace-nowrap cursor-pointer hover:text-teal-800" onClick={() => handleSort("avgRolling10YearMWRValue")}>Med. 10Y MWR {sortConfig?.key === "avgRolling10YearMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                    <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
-                                                </>
-                                            )}
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("cagrValue")}>TWR {sortConfig?.key === "cagrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realCAGRValue")}>Real TWR {sortConfig?.key === "realCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-muted-foreground whitespace-nowrap cursor-pointer hover:text-foreground" onClick={() => handleSort("mwrValue")}>MWR {sortConfig?.key === "mwrValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 dark:text-emerald-400 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("realMWRValue")}>Real MWR {sortConfig?.key === "realMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-blue-600 whitespace-nowrap cursor-pointer hover:text-blue-800" onClick={() => handleSort("avgRolling10YearCAGRValue")}>Med. 10Y TWR {sortConfig?.key === "avgRolling10YearCAGRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-emerald-600 whitespace-nowrap cursor-pointer hover:text-emerald-800" onClick={() => handleSort("medianRollingReal10YTWRValue")}>Real 10Y TWR {sortConfig?.key === "medianRollingReal10YTWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-teal-600 whitespace-nowrap cursor-pointer hover:text-teal-800" onClick={() => handleSort("avgRolling10YearMWRValue")}>Med. 10Y MWR {sortConfig?.key === "avgRolling10YearMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
+                                            <th className="text-right py-2 px-3 font-medium text-emerald-700 whitespace-nowrap cursor-pointer hover:text-emerald-900" onClick={() => handleSort("medianRollingReal10YMWRValue")}>Real 10Y MWR {sortConfig?.key === "medianRollingReal10YMWRValue" && (sortConfig.direction === "asc" ? "↑" : "↓")}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2067,21 +2060,14 @@ export function AnalysisSection() {
                                                 <td className="text-right py-2.5 px-3 font-medium text-xs">
                                                     {(currency === "USD" ? "$" : "€") + row.finalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                 </td>
-                                                {!showRollingMetrics ? (
-                                                    <>
-                                                        <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs">{row.mwr}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realMWR}</td>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600">{row.medianRollingReal10YTWR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
-                                                        <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700">{row.medianRollingReal10YMWR}</td>
-                                                    </>
-                                                )}
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.cagr}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realCAGR}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs">{row.mwr}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700 dark:text-emerald-400">{row.realMWR}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-blue-600">{row.avgRolling10YearCAGR}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-600">{row.medianRollingReal10YTWR}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-teal-600">{row.avgRolling10YearMWR}</td>
+                                                <td className="text-right py-2.5 px-3 text-xs font-medium text-emerald-700">{row.medianRollingReal10YMWR}</td>
                                             </tr>
                                         ))}
                                     </tbody>
